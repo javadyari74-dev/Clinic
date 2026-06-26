@@ -815,6 +815,7 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
   const { user } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [activeAppts, setActiveAppts] = useState<Appointment[]>([]);
+  const [laserOperator, setLaserOperator] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<{
@@ -824,13 +825,21 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
   }>({ method: "cash" });
   const { toast } = useToast();
 
+  // اپراتور پیش‌فرض: اگر کاربر فعلی خودش اپراتور لیزر است نام او، در غیر این صورت
+  // اپراتور لیزرِ تعریف‌شده در مدیریت کاربران.
+  const defaultOperator =
+    user?.role === "laser_operator" ? user.username : laserOperator ?? undefined;
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [pays, appts] = await Promise.all([
-        api("/laser/payments"), api("/laser/appointments?status=scheduled"),
+      const [pays, appts, op] = await Promise.all([
+        api("/laser/payments"),
+        api("/laser/appointments?status=scheduled"),
+        api("/laser/operator").catch(() => ({ operatorName: null })),
       ]);
       setPayments(pays); setActiveAppts(appts);
+      setLaserOperator(op?.operatorName ?? null);
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -838,8 +847,7 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
   const selectedAppt = activeAppts.find(a => a.id === Number(form.appointmentId));
 
   const openNew = () => {
-    const autoOperator = user?.role === "laser_operator" ? user.username : undefined;
-    setForm({ method: "cash", operatorName: autoOperator });
+    setForm({ method: "cash", operatorName: defaultOperator });
     setOpen(true);
   };
 
@@ -909,9 +917,9 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>ثبت پرداخت صندوق لیزر</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+        <DialogContent className="max-w-lg !flex flex-col max-h-[90vh] gap-0 p-0">
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-3"><DialogTitle>ثبت پرداخت صندوق لیزر</DialogTitle></DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 space-y-3">
             <div>
               <Label>نوبت فعال *</Label>
               {activeAppts.length === 0 ? (
@@ -925,9 +933,7 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
                     setForm(f => ({
                       ...f,
                       appointmentId: appt.id,
-                      operatorName: user?.role === "laser_operator"
-                        ? user.username
-                        : (appt.operatorName || f.operatorName),
+                      operatorName: defaultOperator ?? appt.operatorName ?? f.operatorName,
                       amount: appt.price ?? appt.service?.price,
                       commissionAmount: Math.round((appt.price ?? appt.service?.price ?? 0) * (appt.service?.commissionRate ?? 0) / 100),
                     }));
@@ -942,58 +948,64 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
                 <div className="flex justify-between"><span>نرخ کمیسیون:</span><strong className="text-amber-700">{toPersianDigits(selectedAppt.service?.commissionRate ?? 0)}٪</strong></div>
               </div>
             )}
-            <div><Label>مبلغ (تومان) *</Label>
-              <PriceInput
-                value={form.amount}
-                onChange={amount => {
-                  const rate = selectedAppt?.service?.commissionRate ?? 0;
-                  setForm(f => ({ ...f, amount, commissionAmount: Math.round(amount * rate / 100) }));
-                }}
-                placeholder="مبلغ دریافتی"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>مبلغ (تومان) *</Label>
+                <PriceInput
+                  value={form.amount}
+                  onChange={amount => {
+                    const rate = selectedAppt?.service?.commissionRate ?? 0;
+                    setForm(f => ({ ...f, amount, commissionAmount: Math.round(amount * rate / 100) }));
+                  }}
+                  placeholder="مبلغ دریافتی"
+                />
+              </div>
+              <div>
+                <Label>روش پرداخت</Label>
+                <Select value={form.method} onValueChange={v => setForm(f => ({ ...f, method: v }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">نقد</SelectItem>
+                    <SelectItem value="card">کارت‌خوان</SelectItem>
+                    <SelectItem value="transfer">کارت به کارت</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>روش پرداخت</Label>
-              <Select value={form.method} onValueChange={v => setForm(f => ({ ...f, method: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">نقد</SelectItem>
-                  <SelectItem value="card">کارت‌خوان</SelectItem>
-                  <SelectItem value="transfer">کارت به کارت</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>نام اپراتور</Label>
-              <Input
-                value={form.operatorName || ""}
-                onChange={e => setForm(f => ({ ...f, operatorName: e.target.value }))}
-                readOnly={user?.role === "laser_operator"}
-                className={user?.role === "laser_operator" ? "bg-muted" : ""}
-              />
-            </div>
-            <div>
-              <Label>مبلغ کمیسیون (تومان) — محاسبه خودکار</Label>
-              <PriceInput value={form.commissionAmount} onChange={v => setForm(f => ({ ...f, commissionAmount: v }))} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>نام اپراتور</Label>
+                <Input
+                  value={form.operatorName || ""}
+                  onChange={e => setForm(f => ({ ...f, operatorName: e.target.value }))}
+                  readOnly={user?.role === "laser_operator"}
+                  className={user?.role === "laser_operator" ? "bg-muted" : ""}
+                />
+              </div>
+              <div>
+                <Label>کمیسیون (تومان) — خودکار</Label>
+                <PriceInput value={form.commissionAmount} onChange={v => setForm(f => ({ ...f, commissionAmount: v }))} />
+              </div>
             </div>
             <div className="border rounded-lg p-3 space-y-2 bg-amber-50/50 border-amber-200">
               <Label className="flex items-center gap-1.5 text-amber-800 font-medium">
                 <BellRing className="h-4 w-4" /> یادآوری جلسه بعدی
               </Label>
-              <PersianDatePicker
-                value={form.nextSessionDate || ""}
-                onChange={v => setForm(f => ({ ...f, nextSessionDate: v }))}
-                placeholder="تاریخ جلسه بعدی (اختیاری)"
-              />
-              <Input
-                value={form.nextSessionNote || ""}
-                onChange={e => setForm(f => ({ ...f, nextSessionNote: e.target.value }))}
-                placeholder="یادداشت یادآوری (اختیاری)"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <PersianDatePicker
+                  value={form.nextSessionDate || ""}
+                  onChange={v => setForm(f => ({ ...f, nextSessionDate: v }))}
+                  placeholder="تاریخ جلسه بعدی (اختیاری)"
+                />
+                <Input
+                  value={form.nextSessionNote || ""}
+                  onChange={e => setForm(f => ({ ...f, nextSessionNote: e.target.value }))}
+                  placeholder="یادداشت یادآوری (اختیاری)"
+                />
+              </div>
             </div>
             <div><Label>یادداشت</Label><Textarea rows={2} value={form.notes || ""} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} /></div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 px-6 py-4 border-t mt-2">
             <Button variant="outline" onClick={() => setOpen(false)}>انصراف</Button>
             <Button onClick={save} disabled={!form.appointmentId || form.amount == null} className="bg-rose-700 hover:bg-rose-800 text-white">
               ثبت پرداخت

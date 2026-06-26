@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, and, asc, desc, count } from "drizzle-orm";
 import {
   db,
   laserClientsTable,
@@ -7,10 +7,22 @@ import {
   laserAppointmentsTable,
   laserPaymentsTable,
   laserSettingsTable,
+  usersTable,
 } from "@workspace/db";
 import { requireAdmin } from "../lib/auth";
 
 const router = Router();
+
+// ─── Laser operator (for auto-fill of operator name) ──────────────────────────
+router.get("/laser/operator", async (_req, res) => {
+  const operators = await db
+    .select({ username: usersTable.username })
+    .from(usersTable)
+    .where(and(eq(usersTable.role, "laser_operator"), eq(usersTable.isActive, true)))
+    .orderBy(asc(usersTable.id))
+    .all();
+  res.json({ operatorName: operators[0]?.username ?? null });
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
