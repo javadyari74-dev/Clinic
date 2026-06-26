@@ -2,3 +2,4 @@
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
 - [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
 - [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
+- [Migrations hand-written → drift](migrations-hand-written-drift.md) — dev uses drizzle push so added schema cols work in dev but crash fresh/desktop/prod DBs; hand-write ALTER + journal entry.
