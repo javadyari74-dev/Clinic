@@ -6,3 +6,9 @@ id = "M3Bk_EWAbsP9U3mdiNoST"
 uri = "file://dist/DoctorYariClinic-source.zip"
 type = "unspecified"
 title = "نرم‌افزار مطب دکتر یاری — نسخه اصلاح‌شده (ویندوز)"
+
+[[outputs]]
+id = "KXu01yBBOO4OL_smuNW0k"
+uri = "file://exports/desktop-prebuilt.zip"
+type = "unspecified"
+title = "بستهٔ آمادهٔ ساخت نرم‌افزار ویندوز (desktop)"
