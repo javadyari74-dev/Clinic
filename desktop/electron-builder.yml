@@ -1,0 +1,33 @@
+appId: com.doctoryari.clinic
+productName: Doctor Yari Clinic
+
+# asar is disabled so the bundled Node server and its native SQLite binary
+# load with zero unpack juggling. Simpler and more robust for a desktop app.
+asar: false
+
+directories:
+  output: release
+  buildResources: build
+
+# Only ship what the app needs. node_modules production deps are included
+# automatically by electron-builder.
+files:
+  - main.cjs
+  - package.json
+  - dist/**
+
+win:
+  target:
+    - nsis
+  artifactName: DoctorYariClinic-Setup-${version}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: مطب زیبایی دکتر یاری
+  installerLanguages:
+    - fa_IR
+    - en_US

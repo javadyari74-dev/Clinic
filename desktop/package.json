@@ -1,0 +1,23 @@
+{
+  "name": "doctor-yari-clinic-desktop",
+  "productName": "Doctor Yari Clinic",
+  "version": "1.0.0",
+  "description": "Standalone desktop application for Doctor Yari Beauty Clinic management system",
+  "author": "Doctor Yari Clinic",
+  "license": "MIT",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "assemble": "node scripts/assemble.mjs",
+    "start": "npm run assemble && electron .",
+    "dist": "npm run assemble && electron-builder --win --x64",
+    "dist:dir": "npm run assemble && electron-builder --win --x64 --dir"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.4"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  }
+}

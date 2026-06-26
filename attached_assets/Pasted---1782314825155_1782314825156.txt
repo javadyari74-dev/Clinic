@@ -1,0 +1,315 @@
+# پرامپت ساخت نرم‌افزار مدیریت مطب زیبایی دکتر یاری
+
+یک نرم‌افزار مدیریت مطب زیبایی کامل بساز با مشخصات زیر:
+
+-----
+
+## Stack فنی
+
+- **Monorepo**: pnpm workspaces
+- **Runtime**: Node.js 20+, TypeScript 5
+- **Backend**: Express 5, SQLite (libsql + Drizzle ORM)
+- **Frontend**: React + Vite + Tailwind CSS
+- **فونت**: Vazirmatn (RTL فارسی)
+- **Validation**: Zod v4, drizzle-zod
+- **تاریخ**: تقویم شمسی (Shamsi/Jalali)
+- **Build**: esbuild (ESM bundle برای آفلاین)
+- **Export**: XLSX برای خروجی اکسل
+
+-----
+
+## ساختار Workspace
+
+```
+/
+├── lib/
+│   ├── db/                     # @workspace/db — Drizzle schema + connection
+│   └── api-zod/                # @workspace/api-zod — Zod types برای API
+├── artifacts/
+│   ├── api-server/             # @workspace/api-server — Express backend
+│   └── beauty-clinic/          # @workspace/beauty-clinic — React frontend
+├── offline-deploy/             # @workspace/offline-deploy — آفلاین build
+└── scripts/                    # build-offline.sh, package_offline.sh
+```
+
+-----
+
+## دیتابیس — جداول SQLite
+
+### patients (بیماران)
+
+- id, file_number (unique), name, phone, email, birthdate, gender, notes, created_at
+
+### services (خدمات)
+
+- id, name, category, duration_minutes, price, description, is_active
+
+### staff (کارمندان)
+
+- id, name, role, phone, email, is_active
+
+### discounts (تخفیفات)
+
+- id, name, code, type (percentage/fixed), value, min_amount, usage_limit, usage_count, start_date, end_date, is_active, description, created_at
+
+### appointments (نوبت‌ها)
+
+- id, patient_id→patients, service_id→services, staff_id→staff, scheduled_at, status (scheduled/confirmed/arrived/in_progress/completed/cancelled/no_show), notes, price, discount_id→discounts, original_price
+
+### payments (پرداخت‌ها)
+
+- id, appointment_id→appointments, discount_id→discounts, original_amount, amount, method (cash/card/transfer), paid_at, notes
+
+### inventory (انبار)
+
+- id, name, category, unit, quantity, min_quantity, cost_price, sale_price, description, is_active, updated_at
+
+### commission_recipients (گیرندگان کمیسیون مستقل — غیر کارمند)
+
+- id, name, phone, description, created_at
+
+### commissions (کمیسیون‌ها)
+
+- id, recipient_type (staff/external), recipient_id, appointment_id→appointments, description, amount, rate, status, is_paid, paid_at, notes, created_at
+
+### appointment_items (اقلام مصرفی هر نوبت)
+
+- id, appointment_id→appointments ON DELETE CASCADE, inventory_item_id→inventory, quantity, unit_price, created_at
+
+### patient_notes (یادداشت‌های بیمار)
+
+- id, patient_id→patients ON DELETE CASCADE, content, kind (general/medical/warning), created_at
+
+### reminders (یادآوری‌ها)
+
+- id, title, description, type (custom/followup/birthday), patient_id→patients ON DELETE SET NULL, due_at, status (pending/done/dismissed), created_at
+
+-----
+
+## API Routes (Express — /api prefix)
+
+### بیماران
+
+- GET /api/patients — لیست + جستجو (q, page, limit)
+- POST /api/patients — ایجاد
+- GET /api/patients/:id — جزئیات
+- PUT /api/patients/:id — ویرایش
+- DELETE /api/patients/:id — حذف
+- GET /api/patients/:id/appointments — نوبت‌های بیمار
+- GET /api/patients/export/excel — خروجی اکسل
+
+### خدمات
+
+- GET /api/services
+- POST /api/services
+- PUT /api/services/:id
+- DELETE /api/services/:id
+
+### کارمندان
+
+- GET /api/staff
+- POST /api/staff
+- PUT /api/staff/:id
+- DELETE /api/staff/:id
+
+### نوبت‌ها
+
+- GET /api/appointments — فیلتر: date, status, patientId, staffId
+- POST /api/appointments
+- GET /api/appointments/:id
+- PUT /api/appointments/:id
+- DELETE /api/appointments/:id
+- GET /api/appointments/today/waiting-list
+
+### پرداخت‌ها
+
+- GET /api/payments
+- POST /api/payments
+- GET /api/payments/:id
+- DELETE /api/payments/:id
+
+### تخفیفات
+
+- GET /api/discounts
+- POST /api/discounts
+- PUT /api/discounts/:id
+- DELETE /api/discounts/:id
+
+### انبار
+
+- GET /api/inventory
+- POST /api/inventory
+- PUT /api/inventory/:id
+- DELETE /api/inventory/:id
+
+### کمیسیون‌ها
+
+- GET /api/commissions — فیلتر: isPaid, recipientType, recipientId
+- POST /api/commissions
+- PUT /api/commissions/:id
+- DELETE /api/commissions/:id
+
+### گیرندگان کمیسیون مستقل
+
+- GET /api/commission-recipients
+- POST /api/commission-recipients
+- PUT /api/commission-recipients/:id
+- DELETE /api/commission-recipients/:id
+
+### یادداشت‌های بیمار
+
+- GET /api/patients/:id/notes
+- POST /api/patients/:id/notes
+- DELETE /api/patient-notes/:id
+
+### یادآوری‌ها
+
+- GET /api/reminders — فیلتر: status, type
+- POST /api/reminders
+- PUT /api/reminders/:id
+- DELETE /api/reminders/:id
+
+### داشبورد
+
+- GET /api/dashboard/summary — totalPatients, appointmentsToday, monthlyRevenue, pendingAppointments, completedThisMonth, cancelledThisMonth
+- GET /api/dashboard/revenue-chart — درآمد ۳۰ روزه روز به روز
+
+### گزارشات
+
+- GET /api/reports/summary
+
+### پشتیبان‌گیری
+
+- GET /api/backup/download — دانلود فایل دیتابیس
+- POST /api/backup/restore — بازگردانی از فایل
+
+### Health
+
+- GET /api/health — {status: “ok”}
+
+-----
+
+## صفحات فرانت‌اند (React)
+
+### ۱. داشبورد
+
+- کارت آمار: تعداد بیماران، نوبت‌های امروز، درآمد ماه، نوبت‌های در انتظار
+- نمودار درآمد ۳۰ روزه (خطی)
+- لیست یادآوری‌های در انتظار
+- **پنل اعلانات/فعالیت‌های اخیر**: یک پنل کوچک در داشبورد که آخرین رویدادهای سیستم را به‌صورت خلاصه نشان می‌دهد. برای این کار یک جدول `activity_log` در دیتابیس بساز با فیلدهای: id, action, entity_type (patient/appointment/payment/commission), entity_id, description (متن فارسی خلاصه), created_at. هر بار که عملیات مهمی انجام می‌شود (ثبت بیمار جدید، رزرو نوبت، ثبت پرداخت، ثبت کمیسیون، تغییر وضعیت نوبت) یک رکورد در این جدول ثبت شود. API: GET /api/activity-log?limit=20 — آخرین ۲۰ فعالیت را برگرداند. پنل داشبورد: لیست اسکرول‌پذیر با آیکون، متن فارسی، و زمان نسبی (مثلاً «۵ دقیقه پیش»). نمونه متن‌ها: «بیمار علی احمدی ثبت شد»، «نوبت خانم رضایی تکمیل شد»، «پرداخت ۵۰۰٬۰۰۰ تومان ثبت شد»، «کمیسیون برای آرش محمدی ثبت شد»
+
+### ۲. بیماران
+
+- **جستجوی سه‌گانه**: یک فیلد جستجو که همزمان روی نام، شماره پرونده، و شماره موبایل جستجو می‌کند — API باید پارامتر `q` را روی هر سه فیلد با OR جستجو کند (`name LIKE %q% OR phone LIKE %q% OR file_number LIKE %q%`)
+- فرم ایجاد/ویرایش بیمار (نام، شماره پرونده، موبایل، ایمیل، تاریخ تولد شمسی، جنسیت، یادداشت)
+- **datepicker تاریخ تولد**: بازه سال‌های قابل انتخاب باید از ۱۳۲۰ تا سال جاری شمسی باشد (نه از ۱۳۷۵) تا بیماران مسن‌تر هم قابل ثبت باشند
+- صفحه جزئیات بیمار: اطلاعات + تاریخچه نوبت‌ها + یادداشت‌ها
+- دکمه صادرات Excel
+
+### ۳. نوبت‌ها
+
+- لیست نوبت‌ها با فیلتر تاریخ و وضعیت
+- فرم رزرو نوبت (بیمار، خدمت، کارمند، تاریخ+ساعت شمسی، یادداشت)
+- تغییر وضعیت inline از لیست
+- ۷ وضعیت: scheduled, confirmed, arrived, in_progress, completed, cancelled, no_show
+- نمایش نام بیمار، خدمت، کارمند در لیست
+
+### ۴. خدمات
+
+- کارت‌های خدمات با دسته‌بندی، قیمت، مدت زمان
+- فرم ایجاد/ویرایش/حذف
+
+### ۵. کارمندان
+
+- لیست و فرم مدیریت پرسنل
+- نام، نقش، موبایل، ایمیل، وضعیت فعال
+
+### ۶. صندوق (پرداخت‌ها)
+
+- لیست پرداخت‌ها
+- ثبت پرداخت: انتخاب نوبت تکمیل‌شده، مبلغ، روش (نقد/کارت/انتقال)
+- اعمال تخفیف
+
+### ۷. کمیسیون و پورسانت
+
+- لیست کمیسیون‌ها با فیلتر: همه/پرداخت‌شده/پرداخت‌نشده، فیلتر بر اساس گیرنده
+- دو نوع گیرنده:
+  - **کارمند** (از جدول staff)
+  - **گیرنده مستقل/معرف** (از جدول commission_recipients — افراد بیرونی که نیاز به حساب کاربری ندارند)
+- فرم ثبت کمیسیون: انتخاب نوع گیرنده (کارمند یا خارجی)، انتخاب گیرنده، نوبت مرتبط (اختیاری)، مبلغ، درصد، توضیحات
+- ثبت تسویه (پرداخت کمیسیون)
+- نمایش جمع پرداخت‌شده و پرداخت‌نشده
+
+### ۸. گیرندگان کمیسیون مستقل
+
+- لیست و فرم مدیریت معرفین/افراد بیرونی
+- نام، موبایل، توضیحات/نقش
+
+### ۹. تخفیفات
+
+- ایجاد و مدیریت کدهای تخفیف
+- نوع: درصدی یا مبلغ ثابت
+- تاریخ شروع/پایان، سقف استفاده
+
+### ۱۰. انبار
+
+- لیست محصولات/مواد مصرفی
+- مدیریت موجودی، هشدار حداقل موجودی
+- قیمت خرید و فروش
+
+### ۱۱. گزارشات
+
+- خلاصه مالی، آمار نوبت‌ها، بیماران، انبار، کمیسیون‌ها
+
+### ۱۲. یادآوری‌ها
+
+- ایجاد یادآور با تاریخ شمسی
+- اتصال به بیمار (اختیاری)
+- وضعیت: در انتظار، انجام‌شده، رد شده
+
+### ۱۳. پشتیبان‌گیری
+
+- دکمه دانلود فایل دیتابیس
+- آپلود فایل برای بازگردانی
+
+-----
+
+## UI/UX
+
+- **جهت**: RTL کامل (`dir="rtl"` روی body)
+- **فونت**: Vazirmatn فارسی
+- **رنگ‌بندی**: سایدبار تیره قرمز‌دودی (wine/rose dark)، دکمه‌های اصلی صورتی تیره (#be185d یا rose-700)
+- **Layout**: سایدبار ثابت سمت راست + محتوا سمت چپ
+- **سایدبار شامل**: مطب زیبایی (عنوان)، داشبورد، بیماران، نوبت‌ها، خدمات، کارمندان، صندوق، کمیسیون، گیرندگان کمیسیون، تخفیفات، انبار، گزارشات، یادآوری‌ها، پشتیبان
+- **FAB** (دکمه شناور صورتی پایین چپ): دسترسی سریع به لیست انتظار امروز، ثبت پرداخت، لغو + یادداشت بیمار
+- کامپوننت datepicker شمسی برای تمام تاریخ‌ها
+- نمایش اعداد و اطلاعات مالی به تومان
+
+-----
+
+## نکات فنی مهم
+
+- مقادیر مالی به صورت integer (تومان صحیح) در دیتابیس ذخیره می‌شوند
+- timestamp‌ها به صورت integer (Unix timestamp) ذخیره می‌شوند
+- در Express 5 از `app.use((req,res) => ...)` به‌جای `app.get("*")` برای fallback استفاده کن
+- API نوبت‌ها باید نام بیمار، خدمت، کارمند را هم برگرداند (join سمت سرور)
+- آمار داشبورد با SQL aggregate محاسبه می‌شود
+- برای اجرای آفلاین: متغیر `DATABASE_FILE` مسیر فایل SQLite را مشخص می‌کند، `PUBLIC_DIR` مسیر فایل‌های استاتیک فرانت را
+- **Migration**: موقع اولین اجرا باید همه جداول با `CREATE TABLE IF NOT EXISTS` ساخته شوند — این را در startup سرور انجام بده، نه فقط در dev
+
+-----
+
+## خروجی آفلاین
+
+باید یک اسکریپت `build-offline.sh` وجود داشته باشد که:
+
+1. فرانت‌اند را build کند (Vite)
+1. بک‌اند را bundle کند (esbuild → single index.mjs)
+1. پوشه `offline-dist/` را بسازد شامل: index.mjs، پوشه public/، start.sh، start.bat، README.txt
+1. فقط با `node index.mjs` روی هر سیستمی با Node.js 20+ اجرا شود (بدون PostgreSQL، بدون نصب چیز اضافه)
+
+-----
+
+## زبان
+
+تمام UI فارسی و RTL. تمام متن‌های نمایشی، برچسب‌ها، پیام‌های خطا، و راهنماها به فارسی باشند.

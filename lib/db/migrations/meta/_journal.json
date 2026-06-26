@@ -1,0 +1,55 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1782378468716,
+      "tag": "0000_cold_frightful_four",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1782464868716,
+      "tag": "0001_add_users",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782551268716,
+      "tag": "0002_laser_tables",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1782637668716,
+      "tag": "0003_laser_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1782724068716,
+      "tag": "0004_laser_codes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1782810468716,
+      "tag": "0005_laser_reminders",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1782896868716,
+      "tag": "0006_service_appointment_codes",
+      "breakpoints": true
+    }
+  ]
+}

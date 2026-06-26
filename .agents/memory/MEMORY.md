@@ -1,0 +1,2 @@
+- [Beauty Clinic App Stack](beauty-clinic-stack.md) — Persian RTL full-stack clinic management system architecture decisions.
+- [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.

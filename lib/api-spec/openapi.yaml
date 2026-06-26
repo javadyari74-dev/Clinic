@@ -1,0 +1,1524 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Beauty Clinic Management API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: patients
+  - name: services
+  - name: staff
+  - name: appointments
+  - name: payments
+  - name: discounts
+  - name: inventory
+  - name: commissions
+  - name: commission-recipients
+  - name: patient-notes
+  - name: reminders
+  - name: dashboard
+  - name: reports
+  - name: backup
+  - name: activity
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  # ── Patients ──────────────────────────────────────────────────────────────
+  /patients:
+    get:
+      operationId: listPatients
+      tags: [patients]
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientList"
+    post:
+      operationId: createPatient
+      tags: [patients]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+
+  /patients/export/excel:
+    get:
+      operationId: exportPatientsExcel
+      tags: [patients]
+      responses:
+        "200":
+          description: Excel file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /patients/{id}:
+    get:
+      operationId: getPatient
+      tags: [patients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        "404":
+          description: Not found
+    put:
+      operationId: updatePatient
+      tags: [patients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Patient"
+        "404":
+          description: Not found
+    delete:
+      operationId: deletePatient
+      tags: [patients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /patients/{id}/appointments:
+    get:
+      operationId: listPatientAppointments
+      tags: [patients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetailsList"
+
+  /patients/{id}/notes:
+    get:
+      operationId: listPatientNotes
+      tags: [patient-notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PatientNote"
+    post:
+      operationId: createPatientNote
+      tags: [patient-notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PatientNoteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientNote"
+
+  /patient-notes/{id}:
+    delete:
+      operationId: deletePatientNote
+      tags: [patient-notes]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Services ──────────────────────────────────────────────────────────────
+  /services:
+    get:
+      operationId: listServices
+      tags: [services]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Service"
+    post:
+      operationId: createService
+      tags: [services]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+
+  /services/{id}:
+    put:
+      operationId: updateService
+      tags: [services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ServiceUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Service"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteService
+      tags: [services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Staff ──────────────────────────────────────────────────────────────────
+  /staff:
+    get:
+      operationId: listStaff
+      tags: [staff]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/StaffMember"
+    post:
+      operationId: createStaff
+      tags: [staff]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffMember"
+
+  /staff/{id}:
+    put:
+      operationId: updateStaff
+      tags: [staff]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StaffUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StaffMember"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteStaff
+      tags: [staff]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Appointments ───────────────────────────────────────────────────────────
+  /appointments:
+    get:
+      operationId: listAppointments
+      tags: [appointments]
+      parameters:
+        - name: date
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: patientId
+          in: query
+          schema: { type: integer }
+        - name: staffId
+          in: query
+          schema: { type: integer }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetailsList"
+    post:
+      operationId: createAppointment
+      tags: [appointments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetails"
+
+  /appointments/today/waiting-list:
+    get:
+      operationId: getTodayWaitingList
+      tags: [appointments]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetailsList"
+
+  /appointments/{id}:
+    get:
+      operationId: getAppointment
+      tags: [appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetails"
+        "404":
+          description: Not found
+    put:
+      operationId: updateAppointment
+      tags: [appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppointmentUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentWithDetails"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteAppointment
+      tags: [appointments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Payments ───────────────────────────────────────────────────────────────
+  /payments:
+    get:
+      operationId: listPayments
+      tags: [payments]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Payment"
+    post:
+      operationId: createPayment
+      tags: [payments]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+
+  /payments/{id}:
+    get:
+      operationId: getPayment
+      tags: [payments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payment"
+        "404":
+          description: Not found
+    delete:
+      operationId: deletePayment
+      tags: [payments]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Discounts ──────────────────────────────────────────────────────────────
+  /discounts:
+    get:
+      operationId: listDiscounts
+      tags: [discounts]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Discount"
+    post:
+      operationId: createDiscount
+      tags: [discounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscountInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Discount"
+
+  /discounts/{id}:
+    put:
+      operationId: updateDiscount
+      tags: [discounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiscountUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Discount"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteDiscount
+      tags: [discounts]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Inventory ──────────────────────────────────────────────────────────────
+  /inventory:
+    get:
+      operationId: listInventory
+      tags: [inventory]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InventoryItem"
+    post:
+      operationId: createInventoryItem
+      tags: [inventory]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+
+  /inventory/{id}:
+    put:
+      operationId: updateInventoryItem
+      tags: [inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InventoryUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InventoryItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteInventoryItem
+      tags: [inventory]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Commissions ────────────────────────────────────────────────────────────
+  /commissions:
+    get:
+      operationId: listCommissions
+      tags: [commissions]
+      parameters:
+        - name: isPaid
+          in: query
+          schema: { type: boolean }
+        - name: recipientType
+          in: query
+          schema: { type: string }
+        - name: recipientId
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Commission"
+    post:
+      operationId: createCommission
+      tags: [commissions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommissionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Commission"
+
+  /commissions/{id}:
+    put:
+      operationId: updateCommission
+      tags: [commissions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommissionUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Commission"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCommission
+      tags: [commissions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Commission Recipients ──────────────────────────────────────────────────
+  /commission-recipients:
+    get:
+      operationId: listCommissionRecipients
+      tags: [commission-recipients]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CommissionRecipient"
+    post:
+      operationId: createCommissionRecipient
+      tags: [commission-recipients]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommissionRecipientInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommissionRecipient"
+
+  /commission-recipients/{id}:
+    put:
+      operationId: updateCommissionRecipient
+      tags: [commission-recipients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommissionRecipientUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommissionRecipient"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteCommissionRecipient
+      tags: [commission-recipients]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Reminders ──────────────────────────────────────────────────────────────
+  /reminders:
+    get:
+      operationId: listReminders
+      tags: [reminders]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Reminder"
+    post:
+      operationId: createReminder
+      tags: [reminders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReminderInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reminder"
+
+  /reminders/{id}:
+    put:
+      operationId: updateReminder
+      tags: [reminders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReminderUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Reminder"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteReminder
+      tags: [reminders]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # ── Dashboard ──────────────────────────────────────────────────────────────
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/revenue-chart:
+    get:
+      operationId: getRevenueChart
+      tags: [dashboard]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RevenueChartPoint"
+
+  # ── Activity Log ───────────────────────────────────────────────────────────
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityLogEntry"
+
+  # ── Reports ────────────────────────────────────────────────────────────────
+  /reports/summary:
+    get:
+      operationId: getReportsSummary
+      tags: [reports]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportsSummary"
+
+  # ── Backup ─────────────────────────────────────────────────────────────────
+  /backup/download:
+    get:
+      operationId: downloadBackup
+      tags: [backup]
+      responses:
+        "200":
+          description: Backup file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+
+    # ── Patient ──────────────────────────────────────────────────────────────
+    Patient:
+      type: object
+      required: [id, fileNumber, name, phone, createdAt]
+      properties:
+        id: { type: integer }
+        fileNumber: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: ["string", "null"] }
+        birthdate: { type: ["string", "null"] }
+        gender: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    PatientInput:
+      type: object
+      required: [fileNumber, name, phone]
+      properties:
+        fileNumber: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        birthdate: { type: string }
+        gender: { type: string }
+        notes: { type: string }
+
+    PatientUpdate:
+      type: object
+      properties:
+        fileNumber: { type: string }
+        name: { type: string }
+        phone: { type: string }
+        email: { type: ["string", "null"] }
+        birthdate: { type: ["string", "null"] }
+        gender: { type: ["string", "null"] }
+        notes: { type: ["string", "null"] }
+
+    PatientList:
+      type: object
+      required: [data, total, page, limit]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Patient"
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+
+    # ── Service ───────────────────────────────────────────────────────────────
+    Service:
+      type: object
+      required: [id, name, price, isActive]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: ["string", "null"] }
+        durationMinutes: { type: ["integer", "null"] }
+        price: { type: integer }
+        doctorFee: { type: ["integer", "null"] }
+        materialCost: { type: ["integer", "null"] }
+        otherCost: { type: ["integer", "null"] }
+        unitCount: { type: integer }
+        unitLabel: { type: ["string", "null"] }
+        priceMode: { type: string }
+        doctorFeeMode: { type: string }
+        materialCostMode: { type: string }
+        otherCostMode: { type: string }
+        description: { type: ["string", "null"] }
+        isActive: { type: boolean }
+
+    ServiceInput:
+      type: object
+      required: [name, price]
+      properties:
+        name: { type: string }
+        category: { type: string }
+        durationMinutes: { type: integer }
+        price: { type: integer }
+        doctorFee: { type: integer }
+        materialCost: { type: integer }
+        otherCost: { type: integer }
+        unitCount: { type: integer }
+        unitLabel: { type: string }
+        priceMode: { type: string }
+        doctorFeeMode: { type: string }
+        materialCostMode: { type: string }
+        otherCostMode: { type: string }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    ServiceUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        category: { type: ["string", "null"] }
+        durationMinutes: { type: ["integer", "null"] }
+        price: { type: integer }
+        doctorFee: { type: ["integer", "null"] }
+        materialCost: { type: ["integer", "null"] }
+        otherCost: { type: ["integer", "null"] }
+        unitCount: { type: integer }
+        unitLabel: { type: ["string", "null"] }
+        priceMode: { type: string }
+        doctorFeeMode: { type: string }
+        materialCostMode: { type: string }
+        otherCostMode: { type: string }
+        description: { type: ["string", "null"] }
+        isActive: { type: boolean }
+
+    # ── Staff ─────────────────────────────────────────────────────────────────
+    StaffMember:
+      type: object
+      required: [id, name, isActive]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        isActive: { type: boolean }
+
+    StaffInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        role: { type: string }
+        phone: { type: string }
+        email: { type: string }
+        isActive: { type: boolean }
+
+    StaffUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        role: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        email: { type: ["string", "null"] }
+        isActive: { type: boolean }
+
+    # ── Appointment ───────────────────────────────────────────────────────────
+    Appointment:
+      type: object
+      required: [id, patientId, serviceId, scheduledAt, status, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        staffId: { type: ["integer", "null"] }
+        scheduledAt: { type: integer }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        price: { type: ["integer", "null"] }
+        discountId: { type: ["integer", "null"] }
+        originalPrice: { type: ["integer", "null"] }
+        unitsUsed: { type: ["integer", "null"] }
+        createdAt: { type: integer }
+
+    AppointmentWithDetails:
+      type: object
+      required: [id, patientId, serviceId, scheduledAt, status, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        staffId: { type: ["integer", "null"] }
+        scheduledAt: { type: integer }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        price: { type: ["integer", "null"] }
+        discountId: { type: ["integer", "null"] }
+        originalPrice: { type: ["integer", "null"] }
+        deposit: { type: ["integer", "null"] }
+        createdAt: { type: integer }
+        patientName: { type: ["string", "null"] }
+        patientPhone: { type: ["string", "null"] }
+        patientFileNumber: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        servicePrice: { type: ["integer", "null"] }
+        staffName: { type: ["string", "null"] }
+        unitsUsed: { type: ["integer", "null"] }
+        priceMode: { type: ["string", "null"] }
+        unitPrice: { type: ["integer", "null"] }
+        unitLabel: { type: ["string", "null"] }
+        serviceUnitCount: { type: ["integer", "null"] }
+
+    AppointmentWithDetailsList:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/AppointmentWithDetails"
+        total: { type: integer }
+
+    AppointmentInput:
+      type: object
+      required: [patientId, serviceId, scheduledAt]
+      properties:
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        staffId: { type: integer }
+        scheduledAt: { type: integer }
+        status: { type: string }
+        notes: { type: string }
+        price: { type: integer }
+        discountId: { type: integer }
+        originalPrice: { type: integer }
+        deposit: { type: integer }
+
+    AppointmentUpdate:
+      type: object
+      properties:
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        staffId: { type: ["integer", "null"] }
+        scheduledAt: { type: integer }
+        status: { type: string }
+        notes: { type: ["string", "null"] }
+        price: { type: ["integer", "null"] }
+        discountId: { type: ["integer", "null"] }
+        originalPrice: { type: ["integer", "null"] }
+        unitsUsed: { type: ["integer", "null"] }
+
+    # ── Payment ───────────────────────────────────────────────────────────────
+    Payment:
+      type: object
+      required: [id, appointmentId, originalAmount, amount, method, paidAt]
+      properties:
+        id: { type: integer }
+        appointmentId: { type: integer }
+        discountId: { type: ["integer", "null"] }
+        originalAmount: { type: integer }
+        amount: { type: integer }
+        method: { type: string }
+        paidAt: { type: integer }
+        notes: { type: ["string", "null"] }
+        patientName: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        sessionNumber: { type: ["integer", "null"] }
+        unitsUsed: { type: ["integer", "null"] }
+        unitLabel: { type: ["string", "null"] }
+        discountName: { type: ["string", "null"] }
+        discountAmount: { type: ["integer", "null"] }
+        depositAmount: { type: ["integer", "null"] }
+
+    PaymentInput:
+      type: object
+      required: [appointmentId, originalAmount, amount, method]
+      properties:
+        appointmentId: { type: integer }
+        discountId: { type: integer }
+        originalAmount: { type: integer }
+        amount: { type: integer }
+        method: { type: string }
+        notes: { type: string }
+        unitsUsed: { type: integer }
+        patientName: { type: string }
+        serviceName: { type: string }
+        sessionNumber: { type: integer }
+        unitLabel: { type: string }
+        discountName: { type: string }
+        discountAmount: { type: integer }
+        depositAmount: { type: integer }
+
+    # ── Discount ──────────────────────────────────────────────────────────────
+    Discount:
+      type: object
+      required: [id, name, code, type, value, usageCount, isActive, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        code: { type: string }
+        type: { type: string }
+        value: { type: integer }
+        minAmount: { type: ["integer", "null"] }
+        usageLimit: { type: ["integer", "null"] }
+        usageCount: { type: integer }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        isActive: { type: boolean }
+        description: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    DiscountInput:
+      type: object
+      required: [name, code, type, value]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        type: { type: string }
+        value: { type: integer }
+        minAmount: { type: integer }
+        usageLimit: { type: integer }
+        startDate: { type: string }
+        endDate: { type: string }
+        isActive: { type: boolean }
+        description: { type: string }
+
+    DiscountUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        code: { type: string }
+        type: { type: string }
+        value: { type: integer }
+        minAmount: { type: ["integer", "null"] }
+        usageLimit: { type: ["integer", "null"] }
+        startDate: { type: ["string", "null"] }
+        endDate: { type: ["string", "null"] }
+        isActive: { type: boolean }
+        description: { type: ["string", "null"] }
+
+    # ── Inventory ─────────────────────────────────────────────────────────────
+    InventoryItem:
+      type: object
+      required: [id, name, quantity, minQuantity, isActive, updatedAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        category: { type: ["string", "null"] }
+        unit: { type: ["string", "null"] }
+        quantity: { type: integer }
+        minQuantity: { type: integer }
+        costPrice: { type: ["integer", "null"] }
+        salePrice: { type: ["integer", "null"] }
+        description: { type: ["string", "null"] }
+        isActive: { type: boolean }
+        updatedAt: { type: integer }
+
+    InventoryInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        category: { type: string }
+        unit: { type: string }
+        quantity: { type: integer }
+        minQuantity: { type: integer }
+        costPrice: { type: integer }
+        salePrice: { type: integer }
+        description: { type: string }
+        isActive: { type: boolean }
+
+    InventoryUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        category: { type: ["string", "null"] }
+        unit: { type: ["string", "null"] }
+        quantity: { type: integer }
+        minQuantity: { type: integer }
+        costPrice: { type: ["integer", "null"] }
+        salePrice: { type: ["integer", "null"] }
+        description: { type: ["string", "null"] }
+        isActive: { type: boolean }
+
+    # ── Commission Recipient ──────────────────────────────────────────────────
+    CommissionRecipient:
+      type: object
+      required: [id, name, createdAt]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        phone: { type: ["string", "null"] }
+        description: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    CommissionRecipientInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        phone: { type: string }
+        description: { type: string }
+
+    CommissionRecipientUpdate:
+      type: object
+      properties:
+        name: { type: string }
+        phone: { type: ["string", "null"] }
+        description: { type: ["string", "null"] }
+
+    # ── Commission ────────────────────────────────────────────────────────────
+    Commission:
+      type: object
+      required: [id, recipientType, recipientId, amount, isPaid, createdAt]
+      properties:
+        id: { type: integer }
+        recipientType: { type: string }
+        recipientId: { type: integer }
+        appointmentId: { type: ["integer", "null"] }
+        description: { type: ["string", "null"] }
+        amount: { type: integer }
+        rate: { type: ["integer", "null"] }
+        status: { type: string }
+        isPaid: { type: boolean }
+        paidAt: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: integer }
+        recipientName: { type: ["string", "null"] }
+
+    CommissionInput:
+      type: object
+      required: [recipientType, recipientId, amount]
+      properties:
+        recipientType: { type: string }
+        recipientId: { type: integer }
+        appointmentId: { type: integer }
+        description: { type: string }
+        amount: { type: integer }
+        rate: { type: integer }
+        status: { type: string }
+        notes: { type: string }
+
+    CommissionUpdate:
+      type: object
+      properties:
+        recipientType: { type: string }
+        recipientId: { type: integer }
+        appointmentId: { type: ["integer", "null"] }
+        description: { type: ["string", "null"] }
+        amount: { type: integer }
+        rate: { type: ["integer", "null"] }
+        status: { type: string }
+        isPaid: { type: boolean }
+        paidAt: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+
+    # ── Patient Note ──────────────────────────────────────────────────────────
+    PatientNote:
+      type: object
+      required: [id, patientId, content, kind, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        content: { type: string }
+        kind: { type: string }
+        createdAt: { type: integer }
+
+    PatientNoteInput:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+        kind: { type: string }
+
+    # ── Reminder ──────────────────────────────────────────────────────────────
+    Reminder:
+      type: object
+      required: [id, title, type, dueAt, status, createdAt]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        type: { type: string }
+        patientId: { type: ["integer", "null"] }
+        dueAt: { type: integer }
+        status: { type: string }
+        createdAt: { type: integer }
+        patientName: { type: ["string", "null"] }
+
+    ReminderInput:
+      type: object
+      required: [title, dueAt]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        type: { type: string }
+        patientId: { type: integer }
+        dueAt: { type: integer }
+        status: { type: string }
+
+    ReminderUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: ["string", "null"] }
+        type: { type: string }
+        patientId: { type: ["integer", "null"] }
+        dueAt: { type: integer }
+        status: { type: string }
+
+    # ── Dashboard ─────────────────────────────────────────────────────────────
+    DashboardSummary:
+      type: object
+      required: [totalPatients, appointmentsToday, monthlyRevenue, pendingAppointments, completedThisMonth, cancelledThisMonth]
+      properties:
+        totalPatients: { type: integer }
+        appointmentsToday: { type: integer }
+        monthlyRevenue: { type: integer }
+        pendingAppointments: { type: integer }
+        completedThisMonth: { type: integer }
+        cancelledThisMonth: { type: integer }
+
+    RevenueChartPoint:
+      type: object
+      required: [date, revenue]
+      properties:
+        date: { type: string }
+        revenue: { type: integer }
+
+    # ── Activity Log ──────────────────────────────────────────────────────────
+    ActivityLogEntry:
+      type: object
+      required: [id, action, entityType, description, createdAt]
+      properties:
+        id: { type: integer }
+        action: { type: string }
+        entityType: { type: string }
+        entityId: { type: ["integer", "null"] }
+        description: { type: string }
+        createdAt: { type: integer }
+
+    # ── Reports ───────────────────────────────────────────────────────────────
+    ReportsSummary:
+      type: object
+      required: [totalRevenue, totalAppointments, totalPatients, totalPaidCommissions, totalUnpaidCommissions, appointmentsByStatus, lowStockItems]
+      properties:
+        totalRevenue: { type: integer }
+        totalAppointments: { type: integer }
+        totalPatients: { type: integer }
+        totalPaidCommissions: { type: integer }
+        totalUnpaidCommissions: { type: integer }
+        appointmentsByStatus:
+          type: array
+          items:
+            type: object
+            required: [status, count]
+            properties:
+              status: { type: string }
+              count: { type: integer }
+        lowStockItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"

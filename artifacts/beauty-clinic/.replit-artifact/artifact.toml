@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "مطب زیبایی دکتر یاری"
+version = "1.0.0"
+id = "artifacts/beauty-clinic"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21315
+
+[services.development]
+run = "pnpm --filter @workspace/beauty-clinic run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/beauty-clinic", "run", "build" ]
+publicDir = "artifacts/beauty-clinic/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21315"
+BASE_PATH = "/"

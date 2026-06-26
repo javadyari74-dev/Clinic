@@ -1,0 +1,247 @@
+import { Router, type IRouter } from "express";
+import { eq, or, ilike, desc, count, isNotNull, sql } from "drizzle-orm";
+import { db } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable } from "@workspace/db";
+import {
+  ListPatientsQueryParams,
+  CreatePatientBody,
+  GetPatientParams,
+  UpdatePatientParams,
+  UpdatePatientBody,
+  DeletePatientParams,
+  ListPatientAppointmentsParams,
+} from "@workspace/api-zod";
+import { logActivity } from "../lib/activity";
+
+const router: IRouter = Router();
+
+router.get("/patients", async (req, res): Promise<void> => {
+  const query = ListPatientsQueryParams.safeParse(req.query);
+  if (!query.success) {
+    res.status(400).json({ error: query.error.message });
+    return;
+  }
+  const { q, page = 1, limit = 500 } = query.data;
+  const offset = (page - 1) * limit;
+
+  let baseQuery = db.select().from(patientsTable);
+  let countQuery = db.select({ count: count() }).from(patientsTable);
+
+  if (q) {
+    const where = or(
+      ilike(patientsTable.name, `%${q}%`),
+      ilike(patientsTable.phone, `%${q}%`),
+      ilike(patientsTable.fileNumber, `%${q}%`)
+    );
+    const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
+    const [{ count: total }] = await countQuery.where(where);
+    res.json({ data: rows, total, page, limit });
+    return;
+  }
+
+  const rows = await baseQuery.orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
+  const [{ count: total }] = await countQuery;
+  res.json({ data: rows, total, page, limit });
+});
+
+router.post("/patients", async (req, res): Promise<void> => {
+  const parsed = CreatePatientBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [patient] = await db.insert(patientsTable).values(parsed.data).returning();
+  await logActivity("create", "patient", patient.id, `بیمار جدید "${patient.name}" ثبت شد`);
+  res.status(201).json(patient);
+});
+
+// ── Birthday helpers ─────────────────────────────────────────────────────────
+
+function getShamsiPartsServer(date: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
+    year: "numeric", month: "numeric", day: "numeric",
+  }).formatToParts(date);
+  const get = (t: string) => parseInt(parts.find((p) => p.type === t)!.value);
+  return { year: get("year"), month: get("month"), day: get("day") };
+}
+
+function shamsiToGregorianServer(year: number, month: number, day: number): Date {
+  const ref = new Date();
+  ref.setHours(12, 0, 0, 0);
+  const r = getShamsiPartsServer(ref);
+  const approx = Math.round(
+    (year - r.year) * 365.25 +
+    ((month - 1) * 30.5 + day) - ((r.month - 1) * 30.5 + r.day),
+  );
+  const base = new Date(ref);
+  base.setDate(base.getDate() + approx);
+  for (let d = -8; d <= 8; d++) {
+    const test = new Date(base);
+    test.setDate(test.getDate() + d);
+    const p = getShamsiPartsServer(test);
+    if (p.year === year && p.month === month && p.day === day) return test;
+  }
+  return base;
+}
+
+// GET /api/patients/upcoming-birthdays?days=10
+router.get("/patients/upcoming-birthdays", async (req, res): Promise<void> => {
+  const daysAhead = Math.min(parseInt((req.query.days as string) || "10", 10) || 10, 90);
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayShamsi = getShamsiPartsServer(today);
+
+  const patients = await db
+    .select()
+    .from(patientsTable)
+    .where(isNotNull(patientsTable.birthdate));
+
+  const results: {
+    patientId: number;
+    name: string;
+    phone: string;
+    birthdate: string;
+    birthdayShamsiYear: number;
+    birthdayShamsiMonth: number;
+    birthdayShamsiDay: number;
+    daysUntil: number;
+  }[] = [];
+
+  for (const patient of patients) {
+    if (!patient.birthdate) continue;
+    const parts = patient.birthdate.split("-").map(Number);
+    if (parts.length !== 3 || parts.some(isNaN)) continue;
+    const [, birthMonth, birthDay] = parts;
+
+    // Try this year first, then next year
+    for (const yearOffset of [0, 1]) {
+      const birthdayYear = todayShamsi.year + yearOffset;
+      const birthdayGreg = shamsiToGregorianServer(birthdayYear, birthMonth, birthDay);
+
+      // Verify conversion was accurate (handles invalid dates like Esfand 30 in non-leap)
+      const check = getShamsiPartsServer(birthdayGreg);
+      if (check.month !== birthMonth || check.day !== birthDay) continue;
+
+      birthdayGreg.setHours(0, 0, 0, 0);
+      const diffDays = Math.round(
+        (birthdayGreg.getTime() - today.getTime()) / 86400000,
+      );
+
+      if (diffDays < 0) continue; // already passed this year, try next
+      if (diffDays <= daysAhead) {
+        results.push({
+          patientId: patient.id,
+          name: patient.name,
+          phone: patient.phone,
+          birthdate: patient.birthdate,
+          birthdayShamsiYear: birthdayYear,
+          birthdayShamsiMonth: birthMonth,
+          birthdayShamsiDay: birthDay,
+          daysUntil: diffDays,
+        });
+      }
+      break; // either included or too far ahead — done with this patient
+    }
+  }
+
+  results.sort((a, b) => a.daysUntil - b.daysUntil);
+  res.json(results);
+});
+
+router.get("/patients/export/excel", async (_req, res): Promise<void> => {
+  const patients = await db.select().from(patientsTable).orderBy(desc(patientsTable.createdAt));
+  // Simple CSV export since xlsx is heavy - client can import to Excel
+  const headers = ["شناسه", "شماره پرونده", "نام", "موبایل", "ایمیل", "تاریخ تولد", "جنسیت"];
+  const rows = patients.map(p => [p.id, p.fileNumber, p.name, p.phone, p.email ?? "", p.birthdate ?? "", p.gender ?? ""]);
+  const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", "attachment; filename=patients.csv");
+  res.send("\uFEFF" + csv);
+});
+
+router.get("/patients/:id", async (req, res): Promise<void> => {
+  const params = GetPatientParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
+  if (!patient) {
+    res.status(404).json({ error: "بیمار یافت نشد" });
+    return;
+  }
+  res.json(patient);
+});
+
+router.put("/patients/:id", async (req, res): Promise<void> => {
+  const params = UpdatePatientParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdatePatientBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [patient] = await db.update(patientsTable).set(parsed.data).where(eq(patientsTable.id, params.data.id)).returning();
+  if (!patient) {
+    res.status(404).json({ error: "بیمار یافت نشد" });
+    return;
+  }
+  await logActivity("update", "patient", patient.id, `اطلاعات بیمار "${patient.name}" ویرایش شد`);
+  res.json(patient);
+});
+
+router.delete("/patients/:id", async (req, res): Promise<void> => {
+  const params = DeletePatientParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [patient] = await db.delete(patientsTable).where(eq(patientsTable.id, params.data.id)).returning();
+  if (!patient) {
+    res.status(404).json({ error: "بیمار یافت نشد" });
+    return;
+  }
+  await logActivity("delete", "patient", patient.id, `بیمار "${patient.name}" حذف شد`);
+  res.sendStatus(204);
+});
+
+router.get("/patients/:id/appointments", async (req, res): Promise<void> => {
+  const params = ListPatientAppointmentsParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db
+    .select({
+      id: appointmentsTable.id,
+      patientId: appointmentsTable.patientId,
+      serviceId: appointmentsTable.serviceId,
+      staffId: appointmentsTable.staffId,
+      scheduledAt: appointmentsTable.scheduledAt,
+      status: appointmentsTable.status,
+      notes: appointmentsTable.notes,
+      price: appointmentsTable.price,
+      discountId: appointmentsTable.discountId,
+      originalPrice: appointmentsTable.originalPrice,
+      createdAt: appointmentsTable.createdAt,
+      patientName: patientsTable.name,
+      patientPhone: patientsTable.phone,
+      patientFileNumber: patientsTable.fileNumber,
+      serviceName: servicesTable.name,
+      servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
+      staffName: staffTable.name,
+    })
+    .from(appointmentsTable)
+    .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
+    .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
+    .leftJoin(staffTable, eq(appointmentsTable.staffId, staffTable.id))
+    .where(eq(appointmentsTable.patientId, params.data.id))
+    .orderBy(desc(appointmentsTable.scheduledAt));
+  res.json({ data: rows, total: rows.length });
+});
+
+export default router;
