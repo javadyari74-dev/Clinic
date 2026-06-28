@@ -1,6 +1,3 @@
 - [Beauty Clinic App Stack](beauty-clinic-stack.md) — Persian RTL full-stack clinic management system architecture decisions.
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
-- [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
-- [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
-- [Backup/Restore feature](backup-restore-feature.md) — every table group must be in download+restore; restore wipe must be section-aware; coerce date columns from ISO on restore.
-- [Migrations hand-written → drift](migrations-hand-written-drift.md) — dev uses drizzle push so added schema cols work in dev but crash fresh/desktop/prod DBs; hand-write ALTER + journal entry.
+- [Birthdate date convention](birthdate-date-convention.md) — birthdate STORED Gregorian, DISPLAYED Shamsi via formatBirthdate; year>1700 guard; laser exempt.
