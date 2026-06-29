@@ -30,12 +30,20 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { TierBadge } from "@/components/tier-badge";
 
 const methods: Record<string, string> = {
   cash: "نقد",
   card: "کارت",
   transfer: "کارت به کارت",
   insurance: "بیمه",
+};
+
+const REFERRER_TYPE_LABELS: Record<string, string> = {
+  patient: "مراجع",
+  recipient: "کمیسیون‌گیرنده",
+  staff: "کارمند",
+  laser: "لیزر",
 };
 
 // ─── Shamsi → Unix helper ──────────────────────────────────────────────────────
@@ -254,7 +262,7 @@ export default function Payments() {
 
   // Commission state
   const [commissionEnabled, setCommissionEnabled] = useState(false);
-  const [commRecipientType, setCommRecipientType] = useState<"staff" | "external">("staff");
+  const [commRecipientType, setCommRecipientType] = useState<"staff" | "external" | "patient">("staff");
   const [commRecipientId, setCommRecipientId] = useState<number | null>(null);
   const [commCalcType, setCommCalcType] = useState<"percentage" | "fixed">("percentage");
   const [commCalcValue, setCommCalcValue] = useState<number>(0);
@@ -296,6 +304,30 @@ export default function Payments() {
     [patientsList, selectedPatientId],
   );
   const patientBalance = selectedPatient?.accountBalance ?? 0;
+
+  // اگر بیمارِ انتخاب‌شده معرفی از نوع «مراجع» داشته باشد، بخش تخصیص کمیسیون به‌صورت
+  // خودکار فعال و با گیرنده‌ی معرف + درصدِ ذخیره‌شده پر می‌شود تا اعتبار به حساب او شارژ شود.
+  useEffect(() => {
+    if (selectedPatient && selectedPatient.referrerType === "patient" && selectedPatient.referrerId) {
+      setCommissionEnabled(true);
+      setCommRecipientType("patient");
+      setCommRecipientId(selectedPatient.referrerId);
+      setCommCalcType("percentage");
+      setCommCalcValue(selectedPatient.referrerRate ?? 0);
+    } else {
+      // بیمارِ انتخاب‌شده معرفِ مراجع ندارد؛ اگر بخش کمیسیون قبلاً به‌صورت خودکار روی
+      // حالت «مراجع» پر شده بود، آن را پاک می‌کنیم تا اعتبار اشتباهی به معرفِ قبلی داده نشود.
+      setCommRecipientType((prev) => {
+        if (prev === "patient") {
+          setCommissionEnabled(false);
+          setCommRecipientId(null);
+          setCommCalcValue(0);
+          return "staff";
+        }
+        return prev;
+      });
+    }
+  }, [selectedPatient]);
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
   useEffect(() => {
@@ -393,10 +425,11 @@ export default function Payments() {
         queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(vars.id) });
       },
       onError: () => {
-        // اگر کسر از موجودی اکانت ناموفق شد، اپراتور باید مطلع شود تا دستی اصلاح کند
+        // این میوتیشن هم برای کسر موجودی و هم برای اعتبار معرفی استفاده می‌شود؛
+        // اگر ناموفق شد، اپراتور باید مطلع شود تا حساب مراجع را دستی اصلاح کند.
         toast({
-          title: "کسر از موجودی اکانت ناموفق بود",
-          description: "پرداخت ثبت شد اما موجودی اکانت مراجع کسر نشد. لطفاً موجودی را دستی بررسی کنید.",
+          title: "ثبت تراکنش حساب مراجع ناموفق بود",
+          description: "پرداخت ثبت شد اما تراکنش حساب مراجع (کسر موجودی یا اعتبار معرفی) اعمال نشد. لطفاً حساب را دستی بررسی کنید.",
           variant: "destructive",
         });
       },
@@ -429,28 +462,45 @@ export default function Payments() {
         if (commissionEnabled && commRecipientId && commissionAmount > 0) {
           const apptId = form.getValues("appointmentId");
           const appt = allActiveAppointments.find(a => a.id === apptId);
-          const recipientName =
-            commRecipientType === "staff"
-              ? staff?.find(s => s.id === commRecipientId)?.name
-              : recipients?.find(r => r.id === commRecipientId)?.name;
-          const desc = [
-            appt?.serviceName,
-            commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
-            `${formatCurrency(commissionAmount)}`,
-            recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
-          ].filter(Boolean).join(" — ");
 
-          createCommission.mutate({
-            data: {
-              recipientType: commRecipientType,
-              recipientId: commRecipientId,
-              appointmentId: form.getValues("appointmentId") ?? undefined,
-              amount: commissionAmount,
-              rate: commCalcType === "percentage" ? commCalcValue : undefined,
-              description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
-              status: "pending",
-            },
-          });
+          if (commRecipientType === "patient") {
+            // معرف از نوع مراجع → اعتبار معرفی به حساب همان بیمارِ معرف شارژ می‌شود
+            const payerName = selectedPatient?.name;
+            createAccountTxn.mutate({
+              id: commRecipientId,
+              data: {
+                amount: commissionAmount,
+                type: "referral_credit",
+                description: [
+                  payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
+                  commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
+                ].filter(Boolean).join(" — "),
+              },
+            });
+          } else {
+            const recipientName =
+              commRecipientType === "staff"
+                ? staff?.find(s => s.id === commRecipientId)?.name
+                : recipients?.find(r => r.id === commRecipientId)?.name;
+            const desc = [
+              appt?.serviceName,
+              commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
+              `${formatCurrency(commissionAmount)}`,
+              recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
+            ].filter(Boolean).join(" — ");
+
+            createCommission.mutate({
+              data: {
+                recipientType: commRecipientType,
+                recipientId: commRecipientId,
+                appointmentId: form.getValues("appointmentId") ?? undefined,
+                amount: commissionAmount,
+                rate: commCalcType === "percentage" ? commCalcValue : undefined,
+                description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
+                status: "pending",
+              },
+            });
+          }
         }
 
         // استفاده از موجودی اکانت: کسر مبلغ مصرف‌شده از حساب مراجع
@@ -760,6 +810,34 @@ export default function Payments() {
 
             <div className="space-y-3 min-w-0">
 
+              {/* Patient Info Panel (tier + referrer) */}
+              {selectedPatient && (
+                <>
+                  <div className="rounded-lg border p-3 bg-muted/30 space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">مراجع:</span>
+                      <span className="font-medium">{selectedPatient.name}</span>
+                      <TierBadge tier={selectedPatient.tier} showLabel />
+                    </div>
+                    {selectedPatient.referrerType && selectedPatient.referrerId ? (
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
+                        <span className="text-muted-foreground">معرف:</span>
+                        <span className="font-medium">{selectedPatient.referrerName ?? "—"}</span>
+                        <Badge variant="outline" className="text-[11px]">
+                          {REFERRER_TYPE_LABELS[selectedPatient.referrerType] ?? selectedPatient.referrerType}
+                        </Badge>
+                        {selectedPatient.referrerRate != null && (
+                          <span className="text-xs text-muted-foreground">({toPersianDigits(selectedPatient.referrerRate)}٪ پورسانت)</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">بدون معرف</div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
+
               {/* Account Balance Section */}
               {selectedPatient && patientBalance > 0 && (
                 <>
@@ -910,14 +988,21 @@ export default function Payments() {
 
                 {commissionEnabled && (
                   <div className="space-y-3 rounded-lg border p-3 bg-muted/30">
+                    {commRecipientType === "patient" && (
+                      <div className="text-xs rounded-md bg-pink-50 border border-pink-200 px-3 py-2 text-pink-800">
+                        این بیمار توسط یک مراجعِ دیگر معرفی شده؛ مبلغِ کمیسیون به‌صورت اعتبار به حساب معرف اضافه می‌شود.
+                      </div>
+                    )}
+
                     <div>
                       <Label className="text-sm mb-1 block">نوع گیرنده</Label>
                       <Select
                         value={commRecipientType}
-                        onValueChange={(v) => { setCommRecipientType(v as "staff" | "external"); setCommRecipientId(null); }}
+                        onValueChange={(v) => { setCommRecipientType(v as "staff" | "external" | "patient"); setCommRecipientId(null); }}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="patient">مراجع (معرف)</SelectItem>
                           <SelectItem value="staff">کارمند (پرسنل)</SelectItem>
                           <SelectItem value="external">گیرنده خارجی</SelectItem>
                         </SelectContent>
@@ -934,7 +1019,9 @@ export default function Payments() {
                         <SelectContent>
                           {commRecipientType === "staff"
                             ? staff?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)
-                            : recipients?.map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)
+                            : commRecipientType === "patient"
+                              ? (patientsList?.data ?? []).map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.fileNumber})</SelectItem>)
+                              : recipients?.map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)
                           }
                         </SelectContent>
                       </Select>
