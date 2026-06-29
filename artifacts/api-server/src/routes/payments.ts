@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, sql } from "drizzle-orm";
-import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable, patientAccountTransactionsTable } from "@workspace/db";
+import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable } from "@workspace/db";
 import {
   ListPaymentsQueryParams,
   CreatePaymentBody,
@@ -57,42 +57,32 @@ router.post("/payments", async (req, res): Promise<void> => {
       .where(eq(appointmentsTable.id, payment.appointmentId));
   }
 
-  // ── تنها نقطه‌ی محاسبه‌ی پورسانت/اعتبار معرف برای هر پرداخت ──────────────────
-  // اگر بیمارِ این پرداخت معرف داشته باشد، درصدِ تعیین‌شده روی مبلغ دریافتی محاسبه می‌شود:
-  //   • معرفِ بیمار (مراجع) → اعتبار به حساب همان بیمارِ معرف اضافه می‌شود
-  //   • کارمند/کمیسیون‌گیرنده/لیزر → یک ردیف کمیسیون ثبت می‌شود
+  // ── محاسبه‌ی خودکار پورسانتِ معرف (کارمند/کمیسیون‌گیرنده/لیزر) برای هر پرداخت ──
+  // اگر بیمارِ این پرداخت، معرفی از نوع کارمند/کمیسیون‌گیرنده/لیزر داشته باشد، درصدِ
+  // تعیین‌شده روی مبلغ دریافتی محاسبه و یک ردیف کمیسیون ثبت می‌شود.
+  // نکته: حالتِ «معرف از نوع مراجع» اینجا انجام نمی‌شود؛ این حالت در صندوق (بخش
+  // تخصیص کمیسیون) به‌صورت دستی و با درصدِ قابل‌ویرایش انجام می‌شود تا اعتبار روی
+  // حساب بیمارِ معرف شارژ شود و از دوباره‌حساب‌شدن جلوگیری شود.
   if (payment.appointmentId && payment.appointmentId > 0) {
     const [appt] = await db.select({ patientId: appointmentsTable.patientId }).from(appointmentsTable).where(eq(appointmentsTable.id, payment.appointmentId));
     if (appt) {
       const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, appt.patientId));
-      if (patient && patient.referrerType && patient.referrerId && patient.referrerRate && patient.referrerRate > 0 && payment.amount > 0) {
+      if (
+        patient && patient.referrerType && patient.referrerType !== "patient" &&
+        patient.referrerId && patient.referrerRate && patient.referrerRate > 0 && payment.amount > 0
+      ) {
         const accrual = Math.round((payment.amount * patient.referrerRate) / 100);
         if (accrual > 0) {
-          if (patient.referrerType === "patient") {
-            // اعتبار به حساب بیمارِ معرف
-            const [referrer] = await db.select().from(patientsTable).where(eq(patientsTable.id, patient.referrerId));
-            if (referrer) {
-              await db.insert(patientAccountTransactionsTable).values({
-                patientId: referrer.id,
-                amount: accrual,
-                type: "referral_credit",
-                description: `اعتبار معرفی از پرداخت بیمار «${patient.name}»`,
-                paymentId: payment.id,
-              });
-              await db.update(patientsTable).set({ accountBalance: referrer.accountBalance + accrual }).where(eq(patientsTable.id, referrer.id));
-            }
-          } else {
-            // کمیسیون برای کارمند (staff) یا کمیسیون‌گیرنده/لیزر (external)
-            const recipientType = patient.referrerType === "staff" ? "staff" : "external";
-            await db.insert(commissionsTable).values({
-              recipientType,
-              recipientId: patient.referrerId,
-              appointmentId: payment.appointmentId,
-              amount: accrual,
-              rate: patient.referrerRate,
-              description: `پورسانت معرفی بیمار «${patient.name}»`,
-            });
-          }
+          // کمیسیون برای کارمند (staff) یا کمیسیون‌گیرنده/لیزر (external)
+          const recipientType = patient.referrerType === "staff" ? "staff" : "external";
+          await db.insert(commissionsTable).values({
+            recipientType,
+            recipientId: patient.referrerId,
+            appointmentId: payment.appointmentId,
+            amount: accrual,
+            rate: patient.referrerRate,
+            description: `پورسانت معرفی بیمار «${patient.name}»`,
+          });
         }
       }
     }

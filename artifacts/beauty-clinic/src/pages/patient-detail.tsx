@@ -474,6 +474,50 @@ export default function PatientDetail() {
         </CardContent>
       </Card>
 
+      {/* Referred Patients Card */}
+      {(() => {
+        const referred = (allPatients?.data ?? []).filter(
+          (p) => p.referrerType === "patient" && p.referrerId === id
+        );
+        return (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <UserPlus className="h-4 w-4 text-primary" />
+                مراجعینی که این فرد معرفی کرده
+                {referred.length > 0 && (
+                  <Badge variant="secondary" className="text-[11px]">{toPersianDigits(referred.length)} نفر</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {referred.length === 0 ? (
+                <p className="text-sm text-muted-foreground">تاکنون کسی توسط این مراجع معرفی نشده است.</p>
+              ) : (
+                <div className="space-y-2">
+                  {referred.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm hover:bg-muted/50 cursor-pointer"
+                      onClick={() => navigate(`/patients/${p.id}`)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <TierBadge tier={p.tier} />
+                        <span className="font-medium">{p.name}</span>
+                        <span className="text-xs text-muted-foreground">({p.fileNumber})</span>
+                      </div>
+                      {p.referrerRate != null && (
+                        <span className="text-xs text-muted-foreground">{toPersianDigits(p.referrerRate)}٪ پورسانت</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* Account Balance Card */}
       <Card>
         <CardHeader className="pb-3">

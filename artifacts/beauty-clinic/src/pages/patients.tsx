@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useListPatients, useCreatePatient, getListPatientsQueryKey } from "@workspace/api-client-react";
+import { useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Badge } from "@/components/ui/badge";
 import { formatShamsiDate, formatCurrency } from "@/lib/format";
 import { TierBadge } from "@/components/tier-badge";
+import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { Link, useLocation } from "wouter";
 import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown } from "lucide-react";
@@ -28,6 +29,10 @@ const formSchema = z.object({
   birthdate: z.string().optional(),
   gender: z.string().optional(),
   notes: z.string().optional(),
+  tier: z.string().optional(),
+  referrerType: z.string().optional(),
+  referrerId: z.string().optional(),
+  referrerRate: z.string().optional(),
 });
 
 type PatientWithReferrer = {
@@ -77,6 +82,8 @@ export default function Patients() {
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const { data: patientsList } = useListPatients({ q: search, limit: 200 });
+  const { data: staff } = useListStaff();
+  const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -93,11 +100,26 @@ export default function Patients() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "" },
+    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "", tier: "", referrerType: "", referrerId: "", referrerRate: "" },
   });
 
+  const referrerType = form.watch("referrerType");
+
   function onSubmit(values: z.infer<typeof formSchema>) {
-    createPatient.mutate({ data: { ...values, email: values.email || undefined, birthdate: values.birthdate || undefined, gender: values.gender || undefined, notes: values.notes || undefined } });
+    const hasReferrer = !!values.referrerType && !!values.referrerId;
+    createPatient.mutate({ data: {
+      name: values.name,
+      phone: values.phone,
+      fileNumber: values.fileNumber,
+      email: values.email || undefined,
+      birthdate: values.birthdate || undefined,
+      gender: values.gender || undefined,
+      notes: values.notes || undefined,
+      tier: values.tier || undefined,
+      referrerType: hasReferrer ? values.referrerType : undefined,
+      referrerId: hasReferrer ? Number(values.referrerId) : undefined,
+      referrerRate: hasReferrer && values.referrerRate ? Number(values.referrerRate) : undefined,
+    } });
   }
 
   function toggleSort(col: typeof sortBy) {
@@ -209,6 +231,66 @@ export default function Patients() {
                     <FormMessage />
                   </FormItem>
                 )} />
+
+                <FormField control={form.control} name="tier" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>سطح‌بندی مراجع</FormLabel>
+                    <FormControl>
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                        <option value="">بدون سطح‌بندی</option>
+                        {PATIENT_TIERS.map(t => (
+                          <option key={t.key} value={t.key}>{t.emoji} {t.label}</option>
+                        ))}
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+
+                <FormField control={form.control} name="referrerType" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>نوع معرف</FormLabel>
+                    <FormControl>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                        {...field}
+                        onChange={(e) => { field.onChange(e); form.setValue("referrerId", ""); }}
+                      >
+                        <option value="">بدون معرف</option>
+                        <option value="patient">مراجع</option>
+                        <option value="recipient">کمیسیون‌گیرنده</option>
+                        <option value="staff">کارمند</option>
+                        <option value="laser">لیزر</option>
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="referrerRate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>درصد پورسانت</FormLabel>
+                    <FormControl><Input type="number" dir="ltr" min={0} max={100} placeholder="مثلاً ۱۰" disabled={!referrerType} {...field} /></FormControl>
+                  </FormItem>
+                )} />
+                {referrerType && (
+                  <FormField control={form.control} name="referrerId" render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>انتخاب معرف</FormLabel>
+                      <FormControl>
+                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                          <option value="">انتخاب معرف...</option>
+                          {referrerType === "patient" && (patientsList?.data ?? []).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
+                          ))}
+                          {referrerType === "staff" && (staff ?? []).map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                          {(referrerType === "recipient" || referrerType === "laser") && (recipients ?? []).map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                )}
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={createPatient.isPending}>
