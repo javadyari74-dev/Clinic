@@ -5,6 +5,8 @@ import {
   useListDiscounts, useListStaff, useListCommissionRecipients,
   useCreateCommission, getListCommissionsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
+  useListPatients, getListPatientsQueryKey,
+  useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +21,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell } from "lucide-react";
+import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -240,6 +242,7 @@ export default function Payments() {
   const { data: discounts } = useListDiscounts();
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
+  const { data: patientsList } = useListPatients();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -269,6 +272,10 @@ export default function Payments() {
   const [svcReminderType, setSvcReminderType] = useState<"followup" | "payment">("followup");
   const [svcReminderDate, setSvcReminderDate] = useState("");
 
+  // Account balance application state
+  const [balanceApplyEnabled, setBalanceApplyEnabled] = useState(false);
+  const [balanceApplied, setBalanceApplied] = useState(0);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 },
@@ -283,6 +290,12 @@ export default function Payments() {
     [allActiveAppointments, watchedAppointmentId],
   );
   const isPerUnit = selectedAppt?.priceMode === "per_unit";
+  const selectedPatientId = (selectedAppt as any)?.patientId as number | undefined;
+  const selectedPatient = useMemo(
+    () => (patientsList?.data ?? []).find(p => p.id === selectedPatientId) ?? null,
+    [patientsList, selectedPatientId],
+  );
+  const patientBalance = selectedPatient?.accountBalance ?? 0;
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
   useEffect(() => {
@@ -317,16 +330,19 @@ export default function Payments() {
   // وقتی چک‌باکس «مبلغ کامل» تغییر می‌کنه
   useEffect(() => {
     if (fullAmountChecked) {
-      form.setValue("amount", Math.max(0, (originalAmount || 0) - currentDeposit));
+      const afterDeposit = Math.max(0, (originalAmount || 0) - currentDeposit);
+      const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
+      setBalanceApplied(applied);
+      form.setValue("amount", Math.max(0, afterDeposit - applied));
     }
-  }, [fullAmountChecked, originalAmount, currentDeposit]);
+  }, [fullAmountChecked, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
 
   const selectedDiscount = useMemo(
     () => discounts?.find(d => d.id === selectedDiscountId) ?? null,
     [discounts, selectedDiscountId]
   );
 
-  // محاسبه مبلغ پس از تخفیف و کسر بیعانه
+  // محاسبه مبلغ پس از تخفیف و کسر بیعانه و استفاده از موجودی اکانت
   useEffect(() => {
     const base = originalAmount || 0;
     let afterDiscount: number;
@@ -341,8 +357,11 @@ export default function Payments() {
       afterDiscount = base;
       form.setValue("discountId", undefined);
     }
-    form.setValue("amount", Math.max(0, afterDiscount - currentDeposit));
-  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit]);
+    const afterDeposit = Math.max(0, afterDiscount - currentDeposit);
+    const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
+    setBalanceApplied(applied);
+    form.setValue("amount", Math.max(0, afterDeposit - applied));
+  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
 
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
@@ -362,6 +381,24 @@ export default function Payments() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+      },
+    },
+  });
+
+  const createAccountTxn = useCreatePatientAccountTransaction({
+    mutation: {
+      onSuccess: (_data, vars) => {
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(vars.id) });
+        queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(vars.id) });
+      },
+      onError: () => {
+        // اگر کسر از موجودی اکانت ناموفق شد، اپراتور باید مطلع شود تا دستی اصلاح کند
+        toast({
+          title: "کسر از موجودی اکانت ناموفق بود",
+          description: "پرداخت ثبت شد اما موجودی اکانت مراجع کسر نشد. لطفاً موجودی را دستی بررسی کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -412,6 +449,19 @@ export default function Payments() {
               rate: commCalcType === "percentage" ? commCalcValue : undefined,
               description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
               status: "pending",
+            },
+          });
+        }
+
+        // استفاده از موجودی اکانت: کسر مبلغ مصرف‌شده از حساب مراجع
+        if (balanceApplyEnabled && balanceApplied > 0 && selectedPatientId) {
+          const appt3 = allActiveAppointments.find(a => a.id === form.getValues("appointmentId"));
+          createAccountTxn.mutate({
+            id: selectedPatientId,
+            data: {
+              amount: -balanceApplied,
+              type: "deduct",
+              description: `استفاده در پرداخت${appt3?.serviceName ? ` — ${appt3.serviceName}` : ""}`,
             },
           });
         }
@@ -475,6 +525,8 @@ export default function Payments() {
     setSvcReminderEnabled(false);
     setSvcReminderType("followup");
     setSvcReminderDate("");
+    setBalanceApplyEnabled(false);
+    setBalanceApplied(0);
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -489,7 +541,8 @@ export default function Payments() {
       data: {
         ...values,
         originalAmount: values.originalAmount,
-        amount: values.amount || values.originalAmount,
+        // وقتی موجودی اکانت یا بیعانه بخشی/تمام مبلغ را پوشش دهد، مبلغِ نقدیِ صفر معتبر است و نباید به مبلغ کل برگردد
+        amount: (balanceApplyEnabled || currentDeposit > 0) ? values.amount : (values.amount || values.originalAmount),
         appointmentId: values.appointmentId ?? 0,
         unitsUsed: isPerUnit ? (values.unitsUsed ?? 1) : undefined,
         // اسنپ‌شات جزئیات تا هر پرداخت به‌صورت کامل و دائمی در دیتابیس بماند
@@ -706,6 +759,32 @@ export default function Payments() {
             </div>
 
             <div className="space-y-3 min-w-0">
+
+              {/* Account Balance Section */}
+              {selectedPatient && patientBalance > 0 && (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2 font-medium cursor-pointer" htmlFor="balance-toggle">
+                        <Wallet className="h-4 w-4 text-emerald-600" />
+                        استفاده از موجودی اکانت
+                      </Label>
+                      <Switch id="balance-toggle" checked={balanceApplyEnabled} onCheckedChange={setBalanceApplyEnabled} />
+                    </div>
+                    <div className="text-sm rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 flex justify-between text-emerald-800">
+                      <span>موجودی اکانت {selectedPatient.name}:</span>
+                      <span className="font-bold font-mono">{formatCurrency(patientBalance)}</span>
+                    </div>
+                    {balanceApplyEnabled && balanceApplied > 0 && (
+                      <div className="text-sm rounded-md bg-emerald-100 px-3 py-2 flex justify-between text-emerald-900">
+                        <span>مبلغ کسرشده از اکانت:</span>
+                        <span className="font-bold font-mono">− {formatCurrency(balanceApplied)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
 
               {/* Service Reminder Section */}
               <div className="space-y-3">

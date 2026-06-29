@@ -7,6 +7,9 @@ import {
   useListServices, useListStaff, useCreateAppointment, getListAppointmentsQueryKey,
   useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
+  useListPatients, useListCommissionRecipients,
+  useListPatientAccountTransactions, useCreatePatientAccountTransaction,
+  getListPatientAccountTransactionsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,10 +25,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatShamsiDate, toPersianDigits, formatBirthdate } from "@/lib/format";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Pencil, History, Bell
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Pencil, History, Bell,
+  Wallet, Gift, UserPlus, ArrowDownCircle, ArrowUpCircle
 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { TierBadge } from "@/components/tier-badge";
+import { PATIENT_TIERS } from "@/lib/tiers";
 import { useToast } from "@/hooks/use-toast";
+
+const REFERRER_TYPE_LABELS: Record<string, string> = {
+  patient: "مراجع",
+  recipient: "کمیسیون‌گیرنده",
+  staff: "کارمند",
+  laser: "لیزر",
+};
 
 const statuses: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   scheduled: { label: "رزرو شده", variant: "secondary" },
@@ -54,7 +67,12 @@ export default function PatientDetail() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({
     name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "",
+    tier: "", referrerType: "", referrerId: "", referrerRate: "",
   });
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  const [balanceMode, setBalanceMode] = useState<"charge" | "deduct">("charge");
+  const [balanceAmount, setBalanceAmount] = useState("");
+  const [balanceDesc, setBalanceDesc] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [histServiceId, setHistServiceId] = useState("");
   const [histStaffId, setHistStaffId] = useState("");
@@ -70,6 +88,23 @@ export default function PatientDetail() {
   const { data: notes } = useListPatientNotes(id);
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
+  const { data: allPatients } = useListPatients();
+  const { data: recipients } = useListCommissionRecipients();
+  const { data: accountTxns } = useListPatientAccountTransactions(id);
+
+  const createAccountTxn = useCreatePatientAccountTransaction({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        toast({ title: balanceMode === "charge" ? "اکانت شارژ شد" : "از اکانت کسر شد" });
+        setBalanceOpen(false);
+        setBalanceAmount(""); setBalanceDesc("");
+      },
+      onError: (e: any) => toast({ title: e?.response?.data?.error ?? "خطا در ثبت تراکنش", variant: "destructive" }),
+    },
+  });
 
   const createNote = useCreatePatientNote({
     mutation: {
@@ -150,6 +185,10 @@ export default function PatientDetail() {
       birthdate: patient.birthdate ?? "",
       gender: patient.gender ?? "",
       notes: patient.notes ?? "",
+      tier: patient.tier ?? "",
+      referrerType: patient.referrerType ?? "",
+      referrerId: patient.referrerId != null ? String(patient.referrerId) : "",
+      referrerRate: patient.referrerRate != null ? String(patient.referrerRate) : "",
     });
     setEditOpen(true);
   }
@@ -159,6 +198,7 @@ export default function PatientDetail() {
       toast({ title: "نام، تماس و شماره پرونده الزامی است", variant: "destructive" });
       return;
     }
+    const hasReferrer = !!editForm.referrerType && !!editForm.referrerId;
     updatePatient.mutate({
       id,
       data: {
@@ -169,6 +209,30 @@ export default function PatientDetail() {
         birthdate: editForm.birthdate || null,
         gender: editForm.gender || null,
         notes: editForm.notes.trim() || null,
+        tier: editForm.tier || null,
+        referrerType: hasReferrer ? editForm.referrerType : null,
+        referrerId: hasReferrer ? Number(editForm.referrerId) : null,
+        referrerRate: hasReferrer && editForm.referrerRate ? Number(editForm.referrerRate) : null,
+      },
+    });
+  }
+
+  function submitBalance() {
+    const amount = Number(balanceAmount);
+    if (!amount || amount <= 0) {
+      toast({ title: "مبلغ معتبر وارد کنید", variant: "destructive" });
+      return;
+    }
+    if (balanceMode === "deduct" && amount > (patient?.accountBalance ?? 0)) {
+      toast({ title: "مبلغ کسر بیشتر از موجودی اکانت است", variant: "destructive" });
+      return;
+    }
+    createAccountTxn.mutate({
+      id,
+      data: {
+        amount: balanceMode === "charge" ? amount : -amount,
+        type: balanceMode,
+        description: balanceDesc.trim() || undefined,
       },
     });
   }
@@ -289,7 +353,10 @@ export default function PatientDetail() {
         </Button>
         <Separator orientation="vertical" className="h-5" />
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">{patient.name}</h1>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+            {patient.name}
+            <TierBadge tier={patient.tier} showLabel />
+          </h1>
           <p className="text-sm text-muted-foreground">پرونده مراجع</p>
         </div>
         <div className="mr-auto flex items-center gap-2">
@@ -377,6 +444,91 @@ export default function PatientDetail() {
               <span className="font-bold">{toPersianDigits(apptList.length)} نوبت</span>
             </div>
           )}
+          {patient.referrerType && patient.referrerId && (
+            <div className="mt-3 flex items-center gap-2 text-sm border-t pt-3">
+              <UserPlus className="h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">معرف:</span>
+              {patient.referrerType === "patient" ? (
+                <span
+                  className="font-medium text-primary hover:underline cursor-pointer"
+                  onClick={() => navigate(`/patients/${patient.referrerId}`)}
+                >
+                  {patient.referrerName ?? "—"}
+                </span>
+              ) : (patient.referrerType === "recipient" || patient.referrerType === "laser") ? (
+                <span
+                  className="font-medium text-primary hover:underline cursor-pointer"
+                  onClick={() => navigate(`/commission-recipients?profile=${patient.referrerId}`)}
+                >
+                  {patient.referrerName ?? "—"}
+                </span>
+              ) : (
+                <span className="font-medium">{patient.referrerName ?? "—"}</span>
+              )}
+              <Badge variant="outline" className="text-[11px]">{REFERRER_TYPE_LABELS[patient.referrerType] ?? patient.referrerType}</Badge>
+              {patient.referrerRate != null && (
+                <span className="text-xs text-muted-foreground">({toPersianDigits(patient.referrerRate)}٪ پورسانت)</span>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Account Balance Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-primary" />
+              شارژ اکانت
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" className="gap-1 h-7 text-xs text-emerald-700"
+                onClick={() => { setBalanceMode("charge"); setBalanceAmount(""); setBalanceDesc(""); setBalanceOpen(true); }}>
+                <ArrowDownCircle className="h-3 w-3" />
+                شارژ
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1 h-7 text-xs text-rose-700"
+                onClick={() => { setBalanceMode("deduct"); setBalanceAmount(""); setBalanceDesc(""); setBalanceOpen(true); }}
+                disabled={(patient.accountBalance ?? 0) <= 0}>
+                <ArrowUpCircle className="h-3 w-3" />
+                کسر
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between bg-muted/50 rounded-lg px-4 py-3 mb-3">
+            <span className="text-sm text-muted-foreground">موجودی فعلی</span>
+            <span className={`text-xl font-bold font-mono ${(patient.accountBalance ?? 0) > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {formatCurrency(patient.accountBalance ?? 0)}
+            </span>
+          </div>
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {(accountTxns ?? []).map((t) => {
+              const isCredit = t.amount > 0;
+              const typeLabel = t.type === "charge" ? "شارژ" : t.type === "deduct" ? "کسر" : t.type === "referral_credit" ? "اعتبار معرفی" : t.type;
+              return (
+                <div key={t.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border text-sm">
+                  <div className="flex items-center gap-2">
+                    {isCredit
+                      ? <ArrowDownCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                      : <ArrowUpCircle className="h-4 w-4 text-rose-600 shrink-0" />}
+                    <div>
+                      <p className="font-medium">{typeLabel}{t.description ? ` — ${t.description}` : ""}</p>
+                      <p className="text-xs text-muted-foreground">{formatShamsiDate(t.createdAt, true)}</p>
+                    </div>
+                  </div>
+                  <span className={`font-mono font-bold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
+                    {isCredit ? "+" : "−"}{formatCurrency(Math.abs(t.amount))}
+                  </span>
+                </div>
+              );
+            })}
+            {!accountTxns?.length && (
+              <p className="text-center text-muted-foreground text-sm py-6">تراکنشی ثبت نشده</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -621,6 +773,69 @@ export default function PatientDetail() {
               </div>
             </div>
             <div>
+              <Label className="text-sm mb-1.5 block">سطح مراجع (تیر)</Label>
+              <Select value={editForm.tier || "none"} onValueChange={v => setEditForm(f => ({ ...f, tier: v === "none" ? "" : v }))}>
+                <SelectTrigger><SelectValue placeholder="انتخاب سطح..." /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">بدون سطح</SelectItem>
+                  {PATIENT_TIERS.map(t => (
+                    <SelectItem key={t.key} value={t.key}>{t.emoji} {t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-lg border p-3 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <UserPlus className="h-4 w-4 text-primary" />
+                معرف این مراجع
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-sm mb-1.5 block">نوع معرف</Label>
+                  <Select
+                    value={editForm.referrerType || "none"}
+                    onValueChange={v => setEditForm(f => ({ ...f, referrerType: v === "none" ? "" : v, referrerId: "" }))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="انتخاب..." /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">بدون معرف</SelectItem>
+                      <SelectItem value="patient">مراجع</SelectItem>
+                      <SelectItem value="recipient">کمیسیون‌گیرنده</SelectItem>
+                      <SelectItem value="staff">کارمند</SelectItem>
+                      <SelectItem value="laser">لیزر</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-sm mb-1.5 block">درصد پورسانت</Label>
+                  <Input
+                    type="number" dir="ltr" min={0} max={100}
+                    value={editForm.referrerRate}
+                    onChange={e => setEditForm(f => ({ ...f, referrerRate: e.target.value }))}
+                    placeholder="مثلاً ۱۰"
+                    disabled={!editForm.referrerType}
+                  />
+                </div>
+              </div>
+              {editForm.referrerType && (
+                <div>
+                  <Label className="text-sm mb-1.5 block">انتخاب معرف</Label>
+                  <Select value={editForm.referrerId || undefined} onValueChange={v => setEditForm(f => ({ ...f, referrerId: v }))}>
+                    <SelectTrigger><SelectValue placeholder="انتخاب معرف..." /></SelectTrigger>
+                    <SelectContent>
+                      {editForm.referrerType === "patient" && (allPatients?.data ?? [])
+                        .filter(p => p.id !== id)
+                        .map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.fileNumber})</SelectItem>)}
+                      {editForm.referrerType === "staff" && (staff ?? [])
+                        .map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
+                      {(editForm.referrerType === "recipient" || editForm.referrerType === "laser") && (recipients ?? [])
+                        .map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+            <div>
               <Label className="text-sm mb-1.5 block">یادداشت / هشدار</Label>
               <Textarea rows={2} value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="توضیحات اضافی..." />
             </div>
@@ -629,6 +844,40 @@ export default function PatientDetail() {
             <Button variant="outline" onClick={() => setEditOpen(false)}>انصراف</Button>
             <Button onClick={submitEditPatient} disabled={updatePatient.isPending}>
               {updatePatient.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Account Balance Dialog */}
+      <Dialog open={balanceOpen} onOpenChange={setBalanceOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {balanceMode === "charge"
+                ? <ArrowDownCircle className="h-5 w-5 text-emerald-600" />
+                : <ArrowUpCircle className="h-5 w-5 text-rose-600" />}
+              {balanceMode === "charge" ? "شارژ اکانت" : "کسر از اکانت"} — {patient.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between text-sm bg-muted/50 rounded-lg px-3 py-2">
+              <span className="text-muted-foreground">موجودی فعلی</span>
+              <span className="font-bold font-mono">{formatCurrency(patient.accountBalance ?? 0)}</span>
+            </div>
+            <div>
+              <Label className="text-sm mb-1.5 block">مبلغ (تومان) *</Label>
+              <Input type="number" dir="ltr" min={0} value={balanceAmount} onChange={e => setBalanceAmount(e.target.value)} placeholder="مبلغ..." />
+            </div>
+            <div>
+              <Label className="text-sm mb-1.5 block">توضیحات</Label>
+              <Input value={balanceDesc} onChange={e => setBalanceDesc(e.target.value)} placeholder="بابت... (اختیاری)" />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setBalanceOpen(false)}>انصراف</Button>
+            <Button onClick={submitBalance} disabled={createAccountTxn.isPending}>
+              {createAccountTxn.isPending ? "در حال ثبت..." : balanceMode === "charge" ? "شارژ اکانت" : "کسر از اکانت"}
             </Button>
           </DialogFooter>
         </DialogContent>
