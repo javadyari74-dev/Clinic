@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatCurrency, formatShamsiDate, toPersianDigits, formatBirthdate } from "@/lib/format";
+import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import {
   Search, X, User, Phone, FileText, CalendarDays, CreditCard,
   Clock, CheckCircle, XCircle, CalendarPlus, ChevronDown, StickyNote,
@@ -413,7 +413,7 @@ export function GlobalSearch() {
               <span className="text-muted-foreground">{selectedPatient.email}</span>
             )}
             {selectedPatient?.birthdate && (
-              <span className="text-muted-foreground">تولد: {formatBirthdate(selectedPatient.birthdate)}</span>
+              <span className="text-muted-foreground">تولد: {selectedPatient.birthdate}</span>
             )}
             {selectedPatient?.notes && (
               <span className="text-amber-700 bg-amber-50 rounded px-2 py-0.5 text-xs">

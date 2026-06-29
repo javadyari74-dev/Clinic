@@ -5,7 +5,6 @@ import {
   useGetPatient, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
   useListServices, useListStaff, useCreateAppointment, getListAppointmentsQueryKey,
-  useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,11 +16,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { formatCurrency, formatShamsiDate, toPersianDigits, formatBirthdate } from "@/lib/format";
+import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Pencil
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock
 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -50,10 +48,6 @@ export default function PatientDetail() {
   const [apptDate, setApptDate] = useState("");
   const [apptTime, setApptTime] = useState("10:00");
   const [apptNotes, setApptNotes] = useState("");
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({
-    name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "",
-  });
 
   const { data: patient, isLoading } = useGetPatient(id);
   const { data: appointments } = useListPatientAppointments(id);
@@ -91,51 +85,6 @@ export default function PatientDetail() {
       },
     },
   });
-
-  const updatePatient = useUpdatePatient({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(id) });
-        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
-        toast({ title: "پرونده با موفقیت ویرایش شد" });
-        setEditOpen(false);
-      },
-      onError: () => toast({ title: "خطا در ویرایش پرونده", variant: "destructive" }),
-    },
-  });
-
-  function openEditPatient() {
-    if (!patient) return;
-    setEditForm({
-      name: patient.name ?? "",
-      phone: patient.phone ?? "",
-      fileNumber: patient.fileNumber ?? "",
-      email: patient.email ?? "",
-      birthdate: patient.birthdate ?? "",
-      gender: patient.gender ?? "",
-      notes: patient.notes ?? "",
-    });
-    setEditOpen(true);
-  }
-
-  function submitEditPatient() {
-    if (!editForm.name.trim() || !editForm.phone.trim() || !editForm.fileNumber.trim()) {
-      toast({ title: "نام، تماس و شماره پرونده الزامی است", variant: "destructive" });
-      return;
-    }
-    updatePatient.mutate({
-      id,
-      data: {
-        name: editForm.name.trim(),
-        phone: editForm.phone.trim(),
-        fileNumber: editForm.fileNumber.trim(),
-        email: editForm.email.trim() || null,
-        birthdate: editForm.birthdate || null,
-        gender: editForm.gender || null,
-        notes: editForm.notes.trim() || null,
-      },
-    });
-  }
 
   function submitAppt() {
     if (!apptServiceId || !apptDate) {
@@ -198,11 +147,7 @@ export default function PatientDetail() {
           <h1 className="text-2xl font-bold tracking-tight">{patient.name}</h1>
           <p className="text-sm text-muted-foreground">پرونده مراجع</p>
         </div>
-        <div className="mr-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" className="gap-2" onClick={openEditPatient}>
-            <Pencil className="h-4 w-4" />
-            ویرایش پرونده
-          </Button>
+        <div className="mr-auto">
           <Button size="sm" className="gap-2" onClick={() => setApptOpen(true)}>
             <CalendarPlus className="h-4 w-4" />
             دریافت نوبت
@@ -250,7 +195,7 @@ export default function PatientDetail() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">تاریخ تولد</p>
-                  <p className="text-sm">{formatBirthdate(patient.birthdate)}</p>
+                  <p className="text-sm">{patient.birthdate}</p>
                 </div>
               </div>
             )}
@@ -454,70 +399,6 @@ export default function PatientDetail() {
             <Button variant="outline" onClick={() => setApptOpen(false)}>انصراف</Button>
             <Button onClick={submitAppt} disabled={createAppt.isPending}>
               {createAppt.isPending ? "در حال ثبت..." : "ثبت نوبت"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Patient Dialog */}
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="h-5 w-5 text-primary" />
-              ویرایش پرونده مراجع
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-sm mb-1.5 block">نام و نام خانوادگی *</Label>
-                <Input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-sm mb-1.5 block">شماره پرونده *</Label>
-                <Input value={editForm.fileNumber} onChange={e => setEditForm(f => ({ ...f, fileNumber: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-sm mb-1.5 block">تماس *</Label>
-                <Input dir="ltr" value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
-              </div>
-              <div>
-                <Label className="text-sm mb-1.5 block">ایمیل</Label>
-                <Input dir="ltr" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-sm mb-1.5 block">تاریخ تولد</Label>
-                <PersianDatePicker
-                  value={editForm.birthdate}
-                  onChange={v => setEditForm(f => ({ ...f, birthdate: v }))}
-                  placeholder="انتخاب تاریخ تولد"
-                />
-              </div>
-              <div>
-                <Label className="text-sm mb-1.5 block">جنسیت</Label>
-                <Select value={editForm.gender || undefined} onValueChange={v => setEditForm(f => ({ ...f, gender: v }))}>
-                  <SelectTrigger><SelectValue placeholder="انتخاب..." /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="female">خانم</SelectItem>
-                    <SelectItem value="male">آقا</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div>
-              <Label className="text-sm mb-1.5 block">یادداشت / هشدار</Label>
-              <Textarea rows={2} value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="توضیحات اضافی..." />
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEditOpen(false)}>انصراف</Button>
-            <Button onClick={submitEditPatient} disabled={updatePatient.isPending}>
-              {updatePatient.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}
             </Button>
           </DialogFooter>
         </DialogContent>
