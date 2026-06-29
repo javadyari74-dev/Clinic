@@ -310,35 +310,6 @@ function formatDateTime(ts: number | string | null | undefined) {
   return formatShamsiDate(Math.floor(ms / 1000), true);
 }
 
-// Print a receipt by writing its HTML into a hidden iframe (works in browser + Electron)
-function printReceiptHtml(bodyHtml: string) {
-  const iframe = document.createElement("iframe");
-  iframe.style.position = "fixed";
-  iframe.style.right = "0";
-  iframe.style.bottom = "0";
-  iframe.style.width = "0";
-  iframe.style.height = "0";
-  iframe.style.border = "0";
-  document.body.appendChild(iframe);
-  const doc = iframe.contentWindow?.document;
-  if (!doc) { document.body.removeChild(iframe); return; }
-  doc.open();
-  doc.write(
-    `<!doctype html><html dir="rtl" lang="fa"><head><meta charset="utf-8"><title>رسید پرداخت</title>` +
-    `<style>body{font-family:Tahoma,Arial,sans-serif;padding:24px;color:#111}` +
-    `h2{text-align:center;margin:0 0 2px}.sub{text-align:center;color:#666;font-size:12px;margin:0 0 16px}` +
-    `table{width:100%;border-collapse:collapse}td{padding:8px 6px;border-bottom:1px solid #eee;font-size:14px}` +
-    `td.l{color:#666;width:42%}td.v{font-weight:bold;text-align:left}.total td.v{color:#15803d;font-size:16px}</style>` +
-    `</head><body>${bodyHtml}</body></html>`,
-  );
-  doc.close();
-  iframe.contentWindow?.focus();
-  setTimeout(() => {
-    iframe.contentWindow?.print();
-    setTimeout(() => document.body.removeChild(iframe), 500);
-  }, 250);
-}
-
 // ─── Clients Tab ──────────────────────────────────────────────────────────────
 function ClientsTab() {
   const [clients, setClients] = useState<Client[]>([]);
@@ -851,15 +822,6 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
     operatorName?: string; commissionAmount?: number; notes?: string;
     nextSessionDate?: string; nextSessionNote?: string;
   }>({ method: "cash" });
-  const [receipt, setReceipt] = useState<Payment | null>(null);
-  const [editing, setEditing] = useState<Payment | null>(null);
-  const [editForm, setEditForm] = useState<{
-    amount?: number; method: string; operatorName?: string;
-    commissionAmount?: number; notes?: string;
-    nextSessionDate?: string; nextSessionNote?: string;
-  }>({ method: "cash" });
-  const [confirmDelete, setConfirmDelete] = useState<Payment | null>(null);
-  const isAdmin = user?.role === "admin";
   const { toast } = useToast();
 
   const load = useCallback(async () => {
@@ -872,55 +834,6 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
     } catch { /* ignore */ } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
-
-  const openEdit = (p: Payment) => {
-    setEditForm({
-      amount: p.amount, method: p.method, operatorName: p.operatorName,
-      commissionAmount: p.commissionAmount, notes: p.notes,
-      nextSessionDate: p.nextSessionDate, nextSessionNote: p.nextSessionNote,
-    });
-    setEditing(p);
-    setReceipt(null);
-  };
-
-  const saveEdit = async () => {
-    if (!editing) return;
-    try {
-      await api(`/laser/payments/${editing.id}`, "PUT", editForm);
-      toast({ title: "پرداخت ویرایش شد" });
-      setEditing(null); load(); onPaymentSaved?.();
-    } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
-  };
-
-  const doDelete = async () => {
-    if (!confirmDelete) return;
-    try {
-      await api(`/laser/payments/${confirmDelete.id}`, "DELETE");
-      toast({ title: "پرداخت حذف شد", description: "نوبت مرتبط به حالت فعال بازگشت" });
-      setConfirmDelete(null); setReceipt(null); load(); onPaymentSaved?.();
-    } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
-  };
-
-  const printReceipt = (p: Payment) => {
-    const esc = (s: string) => s.replace(/[&<>"']/g, c => (
-      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string
-    ));
-    const row = (l: string, v: string, cls = "") => `<tr class="${cls}"><td class="l">${esc(l)}</td><td class="v">${esc(v)}</td></tr>`;
-    const body =
-      `<h2>مطب زیبایی دکتر یاری</h2><p class="sub">رسید پرداخت صندوق لیزر</p><table>` +
-      row("مراجع", p.client?.name || "—") +
-      row("شماره پرونده", p.client?.fileNumber ? toPersianDigits(p.client.fileNumber) : "—") +
-      row("خدمت", p.service?.name || "—") +
-      row("روش پرداخت", METHOD_LABEL[p.method] || p.method) +
-      row("اپراتور", p.operatorName || "—") +
-      row("کمیسیون", p.commissionAmount > 0 ? formatCurrency(p.commissionAmount) : "—") +
-      row("تاریخ پرداخت", formatDateTime(p.paidAt)) +
-      (p.nextSessionDate ? row("جلسه بعدی", formatDateTime(p.nextSessionDate)) : "") +
-      (p.notes ? row("یادداشت", p.notes) : "") +
-      row("مبلغ کل", formatCurrency(p.amount), "total") +
-      `</table>`;
-    printReceiptHtml(body);
-  };
 
   const selectedAppt = activeAppts.find(a => a.id === Number(form.appointmentId));
 
@@ -972,19 +885,14 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["مراجع", "خدمت", "مبلغ", "روش", "اپراتور", "کمیسیون", "تاریخ پرداخت", "یادداشت", "رسید"].map(h => (
+                {["مراجع", "خدمت", "مبلغ", "روش", "اپراتور", "کمیسیون", "تاریخ پرداخت", "یادداشت"].map(h => (
                   <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y">
               {payments.map(p => (
-                <tr
-                  key={p.id}
-                  className="hover:bg-rose-50/60 cursor-pointer transition-colors"
-                  onClick={() => setReceipt(p)}
-                  title="مشاهده رسید کامل"
-                >
+                <tr key={p.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5 font-medium">{p.client?.name || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.service?.name || "—"}</td>
                   <td className="px-3 py-2.5 font-medium text-green-700">{formatCurrency(p.amount)}</td>
@@ -993,11 +901,6 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
                   <td className="px-3 py-2.5 text-amber-700 font-medium">{p.commissionAmount > 0 ? formatCurrency(p.commissionAmount) : "—"}</td>
                   <td className="px-3 py-2.5 text-xs">{formatDateTime(p.paidAt)}</td>
                   <td className="px-3 py-2.5 text-muted-foreground text-xs max-w-[120px] truncate">{p.notes || "—"}</td>
-                  <td className="px-3 py-2.5">
-                    <span className="inline-flex items-center gap-1 text-xs text-rose-700 font-medium">
-                      <CreditCard className="h-3.5 w-3.5" /> مشاهده
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1095,131 +998,6 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
             <Button onClick={save} disabled={!form.appointmentId || form.amount == null} className="bg-rose-700 hover:bg-rose-800 text-white">
               ثبت پرداخت
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Receipt view dialog */}
-      <Dialog open={!!receipt} onOpenChange={o => !o && setReceipt(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-rose-700" /> رسید پرداخت
-            </DialogTitle>
-          </DialogHeader>
-          {receipt && (
-            <div className="space-y-3">
-              <div className="text-center border-b pb-2">
-                <p className="font-bold">مطب زیبایی دکتر یاری</p>
-                <p className="text-xs text-muted-foreground">رسید پرداخت صندوق لیزر</p>
-              </div>
-              <div className="text-sm divide-y">
-                {[
-                  ["مراجع", receipt.client?.name || "—"],
-                  ["شماره پرونده", receipt.client?.fileNumber ? toPersianDigits(receipt.client.fileNumber) : "—"],
-                  ["خدمت", receipt.service?.name || "—"],
-                  ["روش پرداخت", METHOD_LABEL[receipt.method] || receipt.method],
-                  ["اپراتور", receipt.operatorName || "—"],
-                  ["کمیسیون", receipt.commissionAmount > 0 ? formatCurrency(receipt.commissionAmount) : "—"],
-                  ["تاریخ پرداخت", formatDateTime(receipt.paidAt)],
-                  ...(receipt.nextSessionDate ? [["جلسه بعدی", formatDateTime(receipt.nextSessionDate)] as [string, string]] : []),
-                  ...(receipt.nextSessionNote ? [["یادداشت جلسه بعدی", receipt.nextSessionNote] as [string, string]] : []),
-                  ...(receipt.notes ? [["یادداشت", receipt.notes] as [string, string]] : []),
-                ].map(([l, v]) => (
-                  <div key={l} className="flex justify-between gap-3 py-2">
-                    <span className="text-muted-foreground">{l}</span>
-                    <span className="font-medium text-left">{v}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between gap-3 py-2 bg-green-50 rounded px-2 mt-1">
-                  <span className="font-medium">مبلغ کل</span>
-                  <span className="font-bold text-green-700">{formatCurrency(receipt.amount)}</span>
-                </div>
-              </div>
-            </div>
-          )}
-          <DialogFooter className="flex-wrap gap-2">
-            {receipt && isAdmin && (
-              <>
-                <Button variant="destructive" onClick={() => setConfirmDelete(receipt)}>
-                  <Trash2 className="h-4 w-4 ml-1" /> حذف
-                </Button>
-                <Button variant="outline" onClick={() => openEdit(receipt)}>
-                  <Edit2 className="h-4 w-4 ml-1" /> ویرایش
-                </Button>
-              </>
-            )}
-            {receipt && (
-              <Button onClick={() => printReceipt(receipt)} className="bg-rose-700 hover:bg-rose-800 text-white">
-                چاپ رسید
-              </Button>
-            )}
-            <Button variant="ghost" onClick={() => setReceipt(null)}>بستن</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit payment dialog — admin only */}
-      <Dialog open={!!editing} onOpenChange={o => !o && setEditing(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>ویرایش پرداخت</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><Label>مبلغ (تومان) *</Label>
-              <PriceInput value={editForm.amount} onChange={v => setEditForm(f => ({ ...f, amount: v }))} placeholder="مبلغ دریافتی" />
-            </div>
-            <div>
-              <Label>روش پرداخت</Label>
-              <Select value={editForm.method} onValueChange={v => setEditForm(f => ({ ...f, method: v }))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">نقد</SelectItem>
-                  <SelectItem value="card">کارت‌خوان</SelectItem>
-                  <SelectItem value="transfer">کارت به کارت</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div><Label>نام اپراتور</Label>
-              <Input value={editForm.operatorName || ""} onChange={e => setEditForm(f => ({ ...f, operatorName: e.target.value }))} />
-            </div>
-            <div><Label>مبلغ کمیسیون (تومان)</Label>
-              <PriceInput value={editForm.commissionAmount} onChange={v => setEditForm(f => ({ ...f, commissionAmount: v }))} />
-            </div>
-            <div className="border rounded-lg p-3 space-y-2 bg-amber-50/50 border-amber-200">
-              <Label className="flex items-center gap-1.5 text-amber-800 font-medium">
-                <BellRing className="h-4 w-4" /> یادآوری جلسه بعدی
-              </Label>
-              <PersianDatePicker
-                value={editForm.nextSessionDate || ""}
-                onChange={v => setEditForm(f => ({ ...f, nextSessionDate: v }))}
-                placeholder="تاریخ جلسه بعدی (اختیاری)"
-              />
-              <Input
-                value={editForm.nextSessionNote || ""}
-                onChange={e => setEditForm(f => ({ ...f, nextSessionNote: e.target.value }))}
-                placeholder="یادداشت یادآوری (اختیاری)"
-              />
-            </div>
-            <div><Label>یادداشت</Label><Textarea rows={2} value={editForm.notes || ""} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditing(null)}>انصراف</Button>
-            <Button onClick={saveEdit} disabled={editForm.amount == null} className="bg-rose-700 hover:bg-rose-800 text-white">
-              ذخیره تغییرات
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation — admin only */}
-      <Dialog open={!!confirmDelete} onOpenChange={o => !o && setConfirmDelete(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>حذف پرداخت</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">
-            آیا از حذف این رسید پرداخت مطمئن هستید؟ نوبت مرتبط به حالت «فعال» بازمی‌گردد و این عملیات قابل بازگشت نیست.
-          </p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmDelete(null)}>انصراف</Button>
-            <Button variant="destructive" onClick={doDelete}>بله، حذف شود</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

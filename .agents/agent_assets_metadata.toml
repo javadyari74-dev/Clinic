@@ -6,9 +6,3 @@ id = "M3Bk_EWAbsP9U3mdiNoST"
 uri = "file://dist/DoctorYariClinic-source.zip"
 type = "unspecified"
 title = "نرم‌افزار مطب دکتر یاری — نسخه اصلاح‌شده (ویندوز)"
-
-[[outputs]]
-id = "jR7I52kiR7JDN5EM8laX4"
-uri = "file://desktop-prebuilt.zip"
-type = "unspecified"
-title = "نرم‌افزار ویندوز (خروجی آماده ساخت)"
