@@ -1113,6 +1113,7 @@ components:
         amount: { type: integer }
         type: { type: string }
         description: { type: string }
+        paymentId: { type: integer }
 
     PatientList:
       type: object

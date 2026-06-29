@@ -472,6 +472,7 @@ export default function Payments() {
               data: {
                 amount: commissionAmount,
                 type: "referral_credit",
+                paymentId: payment.id,
                 description: [
                   payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
                   commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
