@@ -1,2 +1,6 @@
 - [Beauty Clinic App Stack](beauty-clinic-stack.md) — Persian RTL full-stack clinic management system architecture decisions.
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
+- [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
+- [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
+- [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
+- [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.

@@ -112,7 +112,18 @@ router.get("/patients/upcoming-birthdays", async (req, res): Promise<void> => {
     if (!patient.birthdate) continue;
     const parts = patient.birthdate.split("-").map(Number);
     if (parts.length !== 3 || parts.some(isNaN)) continue;
-    const [, birthMonth, birthDay] = parts;
+    let birthMonth: number, birthDay: number;
+    if (parts[0] > 1700) {
+      // Stored as Gregorian — convert to Shamsi month/day for the birthday match
+      const g = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+      const sh = getShamsiPartsServer(g);
+      birthMonth = sh.month;
+      birthDay = sh.day;
+    } else {
+      // Legacy value already stored as Shamsi
+      birthMonth = parts[1];
+      birthDay = parts[2];
+    }
 
     // Try this year first, then next year
     for (const yearOffset of [0, 1]) {
