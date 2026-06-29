@@ -20,7 +20,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { formatShamsiDate, formatCurrency, toPersianDigits } from "@/lib/format";
 import { Check, ChevronsUpDown, Plus, Pencil, Trash2 } from "lucide-react";
-import { TierBadge } from "@/components/tier-badge";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -97,7 +96,6 @@ type AppRow = {
   id: number;
   scheduledAt: number;
   patientName?: string | null;
-  patientTier?: string | null;
   serviceName?: string | null;
   sessionNumber?: number | null;
   deposit?: number | null;
@@ -126,12 +124,7 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
         </TableCell>
       )}
       <TableCell className="text-sm">{formatShamsiDate(app.scheduledAt, true)}</TableCell>
-      <TableCell className="font-medium">
-        <span className="flex items-center gap-1.5">
-          {app.patientName}
-          <TierBadge tier={app.patientTier} />
-        </span>
-      </TableCell>
+      <TableCell className="font-medium">{app.patientName}</TableCell>
       <TableCell>{app.serviceName}</TableCell>
       <TableCell>
         {app.sessionNumber

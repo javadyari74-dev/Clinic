@@ -21,5 +21,4 @@ export interface PaymentInput {
   discountName?: string;
   discountAmount?: number;
   depositAmount?: number;
-  applyAccountBalance?: number;
 }

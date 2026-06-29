@@ -14,9 +14,4 @@ export interface PatientInput {
   birthdate?: string;
   gender?: string;
   notes?: string;
-  tier?: string;
-  accountBalance?: number;
-  referrerType?: string;
-  referrerId?: number;
-  referrerRate?: number;
 }

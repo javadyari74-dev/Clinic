@@ -19,7 +19,6 @@ export const commissionsTable = sqliteTable("commissions", {
   recipientType: text("recipient_type").notNull(),
   recipientId: integer("recipient_id").notNull(),
   appointmentId: integer("appointment_id"),
-  paymentId: integer("payment_id"),
   description: text("description"),
   amount: integer("amount").notNull(),
   rate: integer("rate"),

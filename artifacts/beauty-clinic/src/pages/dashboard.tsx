@@ -14,18 +14,12 @@ import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
   Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone,
 } from "lucide-react";
-import { TierBadge } from "@/components/tier-badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer,
 } from "recharts";
 
 // ─── Shamsi Calendar Helpers ─────────────────────────────────────────────────
-
-function toMs(ts: number): number {
-  // Auto-detect: if ts > 1e11 it's already milliseconds, otherwise it's seconds
-  return ts > 1e11 ? ts : ts * 1000;
-}
 
 function getShamsiParts(date: Date): { year: number; month: number; day: number } {
   // Use "en-US" locale so numbers come out as Latin digits (not Persian ۱۲۳)
@@ -68,7 +62,7 @@ function isSameShamsiDay(
   unixTs: number,
   year: number, month: number, day: number,
 ): boolean {
-  const p = getShamsiParts(new Date(toMs(unixTs)));
+  const p = getShamsiParts(new Date(unixTs * 1000));
   return p.year === year && p.month === month && p.day === day;
 }
 
@@ -151,7 +145,7 @@ export default function Dashboard() {
   const apptDays = useMemo(() => {
     const s = new Set<number>();
     allAppointments?.data?.forEach((a) => {
-      const p = getShamsiParts(new Date(toMs(a.scheduledAt)));
+      const p = getShamsiParts(new Date(a.scheduledAt * 1000));
       if (p.year === calYear && p.month === calMonth) s.add(p.day);
     });
     return s;
@@ -161,7 +155,7 @@ export default function Dashboard() {
     const s = new Set<number>();
     reminders?.forEach((r) => {
       if (!r.dueAt) return;
-      const p = getShamsiParts(new Date(toMs(Number(r.dueAt))));
+      const p = getShamsiParts(new Date(Number(r.dueAt) * 1000));
       if (p.year === calYear && p.month === calMonth) s.add(p.day);
     });
     return s;
@@ -170,7 +164,7 @@ export default function Dashboard() {
   const paymentDays = useMemo(() => {
     const s = new Set<number>();
     allPayments?.forEach((p) => {
-      const parts = getShamsiParts(new Date(toMs(p.paidAt)));
+      const parts = getShamsiParts(new Date(p.paidAt * 1000));
       if (parts.year === calYear && parts.month === calMonth) s.add(parts.day);
     });
     return s;
@@ -513,10 +507,7 @@ export default function Dashboard() {
                             )}
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate flex items-center gap-1.5">
-                              {a.patientName}
-                              <TierBadge tier={a.patientTier} />
-                            </p>
+                            <p className="font-medium truncate">{a.patientName}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {a.serviceName}
                               {a.staffName ? ` · ${a.staffName}` : ""}
@@ -525,7 +516,7 @@ export default function Dashboard() {
                               {new Intl.DateTimeFormat("fa-IR", {
                                 hour: "2-digit",
                                 minute: "2-digit",
-                              }).format(new Date(toMs(a.scheduledAt)))}
+                              }).format(new Date(a.scheduledAt * 1000))}
                             </p>
                           </div>
                           <Badge variant="outline" className="text-xs shrink-0">
@@ -557,9 +548,8 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{r.title}</p>
                             {r.patientName && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <p className="text-xs text-muted-foreground">
                                 مراجع: {r.patientName}
-                                <TierBadge tier={r.patientTier} />
                               </p>
                             )}
                           </div>
@@ -690,9 +680,8 @@ export default function Dashboard() {
                       <div className="flex-1 space-y-0.5">
                         <p className="text-sm font-medium">{r.title}</p>
                         {r.patientName && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">
                             مراجع: {r.patientName}
-                            <TierBadge tier={r.patientTier} />
                           </p>
                         )}
                         <p className="text-xs font-mono text-muted-foreground">
