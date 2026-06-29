@@ -1344,6 +1344,8 @@ components:
         discountName: { type: string }
         discountAmount: { type: integer }
         depositAmount: { type: integer }
+        # مبلغی که هنگام همین پرداخت باید از موجودی اکانت مراجع کسر شود (اتمیک، سمت سرور)
+        applyAccountBalance: { type: integer }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
