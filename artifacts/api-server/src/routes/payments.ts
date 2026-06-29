@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
-import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable } from "@workspace/db";
+import { eq, desc, sql, and, ne, isNull } from "drizzle-orm";
+import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable, patientAccountTransactionsTable } from "@workspace/db";
 import {
   ListPaymentsQueryParams,
   CreatePaymentBody,
@@ -149,6 +149,7 @@ router.post("/payments", async (req, res): Promise<void> => {
             recipientType,
             recipientId: patient.referrerId,
             appointmentId: payment.appointmentId,
+            paymentId: payment.id,
             amount: accrual,
             rate: patient.referrerRate,
             description: `پورسانت معرفی بیمار «${patient.name}»`,
@@ -182,11 +183,65 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [payment] = await db.delete(paymentsTable).where(eq(paymentsTable.id, params.data.id)).returning();
+  const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, params.data.id));
   if (!payment) {
     res.status(404).json({ error: "پرداخت یافت نشد" });
     return;
   }
+
+  // حذف پرداخت باید همه‌ی آثار مالیِ همان پرداخت را به‌صورت اتمیک برگرداند تا چیزی جا نماند:
+  //   ۱) تراکنش‌های حساب مراجع مرتبط (کسر موجودی یا اعتبار معرفی) + اصلاح موجودی
+  //   ۲) ردیف‌های کمیسیون ثبت‌شده برای نوبتِ همان پرداخت (پورسانت معرفِ کارمند/کمیسیون‌گیرنده/لیزر یا کمیسیون دستی)
+  //   ۳) کاهش شمارش استفاده‌ی تخفیف
+  await db.transaction(async (tx) => {
+    // ۱) برگرداندن تراکنش‌های حساب: برعکس‌کردن هر تراکنش یعنی کم‌کردن «مبلغِ آن» از موجودی
+    //    (کسرِ منفی → موجودی برمی‌گردد؛ اعتبارِ مثبت → از موجودی کم می‌شود)
+    const linkedTxns = await tx
+      .select()
+      .from(patientAccountTransactionsTable)
+      .where(eq(patientAccountTransactionsTable.paymentId, payment.id));
+    for (const t of linkedTxns) {
+      await tx
+        .update(patientsTable)
+        .set({ accountBalance: sql`${patientsTable.accountBalance} - ${t.amount}` })
+        .where(eq(patientsTable.id, t.patientId));
+    }
+    if (linkedTxns.length > 0) {
+      await tx
+        .delete(patientAccountTransactionsTable)
+        .where(eq(patientAccountTransactionsTable.paymentId, payment.id));
+    }
+
+    // ۲) حذف کمیسیون‌های مربوط به همین پرداخت.
+    //    کمیسیون‌های جدید با paymentId به پرداخت گره خورده‌اند؛ پس دقیقاً همان‌ها حذف می‌شوند.
+    await tx.delete(commissionsTable).where(eq(commissionsTable.paymentId, payment.id));
+    //    سازگاری با داده‌های قدیمی: کمیسیون‌هایی که قبل از افزودن paymentId ساخته شده‌اند
+    //    فقط appointmentId دارند. این‌ها را تنها وقتی با appointmentId حذف می‌کنیم که این
+    //    پرداخت تنها پرداختِ آن نوبت باشد، تا کمیسیونِ پرداخت‌های دیگرِ همان نوبت پاک نشود.
+    if (payment.appointmentId && payment.appointmentId > 0) {
+      const otherPayments = await tx
+        .select({ id: paymentsTable.id })
+        .from(paymentsTable)
+        .where(and(eq(paymentsTable.appointmentId, payment.appointmentId), ne(paymentsTable.id, payment.id)));
+      if (otherPayments.length === 0) {
+        await tx
+          .delete(commissionsTable)
+          .where(and(eq(commissionsTable.appointmentId, payment.appointmentId), isNull(commissionsTable.paymentId)));
+      }
+    }
+
+    // ۳) کاهش شمارش استفاده‌ی تخفیف (هرگز منفی نشود)
+    if (payment.discountId) {
+      await tx
+        .update(discountsTable)
+        .set({ usageCount: sql`MAX(usage_count - 1, 0)` })
+        .where(eq(discountsTable.id, payment.discountId));
+    }
+
+    await tx.delete(paymentsTable).where(eq(paymentsTable.id, payment.id));
+  });
+
+  await logActivity("delete", "payment", payment.id, `پرداخت ${payment.amount.toLocaleString()} تومان حذف شد`);
   res.sendStatus(204);
 });
 

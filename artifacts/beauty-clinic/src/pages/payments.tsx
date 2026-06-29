@@ -495,6 +495,7 @@ export default function Payments() {
                 recipientType: commRecipientType,
                 recipientId: commRecipientId,
                 appointmentId: form.getValues("appointmentId") ?? undefined,
+                paymentId: payment.id,
                 amount: commissionAmount,
                 rate: commCalcType === "percentage" ? commCalcValue : undefined,
                 description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,

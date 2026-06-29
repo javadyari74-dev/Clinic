@@ -499,6 +499,8 @@ export interface Commission {
   /** @nullable */
   appointmentId?: number | null;
   /** @nullable */
+  paymentId?: number | null;
+  /** @nullable */
   description?: string | null;
   amount: number;
   /** @nullable */
@@ -518,6 +520,7 @@ export interface CommissionInput {
   recipientType: string;
   recipientId: number;
   appointmentId?: number;
+  paymentId?: number;
   description?: string;
   amount: number;
   rate?: number;
