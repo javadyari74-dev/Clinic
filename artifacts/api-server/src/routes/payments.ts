@@ -35,9 +35,79 @@ router.post("/payments", async (req, res): Promise<void> => {
     return;
   }
   const paidAt = Math.floor(Date.now() / 1000);
+  // applyAccountBalance فقط ورودی است و ستونی در جدول پرداخت ندارد؛ از داده‌ی ذخیره‌شونده جدا می‌شود
+  const { applyAccountBalance, ...paymentValues } = parsed.data;
+  const balanceToApply = Math.abs(Math.round(applyAccountBalance ?? 0));
+
+  // اگر قرار است از موجودی اکانت استفاده شود، بیمار را پیدا کن و کفایت موجودی را پیش از ثبت پرداخت بررسی کن
+  // تا «ثبت پرداخت» و «کسر موجودی» اتمیک باشند (یا هر دو انجام می‌شوند یا هیچ‌کدام)
+  let balancePatientId: number | null = null;
+  if (balanceToApply > 0) {
+    if (!paymentValues.appointmentId || paymentValues.appointmentId <= 0) {
+      res.status(400).json({ error: "برای کسر از موجودی اکانت، نوبت مرتبط لازم است" });
+      return;
+    }
+    const [apptForBalance] = await db
+      .select({ patientId: appointmentsTable.patientId })
+      .from(appointmentsTable)
+      .where(eq(appointmentsTable.id, paymentValues.appointmentId));
+    if (!apptForBalance) {
+      res.status(400).json({ error: "نوبت مرتبط برای کسر از موجودی اکانت یافت نشد" });
+      return;
+    }
+    const [balancePatient] = await db
+      .select({ id: patientsTable.id, accountBalance: patientsTable.accountBalance })
+      .from(patientsTable)
+      .where(eq(patientsTable.id, apptForBalance.patientId));
+    if (!balancePatient) {
+      res.status(400).json({ error: "بیمار مرتبط برای کسر از موجودی اکانت یافت نشد" });
+      return;
+    }
+    if (balanceToApply > balancePatient.accountBalance) {
+      res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return;
+    }
+    balancePatientId = balancePatient.id;
+  }
+
   // جزئیات کامل پرداخت (مراجع، خدمت، شماره جلسه، تخفیف، بیعانه و...) روی همین ردیف ذخیره می‌شود
   // تا هر تراکنش به‌صورت دائمی و کامل در صندوق ثبت بماند و در پشتیبان‌گیری بیاید
-  const [payment] = await db.insert(paymentsTable).values({ ...parsed.data, paidAt }).returning();
+  // ثبت پرداخت و کسر موجودی اکانت در یک تراکنش انجام می‌شود تا اتمیک بماند
+  const payment = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(paymentsTable).values({ ...paymentValues, paidAt }).returning();
+
+    if (balanceToApply > 0 && balancePatientId !== null) {
+      const [freshPatient] = await tx
+        .select({ accountBalance: patientsTable.accountBalance })
+        .from(patientsTable)
+        .where(eq(patientsTable.id, balancePatientId));
+      if (!freshPatient || balanceToApply > freshPatient.accountBalance) {
+        // در صورت تغییر موجودی بین بررسی اولیه و این لحظه، کل تراکنش برگردانده می‌شود
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+      await tx.insert(patientAccountTransactionsTable).values({
+        patientId: balancePatientId,
+        amount: -balanceToApply,
+        type: "deduct",
+        description: `استفاده در پرداخت${created.serviceName ? ` — ${created.serviceName}` : ""}`,
+        paymentId: created.id,
+      });
+      await tx
+        .update(patientsTable)
+        .set({ accountBalance: freshPatient.accountBalance - balanceToApply })
+        .where(eq(patientsTable.id, balancePatientId));
+    }
+
+    return created;
+  }).catch((err: unknown) => {
+    if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
+      res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return null;
+    }
+    throw err;
+  });
+
+  if (!payment) return;
 
   // Increment discount usage if applied
   if (payment.discountId) {

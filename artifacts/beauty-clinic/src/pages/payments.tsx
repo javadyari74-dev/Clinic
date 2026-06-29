@@ -417,6 +417,8 @@ export default function Payments() {
     },
   });
 
+  // کسر موجودی اکانت اکنون سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود؛
+  // این میوتیشن فقط برای ثبت «اعتبار معرفی» مراجعِ معرف (referral_credit) باقی مانده است.
   const createAccountTxn = useCreatePatientAccountTransaction({
     mutation: {
       onSuccess: (_data, vars) => {
@@ -425,11 +427,10 @@ export default function Payments() {
         queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(vars.id) });
       },
       onError: () => {
-        // این میوتیشن هم برای کسر موجودی و هم برای اعتبار معرفی استفاده می‌شود؛
-        // اگر ناموفق شد، اپراتور باید مطلع شود تا حساب مراجع را دستی اصلاح کند.
+        // اگر ثبت اعتبار معرفی ناموفق شد، اپراتور باید مطلع شود تا حساب مراجع را دستی اصلاح کند.
         toast({
-          title: "ثبت تراکنش حساب مراجع ناموفق بود",
-          description: "پرداخت ثبت شد اما تراکنش حساب مراجع (کسر موجودی یا اعتبار معرفی) اعمال نشد. لطفاً حساب را دستی بررسی کنید.",
+          title: "ثبت اعتبار معرفی ناموفق بود",
+          description: "پرداخت ثبت شد اما اعتبار معرفی به حساب مراجعِ معرف اعمال نشد. لطفاً حساب را دستی بررسی کنید.",
           variant: "destructive",
         });
       },
@@ -503,17 +504,12 @@ export default function Payments() {
           }
         }
 
-        // استفاده از موجودی اکانت: کسر مبلغ مصرف‌شده از حساب مراجع
+        // کسر موجودی اکانت اکنون سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
+        // پس فقط کش مربوط به موجودی/تراکنش‌های مراجع را تازه می‌کنیم
         if (balanceApplyEnabled && balanceApplied > 0 && selectedPatientId) {
-          const appt3 = allActiveAppointments.find(a => a.id === form.getValues("appointmentId"));
-          createAccountTxn.mutate({
-            id: selectedPatientId,
-            data: {
-              amount: -balanceApplied,
-              type: "deduct",
-              description: `استفاده در پرداخت${appt3?.serviceName ? ` — ${appt3.serviceName}` : ""}`,
-            },
-          });
+          queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(selectedPatientId) });
+          queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(selectedPatientId) });
         }
 
         // رسید از ردیف پرداختِ ذخیره‌شده در دیتابیس ساخته می‌شود (جزئیات کامل و دائمی)
@@ -603,6 +599,8 @@ export default function Payments() {
         discountName: discountEnabled && selectedDiscount ? selectedDiscount.name : undefined,
         discountAmount: discountAmt > 0 ? discountAmt : undefined,
         depositAmount: currentDeposit > 0 ? currentDeposit : undefined,
+        // کسر از موجودی اکانت سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
+        applyAccountBalance: balanceApplyEnabled && balanceApplied > 0 ? balanceApplied : undefined,
       },
     });
   }

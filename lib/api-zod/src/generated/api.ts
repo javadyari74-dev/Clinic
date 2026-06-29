@@ -560,7 +560,8 @@ export const CreatePaymentBody = zod.object({
   "unitLabel": zod.string().optional(),
   "discountName": zod.string().optional(),
   "discountAmount": zod.number().optional(),
-  "depositAmount": zod.number().optional()
+  "depositAmount": zod.number().optional(),
+  "applyAccountBalance": zod.number().optional()
 })
 
 
