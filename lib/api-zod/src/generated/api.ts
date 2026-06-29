@@ -186,7 +186,8 @@ export const CreatePatientAccountTransactionParams = zod.object({
 export const CreatePatientAccountTransactionBody = zod.object({
   "amount": zod.number(),
   "type": zod.string(),
-  "description": zod.string().optional()
+  "description": zod.string().optional(),
+  "paymentId": zod.number().optional()
 })
 
 

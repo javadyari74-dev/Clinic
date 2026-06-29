@@ -90,6 +90,7 @@ export interface PatientAccountTransactionInput {
   amount: number;
   type: string;
   description?: string;
+  paymentId?: number;
 }
 
 export interface PatientList {
