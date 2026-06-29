@@ -472,6 +472,7 @@ export default function Payments() {
               data: {
                 amount: commissionAmount,
                 type: "referral_credit",
+                // اتصال اعتبار معرفی به همین پرداخت تا هنگام حذف پرداخت، این اعتبار نیز برگردانده شود
                 paymentId: payment.id,
                 description: [
                   payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
