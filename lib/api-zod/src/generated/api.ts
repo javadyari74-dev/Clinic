@@ -560,7 +560,8 @@ export const CreatePaymentBody = zod.object({
   "unitLabel": zod.string().optional(),
   "discountName": zod.string().optional(),
   "discountAmount": zod.number().optional(),
-  "depositAmount": zod.number().optional()
+  "depositAmount": zod.number().optional(),
+  "applyAccountBalance": zod.number().optional()
 })
 
 
@@ -740,6 +741,7 @@ export const ListCommissionsResponseItem = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -757,6 +759,7 @@ export const CreateCommissionBody = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().optional(),
+  "paymentId": zod.number().optional(),
   "description": zod.string().optional(),
   "amount": zod.number(),
   "rate": zod.number().optional(),
@@ -787,6 +790,7 @@ export const UpdateCommissionResponse = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),

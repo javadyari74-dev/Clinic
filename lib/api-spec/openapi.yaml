@@ -1344,6 +1344,8 @@ components:
         discountName: { type: string }
         discountAmount: { type: integer }
         depositAmount: { type: integer }
+        # مبلغی که هنگام همین پرداخت باید از موجودی اکانت مراجع کسر شود (اتمیک، سمت سرور)
+        applyAccountBalance: { type: integer }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
@@ -1494,6 +1496,7 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: ["integer", "null"] }
+        paymentId: { type: ["integer", "null"] }
         description: { type: ["string", "null"] }
         amount: { type: integer }
         rate: { type: ["integer", "null"] }
@@ -1511,6 +1514,7 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: integer }
+        paymentId: { type: integer }
         description: { type: string }
         amount: { type: integer }
         rate: { type: integer }

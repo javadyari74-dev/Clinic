@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
-import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable } from "@workspace/db";
+import { eq, desc, sql, and, ne, isNull } from "drizzle-orm";
+import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable, patientAccountTransactionsTable } from "@workspace/db";
 import {
   ListPaymentsQueryParams,
   CreatePaymentBody,
@@ -35,9 +35,79 @@ router.post("/payments", async (req, res): Promise<void> => {
     return;
   }
   const paidAt = Math.floor(Date.now() / 1000);
+  // applyAccountBalance فقط ورودی است و ستونی در جدول پرداخت ندارد؛ از داده‌ی ذخیره‌شونده جدا می‌شود
+  const { applyAccountBalance, ...paymentValues } = parsed.data;
+  const balanceToApply = Math.abs(Math.round(applyAccountBalance ?? 0));
+
+  // اگر قرار است از موجودی اکانت استفاده شود، بیمار را پیدا کن و کفایت موجودی را پیش از ثبت پرداخت بررسی کن
+  // تا «ثبت پرداخت» و «کسر موجودی» اتمیک باشند (یا هر دو انجام می‌شوند یا هیچ‌کدام)
+  let balancePatientId: number | null = null;
+  if (balanceToApply > 0) {
+    if (!paymentValues.appointmentId || paymentValues.appointmentId <= 0) {
+      res.status(400).json({ error: "برای کسر از موجودی اکانت، نوبت مرتبط لازم است" });
+      return;
+    }
+    const [apptForBalance] = await db
+      .select({ patientId: appointmentsTable.patientId })
+      .from(appointmentsTable)
+      .where(eq(appointmentsTable.id, paymentValues.appointmentId));
+    if (!apptForBalance) {
+      res.status(400).json({ error: "نوبت مرتبط برای کسر از موجودی اکانت یافت نشد" });
+      return;
+    }
+    const [balancePatient] = await db
+      .select({ id: patientsTable.id, accountBalance: patientsTable.accountBalance })
+      .from(patientsTable)
+      .where(eq(patientsTable.id, apptForBalance.patientId));
+    if (!balancePatient) {
+      res.status(400).json({ error: "بیمار مرتبط برای کسر از موجودی اکانت یافت نشد" });
+      return;
+    }
+    if (balanceToApply > balancePatient.accountBalance) {
+      res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return;
+    }
+    balancePatientId = balancePatient.id;
+  }
+
   // جزئیات کامل پرداخت (مراجع، خدمت، شماره جلسه، تخفیف، بیعانه و...) روی همین ردیف ذخیره می‌شود
   // تا هر تراکنش به‌صورت دائمی و کامل در صندوق ثبت بماند و در پشتیبان‌گیری بیاید
-  const [payment] = await db.insert(paymentsTable).values({ ...parsed.data, paidAt }).returning();
+  // ثبت پرداخت و کسر موجودی اکانت در یک تراکنش انجام می‌شود تا اتمیک بماند
+  const payment = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(paymentsTable).values({ ...paymentValues, paidAt }).returning();
+
+    if (balanceToApply > 0 && balancePatientId !== null) {
+      const [freshPatient] = await tx
+        .select({ accountBalance: patientsTable.accountBalance })
+        .from(patientsTable)
+        .where(eq(patientsTable.id, balancePatientId));
+      if (!freshPatient || balanceToApply > freshPatient.accountBalance) {
+        // در صورت تغییر موجودی بین بررسی اولیه و این لحظه، کل تراکنش برگردانده می‌شود
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+      await tx.insert(patientAccountTransactionsTable).values({
+        patientId: balancePatientId,
+        amount: -balanceToApply,
+        type: "deduct",
+        description: `استفاده در پرداخت${created.serviceName ? ` — ${created.serviceName}` : ""}`,
+        paymentId: created.id,
+      });
+      await tx
+        .update(patientsTable)
+        .set({ accountBalance: freshPatient.accountBalance - balanceToApply })
+        .where(eq(patientsTable.id, balancePatientId));
+    }
+
+    return created;
+  }).catch((err: unknown) => {
+    if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
+      res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return null;
+    }
+    throw err;
+  });
+
+  if (!payment) return;
 
   // Increment discount usage if applied
   if (payment.discountId) {
@@ -79,6 +149,7 @@ router.post("/payments", async (req, res): Promise<void> => {
             recipientType,
             recipientId: patient.referrerId,
             appointmentId: payment.appointmentId,
+            paymentId: payment.id,
             amount: accrual,
             rate: patient.referrerRate,
             description: `پورسانت معرفی بیمار «${patient.name}»`,
@@ -112,11 +183,65 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [payment] = await db.delete(paymentsTable).where(eq(paymentsTable.id, params.data.id)).returning();
+  const [payment] = await db.select().from(paymentsTable).where(eq(paymentsTable.id, params.data.id));
   if (!payment) {
     res.status(404).json({ error: "پرداخت یافت نشد" });
     return;
   }
+
+  // حذف پرداخت باید همه‌ی آثار مالیِ همان پرداخت را به‌صورت اتمیک برگرداند تا چیزی جا نماند:
+  //   ۱) تراکنش‌های حساب مراجع مرتبط (کسر موجودی یا اعتبار معرفی) + اصلاح موجودی
+  //   ۲) ردیف‌های کمیسیون ثبت‌شده برای نوبتِ همان پرداخت (پورسانت معرفِ کارمند/کمیسیون‌گیرنده/لیزر یا کمیسیون دستی)
+  //   ۳) کاهش شمارش استفاده‌ی تخفیف
+  await db.transaction(async (tx) => {
+    // ۱) برگرداندن تراکنش‌های حساب: برعکس‌کردن هر تراکنش یعنی کم‌کردن «مبلغِ آن» از موجودی
+    //    (کسرِ منفی → موجودی برمی‌گردد؛ اعتبارِ مثبت → از موجودی کم می‌شود)
+    const linkedTxns = await tx
+      .select()
+      .from(patientAccountTransactionsTable)
+      .where(eq(patientAccountTransactionsTable.paymentId, payment.id));
+    for (const t of linkedTxns) {
+      await tx
+        .update(patientsTable)
+        .set({ accountBalance: sql`${patientsTable.accountBalance} - ${t.amount}` })
+        .where(eq(patientsTable.id, t.patientId));
+    }
+    if (linkedTxns.length > 0) {
+      await tx
+        .delete(patientAccountTransactionsTable)
+        .where(eq(patientAccountTransactionsTable.paymentId, payment.id));
+    }
+
+    // ۲) حذف کمیسیون‌های مربوط به همین پرداخت.
+    //    کمیسیون‌های جدید با paymentId به پرداخت گره خورده‌اند؛ پس دقیقاً همان‌ها حذف می‌شوند.
+    await tx.delete(commissionsTable).where(eq(commissionsTable.paymentId, payment.id));
+    //    سازگاری با داده‌های قدیمی: کمیسیون‌هایی که قبل از افزودن paymentId ساخته شده‌اند
+    //    فقط appointmentId دارند. این‌ها را تنها وقتی با appointmentId حذف می‌کنیم که این
+    //    پرداخت تنها پرداختِ آن نوبت باشد، تا کمیسیونِ پرداخت‌های دیگرِ همان نوبت پاک نشود.
+    if (payment.appointmentId && payment.appointmentId > 0) {
+      const otherPayments = await tx
+        .select({ id: paymentsTable.id })
+        .from(paymentsTable)
+        .where(and(eq(paymentsTable.appointmentId, payment.appointmentId), ne(paymentsTable.id, payment.id)));
+      if (otherPayments.length === 0) {
+        await tx
+          .delete(commissionsTable)
+          .where(and(eq(commissionsTable.appointmentId, payment.appointmentId), isNull(commissionsTable.paymentId)));
+      }
+    }
+
+    // ۳) کاهش شمارش استفاده‌ی تخفیف (هرگز منفی نشود)
+    if (payment.discountId) {
+      await tx
+        .update(discountsTable)
+        .set({ usageCount: sql`MAX(usage_count - 1, 0)` })
+        .where(eq(discountsTable.id, payment.discountId));
+    }
+
+    await tx.delete(paymentsTable).where(eq(paymentsTable.id, payment.id));
+  });
+
+  await logActivity("delete", "payment", payment.id, `پرداخت ${payment.amount.toLocaleString()} تومان حذف شد`);
   res.sendStatus(204);
 });
 
