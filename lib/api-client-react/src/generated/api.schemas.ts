@@ -22,6 +22,17 @@ export interface Patient {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tier?: string | null;
+  accountBalance?: number;
+  /** @nullable */
+  referrerType?: string | null;
+  /** @nullable */
+  referrerId?: number | null;
+  /** @nullable */
+  referrerRate?: number | null;
+  /** @nullable */
+  referrerName?: string | null;
   createdAt: number;
 }
 
@@ -33,6 +44,11 @@ export interface PatientInput {
   birthdate?: string;
   gender?: string;
   notes?: string;
+  tier?: string;
+  accountBalance?: number;
+  referrerType?: string;
+  referrerId?: number;
+  referrerRate?: number;
 }
 
 export interface PatientUpdate {
@@ -47,6 +63,33 @@ export interface PatientUpdate {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tier?: string | null;
+  accountBalance?: number;
+  /** @nullable */
+  referrerType?: string | null;
+  /** @nullable */
+  referrerId?: number | null;
+  /** @nullable */
+  referrerRate?: number | null;
+}
+
+export interface PatientAccountTransaction {
+  id: number;
+  patientId: number;
+  amount: number;
+  type: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  paymentId?: number | null;
+  createdAt: number;
+}
+
+export interface PatientAccountTransactionInput {
+  amount: number;
+  type: string;
+  description?: string;
 }
 
 export interface PatientList {
@@ -202,6 +245,8 @@ export interface AppointmentWithDetails {
   patientPhone?: string | null;
   /** @nullable */
   patientFileNumber?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
   /** @nullable */
   serviceName?: string | null;
   /** @nullable */
@@ -427,6 +472,25 @@ export interface CommissionRecipientUpdate {
   description?: string | null;
 }
 
+export type CommissionRecipientReferralsReferralsItem = {
+  patientId: number;
+  name: string;
+  /** @nullable */
+  fileNumber?: string | null;
+  totalSpent: number;
+  /** @nullable */
+  referrerRate: number | null;
+  commission: number;
+};
+
+export interface CommissionRecipientReferrals {
+  recipient: CommissionRecipient;
+  referrals: CommissionRecipientReferralsReferralsItem[];
+  totalSpent: number;
+  totalCommission: number;
+  count: number;
+}
+
 export interface Commission {
   id: number;
   recipientType: string;
@@ -504,6 +568,8 @@ export interface Reminder {
   createdAt: number;
   /** @nullable */
   patientName?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
 }
 
 export interface ReminderInput {
