@@ -10,7 +10,6 @@ export interface CommissionInput {
   recipientType: string;
   recipientId: number;
   appointmentId?: number;
-  paymentId?: number;
   description?: string;
   amount: number;
   rate?: number;

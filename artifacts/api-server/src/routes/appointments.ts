@@ -32,7 +32,6 @@ const appointmentWithDetails = {
   patientName: patientsTable.name,
   patientPhone: patientsTable.phone,
   patientFileNumber: patientsTable.fileNumber,
-  patientTier: patientsTable.tier,
   serviceName: servicesTable.name,
   servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${appointmentsTable.unitsUsed}, ${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
   serviceCode: servicesTable.serviceCode,
