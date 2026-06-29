@@ -547,6 +547,21 @@ export default function Payments() {
         setReceiptOpen(true);
         toast({ title: "پرداخت با موفقیت ثبت شد" });
       },
+      onError: (error) => {
+        // پیام خطای سرور (فارسی) را نمایش می‌دهیم تا رد شدن پرداخت کیف پول
+        // برای اپراتور قابل فهم باشد (به‌ویژه «موجودی اکانت کافی نیست»).
+        const serverMessage =
+          (error as any)?.data?.error ??
+          (error as any)?.data?.message;
+        toast({
+          title: "ثبت پرداخت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت پرداخت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
     },
   });
 
