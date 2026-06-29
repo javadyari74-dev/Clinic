@@ -31,16 +31,8 @@ function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: n
 
   function generateMessage() {
     if (!data) return;
-    const lines = [
-      `سلام ${data.recipient.name} عزیز،`,
-      `گزارش معرفی‌های شما:`,
-      `تعداد افراد معرفی‌شده: ${toPersianDigits(data.count)} نفر`,
-      `مجموع خرید معرفی‌شدگان: ${formatCurrency(data.totalSpent)}`,
-      `مجموع پورسانت شما: ${formatCurrency(data.totalCommission)}`,
-      ``,
-      `با تشکر — مطب زیبایی دکتر یاری`,
-    ];
-    const msg = lines.join("\n");
+    const ratePct = data.totalSpent > 0 ? Math.round((data.totalCommission / data.totalSpent) * 100) : 0;
+    const msg = `${data.recipient.name}، شما تاکنون ${toPersianDigits(data.count)} نفر را به مطب معرفی کرده‌اید که مجموع هزینه آن‌ها ${formatCurrency(data.totalSpent)} بوده است. پورسانت شما با درصد ${toPersianDigits(ratePct)}، معادل ${formatCurrency(data.totalCommission)} می‌باشد.`;
     navigator.clipboard?.writeText(msg).then(
       () => toast({ title: "پیام در کلیپ‌بورد کپی شد" }),
       () => toast({ title: "امکان کپی نبود", variant: "destructive" }),
