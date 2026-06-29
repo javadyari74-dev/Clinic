@@ -19,4 +19,6 @@ export interface Reminder {
   createdAt: number;
   /** @nullable */
   patientName?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
 }

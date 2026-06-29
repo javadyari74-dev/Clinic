@@ -29,6 +29,7 @@ import type {
   CommissionInput,
   CommissionRecipient,
   CommissionRecipientInput,
+  CommissionRecipientReferrals,
   CommissionRecipientUpdate,
   CommissionUpdate,
   DashboardSummary,
@@ -46,6 +47,8 @@ import type {
   ListPaymentsParams,
   ListRemindersParams,
   Patient,
+  PatientAccountTransaction,
+  PatientAccountTransactionInput,
   PatientInput,
   PatientList,
   PatientNote,
@@ -640,6 +643,143 @@ export function useListPatientAppointments<TData = Awaited<ReturnType<typeof lis
 
 
 
+
+export const getListPatientAccountTransactionsUrl = (id: number,) => {
+
+
+
+
+  return `/api/patients/${id}/account-transactions`
+}
+
+export const listPatientAccountTransactions = async (id: number, options?: RequestInit): Promise<PatientAccountTransaction[]> => {
+
+  return customFetch<PatientAccountTransaction[]>(getListPatientAccountTransactionsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListPatientAccountTransactionsQueryKey = (id: number,) => {
+    return [
+    `/api/patients/${id}/account-transactions`
+    ] as const;
+    }
+
+
+export const getListPatientAccountTransactionsQueryOptions = <TData = Awaited<ReturnType<typeof listPatientAccountTransactions>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPatientAccountTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListPatientAccountTransactionsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listPatientAccountTransactions>>> = ({ signal }) => listPatientAccountTransactions(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listPatientAccountTransactions>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListPatientAccountTransactionsQueryResult = NonNullable<Awaited<ReturnType<typeof listPatientAccountTransactions>>>
+export type ListPatientAccountTransactionsQueryError = ErrorType<unknown>
+
+
+
+export function useListPatientAccountTransactions<TData = Awaited<ReturnType<typeof listPatientAccountTransactions>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listPatientAccountTransactions>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListPatientAccountTransactionsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreatePatientAccountTransactionUrl = (id: number,) => {
+
+
+
+
+  return `/api/patients/${id}/account-transactions`
+}
+
+export const createPatientAccountTransaction = async (id: number,
+    patientAccountTransactionInput: PatientAccountTransactionInput, options?: RequestInit): Promise<PatientAccountTransaction> => {
+
+  return customFetch<PatientAccountTransaction>(getCreatePatientAccountTransactionUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      patientAccountTransactionInput,)
+  }
+);}
+
+
+
+
+export const getCreatePatientAccountTransactionMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPatientAccountTransaction>>, TError,{id: number;data: BodyType<PatientAccountTransactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createPatientAccountTransaction>>, TError,{id: number;data: BodyType<PatientAccountTransactionInput>}, TContext> => {
+
+const mutationKey = ['createPatientAccountTransaction'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createPatientAccountTransaction>>, {id: number;data: BodyType<PatientAccountTransactionInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  createPatientAccountTransaction(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreatePatientAccountTransactionMutationResult = NonNullable<Awaited<ReturnType<typeof createPatientAccountTransaction>>>
+    export type CreatePatientAccountTransactionMutationBody = BodyType<PatientAccountTransactionInput>
+    export type CreatePatientAccountTransactionMutationError = ErrorType<unknown>
+
+    export const useCreatePatientAccountTransaction = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createPatientAccountTransaction>>, TError,{id: number;data: BodyType<PatientAccountTransactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createPatientAccountTransaction>>,
+        TError,
+        {id: number;data: BodyType<PatientAccountTransactionInput>},
+        TContext
+      > => {
+      return useMutation(getCreatePatientAccountTransactionMutationOptions(options));
+    }
 
 export const getListPatientNotesUrl = (id: number,) => {
 
@@ -3137,6 +3277,77 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getDeleteCommissionRecipientMutationOptions(options));
     }
+
+export const getGetCommissionRecipientReferralsUrl = (id: number,) => {
+
+
+
+
+  return `/api/commission-recipients/${id}/referrals`
+}
+
+export const getCommissionRecipientReferrals = async (id: number, options?: RequestInit): Promise<CommissionRecipientReferrals> => {
+
+  return customFetch<CommissionRecipientReferrals>(getGetCommissionRecipientReferralsUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetCommissionRecipientReferralsQueryKey = (id: number,) => {
+    return [
+    `/api/commission-recipients/${id}/referrals`
+    ] as const;
+    }
+
+
+export const getGetCommissionRecipientReferralsQueryOptions = <TData = Awaited<ReturnType<typeof getCommissionRecipientReferrals>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCommissionRecipientReferrals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetCommissionRecipientReferralsQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCommissionRecipientReferrals>>> = ({ signal }) => getCommissionRecipientReferrals(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCommissionRecipientReferrals>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetCommissionRecipientReferralsQueryResult = NonNullable<Awaited<ReturnType<typeof getCommissionRecipientReferrals>>>
+export type GetCommissionRecipientReferralsQueryError = ErrorType<unknown>
+
+
+
+export function useGetCommissionRecipientReferrals<TData = Awaited<ReturnType<typeof getCommissionRecipientReferrals>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getCommissionRecipientReferrals>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetCommissionRecipientReferralsQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getListRemindersUrl = (params?: ListRemindersParams,) => {
   const normalizedParams = new URLSearchParams();

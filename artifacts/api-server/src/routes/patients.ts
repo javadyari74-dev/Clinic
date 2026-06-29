@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, or, ilike, desc, count, isNotNull, sql } from "drizzle-orm";
+import { eq, or, ilike, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -10,10 +10,55 @@ import {
   UpdatePatientBody,
   DeletePatientParams,
   ListPatientAppointmentsParams,
+  ListPatientAccountTransactionsParams,
+  CreatePatientAccountTransactionParams,
+  CreatePatientAccountTransactionBody,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 
 const router: IRouter = Router();
+
+type PatientRow = typeof patientsTable.$inferSelect;
+
+// نام معرف هر بیمار را بر اساس نوع معرف (مراجع/کمیسیون‌گیرنده/کارمند/لیزر) پیدا می‌کند
+async function enrichReferrerNames<T extends PatientRow>(rows: T[]): Promise<(T & { referrerName: string | null })[]> {
+  const patientIds = new Set<number>();
+  const recipientIds = new Set<number>();
+  const staffIds = new Set<number>();
+  for (const r of rows) {
+    if (!r.referrerType || !r.referrerId) continue;
+    if (r.referrerType === "patient") patientIds.add(r.referrerId);
+    else if (r.referrerType === "staff") staffIds.add(r.referrerId);
+    else recipientIds.add(r.referrerId); // recipient / laser
+  }
+
+  const patientMap = new Map<number, string>();
+  const recipientMap = new Map<number, string>();
+  const staffMap = new Map<number, string>();
+
+  if (patientIds.size > 0) {
+    const ps = await db.select({ id: patientsTable.id, name: patientsTable.name }).from(patientsTable).where(inArray(patientsTable.id, [...patientIds]));
+    for (const p of ps) patientMap.set(p.id, p.name);
+  }
+  if (recipientIds.size > 0) {
+    const rs = await db.select({ id: commissionRecipientsTable.id, name: commissionRecipientsTable.name }).from(commissionRecipientsTable).where(inArray(commissionRecipientsTable.id, [...recipientIds]));
+    for (const r of rs) recipientMap.set(r.id, r.name);
+  }
+  if (staffIds.size > 0) {
+    const ss = await db.select({ id: staffTable.id, name: staffTable.name }).from(staffTable).where(inArray(staffTable.id, [...staffIds]));
+    for (const s of ss) staffMap.set(s.id, s.name);
+  }
+
+  return rows.map((r) => {
+    let referrerName: string | null = null;
+    if (r.referrerType && r.referrerId) {
+      if (r.referrerType === "patient") referrerName = patientMap.get(r.referrerId) ?? null;
+      else if (r.referrerType === "staff") referrerName = staffMap.get(r.referrerId) ?? null;
+      else referrerName = recipientMap.get(r.referrerId) ?? null;
+    }
+    return { ...r, referrerName };
+  });
+}
 
 router.get("/patients", async (req, res): Promise<void> => {
   const query = ListPatientsQueryParams.safeParse(req.query);
@@ -35,13 +80,13 @@ router.get("/patients", async (req, res): Promise<void> => {
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);
-    res.json({ data: rows, total, page, limit });
+    res.json({ data: await enrichReferrerNames(rows), total, page, limit });
     return;
   }
 
   const rows = await baseQuery.orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
   const [{ count: total }] = await countQuery;
-  res.json({ data: rows, total, page, limit });
+  res.json({ data: await enrichReferrerNames(rows), total, page, limit });
 });
 
 router.post("/patients", async (req, res): Promise<void> => {
@@ -182,7 +227,8 @@ router.get("/patients/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  res.json(patient);
+  const [enriched] = await enrichReferrerNames([patient]);
+  res.json(enriched);
 });
 
 router.put("/patients/:id", async (req, res): Promise<void> => {
@@ -253,6 +299,64 @@ router.get("/patients/:id/appointments", async (req, res): Promise<void> => {
     .where(eq(appointmentsTable.patientId, params.data.id))
     .orderBy(desc(appointmentsTable.scheduledAt));
   res.json({ data: rows, total: rows.length });
+});
+
+// ── Account balance (شارژ اکانت) ─────────────────────────────────────────────
+
+router.get("/patients/:id/account-transactions", async (req, res): Promise<void> => {
+  const params = ListPatientAccountTransactionsParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(patientAccountTransactionsTable)
+    .where(eq(patientAccountTransactionsTable.patientId, params.data.id))
+    .orderBy(desc(patientAccountTransactionsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/patients/:id/account-transactions", async (req, res): Promise<void> => {
+  const params = CreatePatientAccountTransactionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = CreatePatientAccountTransactionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
+  if (!patient) {
+    res.status(404).json({ error: "بیمار یافت نشد" });
+    return;
+  }
+
+  // مقدار همیشه به‌صورت قدر مطلق گرفته می‌شود؛ علامت را نوع تراکنش تعیین می‌کند
+  const magnitude = Math.abs(Math.round(parsed.data.amount));
+  const isDeduct = parsed.data.type === "deduct";
+  const signed = isDeduct ? -magnitude : magnitude;
+
+  if (isDeduct && magnitude > patient.accountBalance) {
+    res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+    return;
+  }
+
+  const newBalance = patient.accountBalance + signed;
+  const [tx] = await db.insert(patientAccountTransactionsTable).values({
+    patientId: patient.id,
+    amount: signed,
+    type: parsed.data.type,
+    description: parsed.data.description ?? null,
+  }).returning();
+  await db.update(patientsTable).set({ accountBalance: newBalance }).where(eq(patientsTable.id, patient.id));
+
+  const label = isDeduct ? "برداشت از" : "شارژ";
+  await logActivity("update", "patient", patient.id, `${label} اکانت بیمار "${patient.name}" به مبلغ ${magnitude.toLocaleString()} تومان`);
+  res.status(201).json(tx);
 });
 
 export default router;
