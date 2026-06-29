@@ -4,3 +4,4 @@
 - [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
 - [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
 - [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.
+- [Payments balance vs accrual](payments-balance-accrual.md) — referrer accrual is server-side (single point); wallet deduction is client-orchestrated; zero cash amount is valid.

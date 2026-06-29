@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
   useDeleteCommissionRecipient, getListCommissionRecipientsQueryKey,
-  useListCommissions, useListStaff,
+  useListCommissions, useListStaff, useGetCommissionRecipientReferrals,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,12 +15,119 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+
+function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: number | null; open: boolean; onClose: () => void }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetCommissionRecipientReferrals(recipientId ?? 0, {
+    query: { enabled: open && !!recipientId },
+  });
+
+  function generateMessage() {
+    if (!data) return;
+    const lines = [
+      `سلام ${data.recipient.name} عزیز،`,
+      `گزارش معرفی‌های شما:`,
+      `تعداد افراد معرفی‌شده: ${toPersianDigits(data.count)} نفر`,
+      `مجموع خرید معرفی‌شدگان: ${formatCurrency(data.totalSpent)}`,
+      `مجموع پورسانت شما: ${formatCurrency(data.totalCommission)}`,
+      ``,
+      `با تشکر — مطب زیبایی دکتر یاری`,
+    ];
+    const msg = lines.join("\n");
+    navigator.clipboard?.writeText(msg).then(
+      () => toast({ title: "پیام در کلیپ‌بورد کپی شد" }),
+      () => toast({ title: "امکان کپی نبود", variant: "destructive" }),
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderOpen className="h-5 w-5 text-primary" />
+            پرونده کمیسیون‌گیرنده {data?.recipient?.name ? `— ${data.recipient.name}` : ""}
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="py-10 text-center text-muted-foreground">در حال بارگذاری...</div>
+        ) : !data ? (
+          <div className="py-10 text-center text-muted-foreground">اطلاعاتی یافت نشد</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">افراد معرفی‌شده</div>
+                <div className="font-bold text-lg">{toPersianDigits(data.count)} نفر</div>
+              </div>
+              <div className="rounded-lg bg-blue-50 p-3 text-center">
+                <div className="text-xs text-blue-600 mb-1">مجموع خرید معرفی‌شدگان</div>
+                <div className="font-bold text-lg text-blue-700">{formatCurrency(data.totalSpent)}</div>
+              </div>
+              <div className="rounded-lg bg-green-50 p-3 text-center">
+                <div className="text-xs text-green-600 mb-1">مجموع پورسانت</div>
+                <div className="font-bold text-lg text-green-700">{formatCurrency(data.totalCommission)}</div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" className="gap-2" onClick={generateMessage} disabled={!data.count}>
+                <MessageSquare className="h-4 w-4" />
+                تولید پیام
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>نام مراجع</TableHead>
+                  <TableHead>شماره پرونده</TableHead>
+                  <TableHead>مجموع خرید</TableHead>
+                  <TableHead>درصد</TableHead>
+                  <TableHead>پورسانت</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.referrals.map((r) => (
+                  <TableRow key={r.patientId}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-mono text-sm">{r.fileNumber ?? "—"}</TableCell>
+                    <TableCell className="font-bold">{formatCurrency(r.totalSpent)}</TableCell>
+                    <TableCell>{r.referrerRate != null ? `${toPersianDigits(r.referrerRate)}٪` : "—"}</TableCell>
+                    <TableCell className="text-green-700 font-medium">{formatCurrency(r.commission)}</TableCell>
+                    <TableCell className="text-left">
+                      <Button variant="ghost" size="sm" className="text-primary"
+                        onClick={() => { onClose(); navigate(`/patients/${r.patientId}`); }}>
+                        مشاهده پرونده
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!data.referrals.length && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      هنوز کسی توسط این فرد معرفی نشده است
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>بستن</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -68,6 +176,28 @@ export default function CommissionRecipients() {
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof recipients>[0] | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<number | null>(null);
+  const search = useSearch();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    const p = new URLSearchParams(search).get("profile");
+    if (p) {
+      const id = Number(p);
+      setProfileId(Number.isNaN(id) ? null : id);
+    } else {
+      setProfileId(null);
+    }
+  }, [search]);
+
+  function openProfile(id: number) {
+    navigate(`/commission-recipients?profile=${id}`);
+  }
+
+  function closeProfile() {
+    if (new URLSearchParams(search).get("profile")) navigate("/commission-recipients");
+    else setProfileId(null);
+  }
 
   const create = useCreateCommissionRecipient({
     mutation: {
@@ -181,6 +311,7 @@ export default function CommissionRecipients() {
         onConfirm={() => { del.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
+      <RecipientProfileDialog recipientId={profileId} open={!!profileId} onClose={closeProfile} />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">گیرندگان کمیسیون</h1>
@@ -313,6 +444,10 @@ export default function CommissionRecipients() {
                         <TableCell className="text-left" onClick={e => e.stopPropagation()}>
                           {row.type === "external" ? (
                             <>
+                              <Button variant="ghost" size="sm" className="gap-1 text-primary" onClick={() => openProfile(row.id)}>
+                                <FolderOpen className="h-3 w-3" />
+                                <span className="text-xs">مشاهده پرونده</span>
+                              </Button>
                               <Button variant="ghost" size="sm" onClick={() => {
                                 const r = recipients?.find(x => x.id === row.id);
                                 if (r) openEdit(r);

@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } from "lucide-react";
+import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -94,7 +95,10 @@ function ReminderRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {r.patientName && (
-            <span className="text-xs text-muted-foreground">مراجع: {r.patientName}</span>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              مراجع: {r.patientName}
+              <TierBadge tier={r.patientTier} />
+            </span>
           )}
           <span className="text-xs text-muted-foreground font-mono">{formatShamsiDate(r.dueAt)}</span>
         </div>
