@@ -237,6 +237,9 @@ importers:
 
   artifacts/beauty-clinic:
     dependencies:
+      '@fontsource-variable/vazirmatn':
+        specifier: ^5.2.8
+        version: 5.2.8
       react-date-object:
         specifier: ^2.1.9
         version: 2.1.9
@@ -838,6 +841,9 @@ packages:
 
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
+
+  '@fontsource-variable/vazirmatn@5.2.8':
+    resolution: {integrity: sha512-2YzXfH4PNOeoZsBsgJgjbnm+IC2nonGyMLX3gXLm8FQrP+wpi1uGBIWYWlEzJ0lmntgdyAc3lRViHHfZWKvbog==}
 
   '@gerrit0/mini-shiki@3.23.0':
     resolution: {integrity: sha512-bEMORlG0cqdjVyCEuU0cDQbORWX+kYCeo0kV1lbxF5bt4r7SID2l9bqsxJEM0zndaxpOUT7riCyIVEuqq/Ynxg==}
@@ -3924,6 +3930,8 @@ snapshots:
       react-dom: 19.1.0(react@19.1.0)
 
   '@floating-ui/utils@0.2.11': {}
+
+  '@fontsource-variable/vazirmatn@5.2.8': {}
 
   '@gerrit0/mini-shiki@3.23.0':
     dependencies:
