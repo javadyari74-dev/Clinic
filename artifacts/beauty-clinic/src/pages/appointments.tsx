@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
   getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
+  getGetAppointmentQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -115,11 +116,16 @@ type RowProps = {
   onEdit: (app: AppRow) => void;
   onDelete: (id: number) => void;
   onStatusChange: (id: number, status: string) => void;
+  onPrefetch: (id: number) => void;
 };
 
-function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange }: RowProps) {
+function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
   return (
-    <TableRow className={selected.has(app.id) ? "bg-muted/50" : undefined}>
+    <TableRow
+      className={selected.has(app.id) ? "bg-muted/50" : undefined}
+      onMouseEnter={() => onPrefetch(app.id)}
+      onFocus={() => onPrefetch(app.id)}
+    >
       {isAdmin && (
         <TableCell className="w-10 pr-4">
           <Checkbox checked={selected.has(app.id)} onCheckedChange={() => onToggle(app.id)} aria-label="انتخاب" />
@@ -237,6 +243,10 @@ export default function Appointments() {
     queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
   }, [queryClient]);
 
+  const prefetchAppointment = useCallback((id: number) => {
+    queryClient.prefetchQuery({ ...getGetAppointmentQueryOptions(id), staleTime: 30_000 });
+  }, [queryClient]);
+
   const createAppointment = useCreateAppointment({
     mutation: {
       onSuccess: () => {
@@ -351,7 +361,7 @@ export default function Appointments() {
     }
   }
 
-  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange };
+  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
   const activeIds = (appointmentsList?.data ?? []).map(a => a.id);
   const historyIds = historyList.map(a => a.id);
 

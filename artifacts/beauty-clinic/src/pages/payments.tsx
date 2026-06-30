@@ -7,6 +7,7 @@ import {
   useCreateReminder, getListRemindersQueryKey,
   useListPatients, getListPatientsQueryKey,
   useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
+  getGetPaymentQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -623,6 +624,10 @@ export default function Payments() {
     });
   }
 
+  const prefetchPayment = useCallback((id: number) => {
+    queryClient.prefetchQuery({ ...getGetPaymentQueryOptions(id), staleTime: 30_000 });
+  }, [queryClient]);
+
   function openReceiptForPayment(paymentId: number) {
     const p = payments?.find(x => x.id === paymentId);
     if (!p) {
@@ -1110,7 +1115,11 @@ export default function Payments() {
             </TableHeader>
             <TableBody>
               {payments?.map((p) => (
-                <TableRow key={p.id}>
+                <TableRow
+                  key={p.id}
+                  onMouseEnter={() => prefetchPayment(p.id)}
+                  onFocus={() => prefetchPayment(p.id)}
+                >
                   <TableCell>{formatShamsiDate(p.paidAt, true)}</TableCell>
                   <TableCell className="text-sm">{(p as any).patientName || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-[160px] truncate">
