@@ -970,6 +970,19 @@ export const ListActivityResponseItem = zod.object({
 export const ListActivityResponse = zod.array(ListActivityResponseItem)
 
 
+export const ListClientErrorsResponseItem = zod.object({
+  "id": zod.number(),
+  "message": zod.string(),
+  "stack": zod.string().nullish(),
+  "componentStack": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "userAgent": zod.string().nullish(),
+  "occurredAt": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+export const ListClientErrorsResponse = zod.array(ListClientErrorsResponseItem)
+
+
 export const GetReportsSummaryResponse = zod.object({
   "totalRevenue": zod.number(),
   "totalAppointments": zod.number(),

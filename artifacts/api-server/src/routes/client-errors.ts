@@ -1,4 +1,7 @@
 import { Router, type IRouter } from "express";
+import { desc } from "drizzle-orm";
+import { db, clientErrorsTable } from "@workspace/db";
+import { requireAdmin } from "../lib/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -12,17 +15,17 @@ function asString(value: unknown, maxLength: number): string | undefined {
 
 // --- In-memory throttling -------------------------------------------------
 // A page stuck in a render loop (or an operator hammering "بارگذاری مجدد")
-// can fire many near-identical reports per second. We never persist these
-// reports, but unbounded logging is still noise/IO we want to avoid. Two
-// guards, both purely in-memory (acceptable since this endpoint only logs):
+// can fire many near-identical reports per second. Each accepted report is
+// both logged and persisted, so unbounded repeats are noise/IO (and DB rows)
+// we want to avoid. Two guards, both purely in-memory:
 //
-//  1. De-duplication: the same error+page is logged at most once per
+//  1. De-duplication: the same error+page is logged/stored at most once per
 //     DEDUPE_WINDOW_MS. Repeats inside the window are counted and folded
 //     into a single summary line when the window rolls over, so we keep the
-//     signal that it's still crashing without one-line-per-crash spam.
+//     signal that it's still crashing without one-row-per-crash spam.
 //  2. Per-IP rate limit: a hard cap on how many *distinct* reports a single
-//     client can log per RATE_WINDOW_MS, so a client cycling through many
-//     unique messages still can't flood the logs.
+//     client can record per RATE_WINDOW_MS, so a client cycling through many
+//     unique messages still can't flood the logs or the table.
 //
 // Distinct crashes (different message or page) within the window are still
 // recorded, so legitimate separate failures are never lost.
@@ -104,18 +107,18 @@ function isRateLimited(client: string, now: number): boolean {
 
 // Lightweight, unauthenticated endpoint for the frontend error boundary to
 // report render crashes. Mounted before requireAuth so a crash is still
-// reportable when the session token is missing/expired. It only logs the
-// report server-side; it never touches the database.
-router.post("/client-errors", (req, res) => {
+// reportable when the session token is missing/expired. The report is both
+// logged server-side and persisted so an admin can review it in-app later.
+router.post("/client-errors", async (req, res) => {
   const body = (req.body ?? {}) as Record<string, unknown>;
 
   const report = {
     message: asString(body.message, 2000) ?? "Unknown client error",
-    stack: asString(body.stack, 8000),
-    componentStack: asString(body.componentStack, 8000),
-    url: asString(body.url, 2000),
-    userAgent: asString(body.userAgent, 1000),
-    at: asString(body.at, 100),
+    stack: asString(body.stack, 8000) ?? null,
+    componentStack: asString(body.componentStack, 8000) ?? null,
+    url: asString(body.url, 2000) ?? null,
+    userAgent: asString(body.userAgent, 1000) ?? null,
+    occurredAt: asString(body.at, 100) ?? null,
   };
 
   const now = Date.now();
@@ -143,7 +146,26 @@ router.post("/client-errors", (req, res) => {
   seen.set(signature, { firstAt: now, lastAt: now, suppressed: 0 });
   logger.error({ clientError: report }, "Frontend error boundary report");
 
+  try {
+    await db.insert(clientErrorsTable).values(report);
+  } catch (err) {
+    // Never let a persistence failure break crash reporting; the log above
+    // is still the source of truth in that case.
+    logger.error({ err }, "Failed to persist client error report");
+  }
+
   res.status(204).end();
+});
+
+// Admin-only listing of recent crash reports, newest first. Gated with
+// requireAdmin because this router is mounted before the global requireAuth.
+router.get("/client-errors", requireAdmin, async (_req, res) => {
+  const rows = await db
+    .select()
+    .from(clientErrorsTable)
+    .orderBy(desc(clientErrorsTable.createdAt))
+    .limit(200);
+  res.json(rows);
 });
 
 export default router;

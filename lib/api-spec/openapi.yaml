@@ -1005,6 +1005,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityLogEntry"
 
+  # ── Client Errors ──────────────────────────────────────────────────────────
+  /client-errors:
+    get:
+      operationId: listClientErrors
+      tags: [client-errors]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientErrorReport"
+
   # ── Reports ────────────────────────────────────────────────────────────────
   /reports/summary:
     get:
@@ -1620,6 +1635,20 @@ components:
         entityType: { type: string }
         entityId: { type: ["integer", "null"] }
         description: { type: string }
+        createdAt: { type: integer }
+
+    # ── Client Errors ─────────────────────────────────────────────────────────
+    ClientErrorReport:
+      type: object
+      required: [id, message, createdAt]
+      properties:
+        id: { type: integer }
+        message: { type: string }
+        stack: { type: ["string", "null"] }
+        componentStack: { type: ["string", "null"] }
+        url: { type: ["string", "null"] }
+        userAgent: { type: ["string", "null"] }
+        occurredAt: { type: ["string", "null"] }
         createdAt: { type: integer }
 
     # ── Reports ───────────────────────────────────────────────────────────────

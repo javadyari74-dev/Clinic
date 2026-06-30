@@ -25,6 +25,7 @@ import type {
   AppointmentUpdate,
   AppointmentWithDetails,
   AppointmentWithDetailsList,
+  ClientErrorReport,
   Commission,
   CommissionInput,
   CommissionRecipient,
@@ -3830,6 +3831,77 @@ export function useListActivity<TData = Awaited<ReturnType<typeof listActivity>>
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListActivityQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListClientErrorsUrl = () => {
+
+
+
+
+  return `/api/client-errors`
+}
+
+export const listClientErrors = async ( options?: RequestInit): Promise<ClientErrorReport[]> => {
+
+  return customFetch<ClientErrorReport[]>(getListClientErrorsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListClientErrorsQueryKey = () => {
+    return [
+    `/api/client-errors`
+    ] as const;
+    }
+
+
+export const getListClientErrorsQueryOptions = <TData = Awaited<ReturnType<typeof listClientErrors>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListClientErrorsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listClientErrors>>> = ({ signal }) => listClientErrors({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListClientErrorsQueryResult = NonNullable<Awaited<ReturnType<typeof listClientErrors>>>
+export type ListClientErrorsQueryError = ErrorType<unknown>
+
+
+
+export function useListClientErrors<TData = Awaited<ReturnType<typeof listClientErrors>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listClientErrors>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListClientErrorsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

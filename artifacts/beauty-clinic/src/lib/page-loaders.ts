@@ -18,6 +18,7 @@ export const pageLoaders = {
   accounting: () => import("@/pages/accounting"),
   users: () => import("@/pages/users"),
   laser: () => import("@/pages/laser"),
+  clientErrors: () => import("@/pages/client-errors"),
 };
 
 const routeLoaders: Record<string, () => Promise<unknown>> = {
@@ -37,6 +38,7 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   "/reminders": pageLoaders.reminders,
   "/backup": pageLoaders.backup,
   "/users": pageLoaders.users,
+  "/client-errors": pageLoaders.clientErrors,
 };
 
 const prefetched = new Set<string>();
