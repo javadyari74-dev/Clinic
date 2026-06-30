@@ -27,6 +27,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState, useEffect } from "react";
 import { GlobalSearch } from "./global-search";
 import { useAuth, type Permission } from "@/hooks/use-auth";
+import { prefetchRoute } from "@/lib/page-loaders";
 
 interface NavItem {
   href: string;
@@ -80,7 +81,13 @@ export function Layout({ children }: { children: ReactNode }) {
           const Icon = item.icon;
           const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
           return (
-            <Link key={item.href} href={item.href}>
+            <Link
+              key={item.href}
+              href={item.href}
+              onMouseEnter={() => prefetchRoute(item.href)}
+              onFocus={() => prefetchRoute(item.href)}
+              onTouchStart={() => prefetchRoute(item.href)}
+            >
               <div
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 cursor-pointer",

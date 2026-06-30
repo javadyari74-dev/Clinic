@@ -6,26 +6,27 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Layout } from "@/components/layout";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { pageLoaders, prefetchCommonRoutes } from "@/lib/page-loaders";
 
-const NotFound = lazy(() => import("@/pages/not-found"));
-const Login = lazy(() => import("@/pages/login"));
-const Dashboard = lazy(() => import("@/pages/dashboard"));
-const Patients = lazy(() => import("@/pages/patients"));
-const PatientDetail = lazy(() => import("@/pages/patient-detail"));
-const Appointments = lazy(() => import("@/pages/appointments"));
-const Payments = lazy(() => import("@/pages/payments"));
-const Services = lazy(() => import("@/pages/services"));
-const Staff = lazy(() => import("@/pages/staff"));
-const Commissions = lazy(() => import("@/pages/commissions"));
-const CommissionRecipients = lazy(() => import("@/pages/commission-recipients"));
-const Discounts = lazy(() => import("@/pages/discounts"));
-const Inventory = lazy(() => import("@/pages/inventory"));
-const Reports = lazy(() => import("@/pages/reports"));
-const Reminders = lazy(() => import("@/pages/reminders"));
-const Backup = lazy(() => import("@/pages/backup"));
-const Accounting = lazy(() => import("@/pages/accounting"));
-const Users = lazy(() => import("@/pages/users"));
-const Laser = lazy(() => import("@/pages/laser"));
+const NotFound = lazy(pageLoaders.notFound);
+const Login = lazy(pageLoaders.login);
+const Dashboard = lazy(pageLoaders.dashboard);
+const Patients = lazy(pageLoaders.patients);
+const PatientDetail = lazy(pageLoaders.patientDetail);
+const Appointments = lazy(pageLoaders.appointments);
+const Payments = lazy(pageLoaders.payments);
+const Services = lazy(pageLoaders.services);
+const Staff = lazy(pageLoaders.staff);
+const Commissions = lazy(pageLoaders.commissions);
+const CommissionRecipients = lazy(pageLoaders.commissionRecipients);
+const Discounts = lazy(pageLoaders.discounts);
+const Inventory = lazy(pageLoaders.inventory);
+const Reports = lazy(pageLoaders.reports);
+const Reminders = lazy(pageLoaders.reminders);
+const Backup = lazy(pageLoaders.backup);
+const Accounting = lazy(pageLoaders.accounting);
+const Users = lazy(pageLoaders.users);
+const Laser = lazy(pageLoaders.laser);
 
 function PageFallback() {
   return (
@@ -52,6 +53,12 @@ function RedirectToLogin() {
 
 function Router() {
   const { user } = useAuth();
+
+  useEffect(() => {
+    if (user) {
+      prefetchCommonRoutes();
+    }
+  }, [user]);
 
   if (!user) {
     return (
