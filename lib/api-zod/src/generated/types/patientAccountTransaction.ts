@@ -6,19 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface Reminder {
+export interface PatientAccountTransaction {
   id: number;
-  title: string;
-  /** @nullable */
-  description?: string | null;
+  patientId: number;
+  amount: number;
   type: string;
   /** @nullable */
-  patientId?: number | null;
-  dueAt: number;
-  status: string;
+  description?: string | null;
+  /** @nullable */
+  paymentId?: number | null;
   createdAt: number;
-  /** @nullable */
-  patientName?: string | null;
-  /** @nullable */
-  patientTier?: string | null;
 }
