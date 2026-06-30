@@ -110,6 +110,18 @@ export default function Patients() {
         toast({ title: "مراجع جدید با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "ثبت مراجع ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت اطلاعات با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
     },
   });
 

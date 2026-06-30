@@ -256,6 +256,18 @@ export default function Appointments() {
         toast({ title: "نوبت با موفقیت ثبت شد" });
         form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
       },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "ثبت نوبت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت نوبت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
     },
   });
 

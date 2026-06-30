@@ -119,6 +119,18 @@ export default function Accounting() {
           setExpOpen(false);
           setNewAmount(""); setNewDesc("");
         },
+        onError: (error) => {
+          const serverMessage =
+            (error as any)?.data?.error ?? (error as any)?.data?.message;
+          toast({
+            title: "ثبت هزینه ناموفق بود",
+            description:
+              typeof serverMessage === "string" && serverMessage.trim()
+                ? serverMessage
+                : "ثبت هزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+            variant: "destructive",
+          });
+        },
       }
     );
   }

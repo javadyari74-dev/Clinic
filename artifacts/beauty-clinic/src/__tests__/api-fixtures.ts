@@ -575,3 +575,43 @@ export function makeMockApiFetch(mode: ApiMode = "populated") {
 
 /** Populated-mode `fetch` replacement (kept for the loaded-state smoke test). */
 export const mockApiFetch = makeMockApiFetch("populated");
+
+function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
+  const raw =
+    init?.method ??
+    (typeof Request !== "undefined" && input instanceof Request
+      ? input.method
+      : "GET");
+  return raw.toUpperCase();
+}
+
+/** A single mutation to fail: an HTTP method plus a pathname matcher. */
+export type FailedMutation = { method: string; pattern: RegExp };
+
+/**
+ * Build a `fetch` replacement that serves realistic populated data for every
+ * GET (so the page loads and its create dialogs have real options to pick),
+ * but returns a 500 for any request whose method+path matches one of
+ * `failures`. This is exactly the "the page loaded fine, then the save request
+ * failed" scenario the write-path resilience tests need: the dialog opens
+ * against good data, the user submits, and only the mutation rejects.
+ *
+ * The 500 body is valid JSON ({ error }) so the client's ApiError carries a
+ * server message the page can surface in its toast.
+ */
+export function makeMockApiFetchFailingMutations(failures: FailedMutation[]) {
+  return (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const path = pathOf(input);
+    const method = methodOf(input, init);
+    if (
+      failures.some((f) => f.method.toUpperCase() === method && f.pattern.test(path))
+    ) {
+      return Promise.resolve(
+        jsonResponse({ error: "خطای داخلی سرور" }, 500),
+      );
+    }
+    const match = routes.find(([pattern]) => pattern.test(path));
+    if (!match) return Promise.resolve(jsonResponse([]));
+    return Promise.resolve(jsonResponse(match[1]()));
+  };
+}
