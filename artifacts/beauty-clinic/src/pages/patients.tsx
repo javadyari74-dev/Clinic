@@ -13,6 +13,7 @@ import { formatShamsiDate, formatCurrency } from "@/lib/format";
 import { TierBadge } from "@/components/tier-badge";
 import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
 import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -349,7 +350,12 @@ export default function Patients() {
                 </TableHeader>
                 <TableBody>
                   {sorted.map((patient) => (
-                    <TableRow key={patient.id} className="cursor-pointer hover:bg-muted/50">
+                    <TableRow
+                      key={patient.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onMouseEnter={prefetchPatientDetail}
+                      onFocus={prefetchPatientDetail}
+                    >
                       <TableCell className="font-mono text-sm font-medium">{patient.fileNumber}</TableCell>
                       <TableCell className="font-medium">
                         <span className="inline-flex items-center gap-1.5">
@@ -433,6 +439,8 @@ export default function Patients() {
                         key={patient.id}
                         className="cursor-pointer hover:bg-primary/5 transition-colors group"
                         onClick={() => navigate(`/patients/${patient.id}`)}
+                        onMouseEnter={prefetchPatientDetail}
+                        onFocus={prefetchPatientDetail}
                       >
                         <TableCell>
                           <div className="flex items-center gap-1.5">

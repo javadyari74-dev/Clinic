@@ -50,6 +50,18 @@ export function prefetchRoute(href: string) {
   });
 }
 
+function prefetchLoader(key: string, loader: () => Promise<unknown>) {
+  if (prefetched.has(key)) return;
+  prefetched.add(key);
+  loader().catch(() => {
+    prefetched.delete(key);
+  });
+}
+
+export function prefetchPatientDetail() {
+  prefetchLoader("patientDetail", pageLoaders.patientDetail);
+}
+
 const idlePrefetchOrder = ["/patients", "/appointments", "/payments"];
 
 export function prefetchCommonRoutes() {
