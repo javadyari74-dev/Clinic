@@ -52,6 +52,50 @@ afterEach(() => {
   consoleErrorSpy.mockRestore();
 });
 
+// Persian escalation copy shown only when the server flags a persistently
+// crashing page (kept in sync with components/error-boundary.tsx).
+const PERSISTENT_CRASH_TEXT = /به‌طور مکرر دچار خطا/;
+
+// This block runs first on purpose: the boundary's report throttle is a
+// module-level map keyed by error+url, so the first crash render in this file
+// is the only one guaranteed to actually POST a report. We need that POST to
+// observe the mocked persistent-crash response.
+describe("persistent crash escalation", () => {
+  let fetchMock: ReturnType<typeof vi.spyOn>;
+
+  afterEach(() => {
+    fetchMock?.mockRestore();
+  });
+
+  it("escalates the fallback when the server flags a persistently crashing page", async () => {
+    fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      status: 200,
+      json: async () => ({ persistentCrash: true, occurrences: 6 }),
+    } as unknown as Response);
+
+    window.history.pushState(null, "", "/");
+    render(<App />);
+
+    // The normal fallback shows first...
+    expect(
+      await screen.findByText(FALLBACK_HEADING, undefined, { timeout: 5000 }),
+    ).toBeInTheDocument();
+
+    // ...then the operator-visible escalation appears once the report comes
+    // back flagged, instead of the repeat being silently dropped.
+    expect(
+      await screen.findByText(PERSISTENT_CRASH_TEXT, undefined, {
+        timeout: 5000,
+      }),
+    ).toBeInTheDocument();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/client-errors",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+});
+
 describe("error boundary catches a crashing page", () => {
   it("shows the Persian fallback (not a blank screen) when a page throws on render", async () => {
     window.history.pushState(null, "", "/");

@@ -15,6 +15,10 @@ interface ErrorBoundaryState {
   error: Error | null;
   componentStack: string | null;
   copied: boolean;
+  // Raised when the server reports this error+page has crashed repeatedly
+  // (past the dedupe threshold) — i.e. reloading keeps landing on the same
+  // failure. We escalate the fallback so the operator stops retrying blindly.
+  persistentCrash: boolean;
 }
 
 const INITIAL_STATE: ErrorBoundaryState = {
@@ -22,6 +26,7 @@ const INITIAL_STATE: ErrorBoundaryState = {
   error: null,
   componentStack: null,
   copied: false,
+  persistentCrash: false,
 };
 
 // Client-side throttle so a page stuck in a render loop (or an operator who
@@ -85,7 +90,7 @@ export class ErrorBoundary extends Component<
     if (!shouldReport(signature)) return;
 
     try {
-      await fetch("/api/client-errors", {
+      const response = await fetch("/api/client-errors", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -98,6 +103,18 @@ export class ErrorBoundary extends Component<
         }),
         keepalive: true,
       });
+
+      // The server answers 204 for a logged/suppressed report, but escalates
+      // to 200 + { persistentCrash } once the same error+page has crashed
+      // repeatedly. Surface that to the operator instead of silently retrying.
+      if (response.status === 200) {
+        const data = (await response.json().catch(() => null)) as {
+          persistentCrash?: boolean;
+        } | null;
+        if (data?.persistentCrash) {
+          this.setState({ persistentCrash: true });
+        }
+      }
     } catch {
       // Network/offline: nothing more we can do, the copy affordance remains.
     }
@@ -160,6 +177,16 @@ export class ErrorBoundary extends Component<
                   دسترس هستند.
                 </p>
               </div>
+              {this.state.persistentCrash && (
+                <div
+                  className="w-full rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive leading-relaxed"
+                  role="alert"
+                >
+                  این صفحه به‌طور مکرر دچار خطا می‌شود و بارگذاری مجدد مشکل را حل
+                  نکرده است. لطفاً جزئیات خطا را کپی کرده و با پشتیبانی تماس
+                  بگیرید.
+                </div>
+              )}
               {this.state.error?.message && (
                 <p
                   className="w-full rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground font-mono break-words text-left"

@@ -34,11 +34,21 @@ const DEDUPE_WINDOW_MS = 30_000;
 const RATE_WINDOW_MS = 60_000;
 const RATE_MAX_PER_WINDOW = 20;
 const MAX_TRACKED_SIGNATURES = 1000;
+// Once the same error+page has been suppressed this many times inside the
+// dedupe window, it's no longer a one-off crash — the page is stuck (render
+// loop, or an operator reloading into the same failure). At that point we stop
+// silently dropping the repeat and instead tell the reporting client to raise
+// an operator-visible warning. A handful of accidental double-reloads stays
+// below this, so distinct one-off crashes never trip it.
+const PERSISTENT_CRASH_THRESHOLD = 3;
 
 interface SeenEntry {
   firstAt: number;
   lastAt: number;
   suppressed: number;
+  // Set once we've logged the persistent-crash warning for this signature so
+  // the server log gets a single escalation line, not one per suppressed hit.
+  alerted: boolean;
 }
 
 const seen = new Map<string, SeenEntry>();
@@ -132,6 +142,25 @@ router.post("/client-errors", async (req, res) => {
   if (existing && now - existing.lastAt <= DEDUPE_WINDOW_MS) {
     existing.lastAt = now;
     existing.suppressed += 1;
+
+    // A page that keeps crashing into the same error is exactly the case an
+    // on-site operator should be warned about, not have buried in logs. Once
+    // the suppression count crosses the threshold, tell the reporting client
+    // to raise a visible warning (and leave a single escalation line in the
+    // server log). Total occurrences = initial logged report + suppressed.
+    if (existing.suppressed >= PERSISTENT_CRASH_THRESHOLD) {
+      const occurrences = existing.suppressed + 1;
+      if (!existing.alerted) {
+        existing.alerted = true;
+        logger.warn(
+          { signature, occurrences },
+          "Persistently crashing frontend page detected",
+        );
+      }
+      res.status(200).json({ persistentCrash: true, occurrences });
+      return;
+    }
+
     res.status(204).end();
     return;
   }
@@ -143,7 +172,12 @@ router.post("/client-errors", async (req, res) => {
     return;
   }
 
-  seen.set(signature, { firstAt: now, lastAt: now, suppressed: 0 });
+  seen.set(signature, {
+    firstAt: now,
+    lastAt: now,
+    suppressed: 0,
+    alerted: false,
+  });
   logger.error({ clientError: report }, "Frontend error boundary report");
 
   try {
