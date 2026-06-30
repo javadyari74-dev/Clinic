@@ -103,3 +103,75 @@ describe("error boundary catches a crashing page", () => {
     expect(screen.queryByText(FALLBACK_HEADING)).not.toBeInTheDocument();
   });
 });
+
+describe("crash screen recovery buttons", () => {
+  // jsdom's real location can't be instrumented in place: reload isn't a
+  // configurable property (can't spy on it) and assigning href throws
+  // "navigation not implemented". A Proxy doesn't help either — pathname is a
+  // branded getter the router (wouter) reads, and reload is a non-configurable
+  // data property a Proxy can't legally rewrite.
+  //
+  // The router only reads location while it routes during the initial render,
+  // so we render with the real location first (letting "/" route and crash),
+  // THEN swap window.location for a plain stub for the click. Clicking a button
+  // on the crash screen does no routing, so the stub only needs reload + href.
+  let originalLocation: Location;
+
+  function installLocationStub(): {
+    reload: ReturnType<typeof vi.fn>;
+    stub: { href: string; reload: () => void };
+  } {
+    const reload = vi.fn();
+    const stub = { href: originalLocation.href, reload };
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: stub,
+    });
+    return { reload, stub };
+  }
+
+  beforeEach(() => {
+    originalLocation = window.location;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: originalLocation,
+    });
+  });
+
+  it("calls window.location.reload() when the reload button is clicked", async () => {
+    window.history.pushState(null, "", "/");
+    render(<App />);
+
+    const reloadButton = await screen.findByRole(
+      "button",
+      { name: RELOAD_BUTTON },
+      { timeout: 5000 },
+    );
+
+    // Swap in the stub only after the crash screen exists, so routing used the
+    // real location to get here.
+    const { reload } = installLocationStub();
+    fireEvent.click(reloadButton);
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("sets window.location.href to BASE_URL when the dashboard button is clicked", async () => {
+    window.history.pushState(null, "", "/");
+    render(<App />);
+
+    const dashboardButton = await screen.findByRole(
+      "button",
+      { name: DASHBOARD_BUTTON },
+      { timeout: 5000 },
+    );
+
+    const { stub } = installLocationStub();
+    fireEvent.click(dashboardButton);
+
+    expect(stub.href).toBe(import.meta.env.BASE_URL);
+  });
+});
