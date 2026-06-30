@@ -1,9 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
   useDeleteCommissionRecipient, getListCommissionRecipientsQueryKey,
   useListCommissions, useListStaff, useGetCommissionRecipientReferrals,
-  getGetCommissionRecipientReferralsQueryKey,
+  getGetCommissionRecipientReferralsQueryKey, getGetCommissionRecipientReferralsQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
@@ -185,6 +185,10 @@ export default function CommissionRecipients() {
       setProfileId(null);
     }
   }, [search]);
+
+  const prefetchReferrals = useCallback((id: number) => {
+    queryClient.prefetchQuery({ ...getGetCommissionRecipientReferralsQueryOptions(id), staleTime: 30_000 });
+  }, [queryClient]);
 
   function openProfile(id: number) {
     navigate(`/commission-recipients?profile=${id}`);
@@ -407,6 +411,8 @@ export default function CommissionRecipients() {
                         key={key}
                         className={`cursor-pointer transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/50"}`}
                         onClick={() => setSelectedKey(isSelected ? null : key)}
+                        onMouseEnter={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
+                        onFocus={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
                       >
                         <TableCell>
                           {row.type === "staff" ? (
