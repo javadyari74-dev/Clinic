@@ -37,7 +37,12 @@ const INITIAL_STATE: ErrorBoundaryState = {
 const REPORT_THROTTLE_MS = 30_000;
 const lastReportedAt = new Map<string, number>();
 
-function shouldReport(signature: string): boolean {
+// Exported for unit tests; clears the cross-instance throttle state.
+export function __resetReportThrottle(): void {
+  lastReportedAt.clear();
+}
+
+export function shouldReport(signature: string): boolean {
   const now = Date.now();
   const previous = lastReportedAt.get(signature);
   if (previous !== undefined && now - previous < REPORT_THROTTLE_MS) {
