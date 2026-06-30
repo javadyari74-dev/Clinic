@@ -22,6 +22,11 @@ import {
 
 // ─── Shamsi Calendar Helpers ─────────────────────────────────────────────────
 
+function toMs(ts: number): number {
+  // Auto-detect: if ts > 1e11 it's already milliseconds, otherwise it's seconds
+  return ts > 1e11 ? ts : ts * 1000;
+}
+
 function getShamsiParts(date: Date): { year: number; month: number; day: number } {
   // Use "en-US" locale so numbers come out as Latin digits (not Persian ۱۲۳)
   const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
@@ -63,7 +68,7 @@ function isSameShamsiDay(
   unixTs: number,
   year: number, month: number, day: number,
 ): boolean {
-  const p = getShamsiParts(new Date(unixTs * 1000));
+  const p = getShamsiParts(new Date(toMs(unixTs)));
   return p.year === year && p.month === month && p.day === day;
 }
 
@@ -146,7 +151,7 @@ export default function Dashboard() {
   const apptDays = useMemo(() => {
     const s = new Set<number>();
     allAppointments?.data?.forEach((a) => {
-      const p = getShamsiParts(new Date(a.scheduledAt * 1000));
+      const p = getShamsiParts(new Date(toMs(a.scheduledAt)));
       if (p.year === calYear && p.month === calMonth) s.add(p.day);
     });
     return s;
@@ -156,7 +161,7 @@ export default function Dashboard() {
     const s = new Set<number>();
     reminders?.forEach((r) => {
       if (!r.dueAt) return;
-      const p = getShamsiParts(new Date(Number(r.dueAt) * 1000));
+      const p = getShamsiParts(new Date(toMs(Number(r.dueAt))));
       if (p.year === calYear && p.month === calMonth) s.add(p.day);
     });
     return s;
@@ -165,7 +170,7 @@ export default function Dashboard() {
   const paymentDays = useMemo(() => {
     const s = new Set<number>();
     allPayments?.forEach((p) => {
-      const parts = getShamsiParts(new Date(p.paidAt * 1000));
+      const parts = getShamsiParts(new Date(toMs(p.paidAt)));
       if (parts.year === calYear && parts.month === calMonth) s.add(parts.day);
     });
     return s;
@@ -520,7 +525,7 @@ export default function Dashboard() {
                               {new Intl.DateTimeFormat("fa-IR", {
                                 hour: "2-digit",
                                 minute: "2-digit",
-                              }).format(new Date(a.scheduledAt * 1000))}
+                              }).format(new Date(toMs(a.scheduledAt)))}
                             </p>
                           </div>
                           <Badge variant="outline" className="text-xs shrink-0">
