@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients } from "@workspace/api-client-react";
+import { useListPatients, useCreatePatient, getListPatientsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,9 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
-import { formatShamsiDate, formatCurrency } from "@/lib/format";
-import { TierBadge } from "@/components/tier-badge";
-import { PATIENT_TIERS } from "@/lib/tiers";
+import { formatShamsiDate } from "@/lib/format";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { Link, useLocation } from "wouter";
 import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown } from "lucide-react";
@@ -29,51 +27,7 @@ const formSchema = z.object({
   birthdate: z.string().optional(),
   gender: z.string().optional(),
   notes: z.string().optional(),
-  tier: z.string().optional(),
-  referrerType: z.string().optional(),
-  referrerId: z.string().optional(),
-  referrerRate: z.string().optional(),
 });
-
-type PatientWithReferrer = {
-  referrerType?: string | null;
-  referrerId?: number | null;
-  referrerName?: string | null;
-};
-
-const REFERRER_TYPE_LABELS: Record<string, string> = {
-  patient: "مراجع",
-  recipient: "کمیسیون‌گیرنده",
-  staff: "کارمند",
-  laser: "لیزر",
-};
-
-function ReferrerCell({ patient }: { patient: PatientWithReferrer }) {
-  if (!patient.referrerType || !patient.referrerId) {
-    return <span className="text-muted-foreground text-sm">—</span>;
-  }
-  const typeLabel = REFERRER_TYPE_LABELS[patient.referrerType] ?? patient.referrerType;
-  const name = patient.referrerName ?? "—";
-  let href: string | null = null;
-  if (patient.referrerType === "patient") href = `/patients/${patient.referrerId}`;
-  else if (patient.referrerType === "recipient" || patient.referrerType === "laser") href = `/commission-recipients?profile=${patient.referrerId}`;
-
-  const content = (
-    <span className="inline-flex flex-col items-start leading-tight">
-      <span className={href ? "text-primary hover:underline font-medium text-sm" : "font-medium text-sm"}>{name}</span>
-      <span className="text-[11px] text-muted-foreground">{typeLabel}</span>
-    </span>
-  );
-
-  if (href) {
-    return (
-      <Link href={href} onClick={(e) => e.stopPropagation()}>
-        {content}
-      </Link>
-    );
-  }
-  return content;
-}
 
 export default function Patients() {
   const [, navigate] = useLocation();
@@ -82,8 +36,6 @@ export default function Patients() {
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const { data: patientsList } = useListPatients({ q: search, limit: 200 });
-  const { data: staff } = useListStaff();
-  const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -100,26 +52,11 @@ export default function Patients() {
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "", tier: "", referrerType: "", referrerId: "", referrerRate: "" },
+    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "" },
   });
 
-  const referrerType = form.watch("referrerType");
-
   function onSubmit(values: z.infer<typeof formSchema>) {
-    const hasReferrer = !!values.referrerType && !!values.referrerId;
-    createPatient.mutate({ data: {
-      name: values.name,
-      phone: values.phone,
-      fileNumber: values.fileNumber,
-      email: values.email || undefined,
-      birthdate: values.birthdate || undefined,
-      gender: values.gender || undefined,
-      notes: values.notes || undefined,
-      tier: values.tier || undefined,
-      referrerType: hasReferrer ? values.referrerType : undefined,
-      referrerId: hasReferrer ? Number(values.referrerId) : undefined,
-      referrerRate: hasReferrer && values.referrerRate ? Number(values.referrerRate) : undefined,
-    } });
+    createPatient.mutate({ data: { ...values, email: values.email || undefined, birthdate: values.birthdate || undefined, gender: values.gender || undefined, notes: values.notes || undefined } });
   }
 
   function toggleSort(col: typeof sortBy) {
@@ -231,66 +168,6 @@ export default function Patients() {
                     <FormMessage />
                   </FormItem>
                 )} />
-
-                <FormField control={form.control} name="tier" render={({ field }) => (
-                  <FormItem className="col-span-2">
-                    <FormLabel>سطح‌بندی مراجع</FormLabel>
-                    <FormControl>
-                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
-                        <option value="">بدون سطح‌بندی</option>
-                        {PATIENT_TIERS.map(t => (
-                          <option key={t.key} value={t.key}>{t.emoji} {t.label}</option>
-                        ))}
-                      </select>
-                    </FormControl>
-                  </FormItem>
-                )} />
-
-                <FormField control={form.control} name="referrerType" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>نوع معرف</FormLabel>
-                    <FormControl>
-                      <select
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
-                        {...field}
-                        onChange={(e) => { field.onChange(e); form.setValue("referrerId", ""); }}
-                      >
-                        <option value="">بدون معرف</option>
-                        <option value="patient">مراجع</option>
-                        <option value="recipient">کمیسیون‌گیرنده</option>
-                        <option value="staff">کارمند</option>
-                        <option value="laser">لیزر</option>
-                      </select>
-                    </FormControl>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="referrerRate" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>درصد پورسانت</FormLabel>
-                    <FormControl><Input type="number" dir="ltr" min={0} max={100} placeholder="مثلاً ۱۰" disabled={!referrerType} {...field} /></FormControl>
-                  </FormItem>
-                )} />
-                {referrerType && (
-                  <FormField control={form.control} name="referrerId" render={({ field }) => (
-                    <FormItem className="col-span-2">
-                      <FormLabel>انتخاب معرف</FormLabel>
-                      <FormControl>
-                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
-                          <option value="">انتخاب معرف...</option>
-                          {referrerType === "patient" && (patientsList?.data ?? []).map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
-                          ))}
-                          {referrerType === "staff" && (staff ?? []).map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                          {(referrerType === "recipient" || referrerType === "laser") && (recipients ?? []).map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                    </FormItem>
-                  )} />
-                )}
               </div>
               <DialogFooter>
                 <Button type="submit" disabled={createPatient.isPending}>
@@ -339,8 +216,6 @@ export default function Patients() {
                       <SortIcon col="name" />نام مراجع
                     </TableHead>
                     <TableHead>شماره تماس</TableHead>
-                    <TableHead>معرف</TableHead>
-                    <TableHead>موجودی اکانت</TableHead>
                     <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("createdAt")}>
                       <SortIcon col="createdAt" />تاریخ ثبت
                     </TableHead>
@@ -351,19 +226,8 @@ export default function Patients() {
                   {sorted.map((patient) => (
                     <TableRow key={patient.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell className="font-mono text-sm font-medium">{patient.fileNumber}</TableCell>
-                      <TableCell className="font-medium">
-                        <span className="inline-flex items-center gap-1.5">
-                          {patient.name}
-                          <TierBadge tier={patient.tier} />
-                        </span>
-                      </TableCell>
+                      <TableCell className="font-medium">{patient.name}</TableCell>
                       <TableCell className="font-mono text-sm">{patient.phone}</TableCell>
-                      <TableCell><ReferrerCell patient={patient} /></TableCell>
-                      <TableCell className="text-sm">
-                        {patient.accountBalance && patient.accountBalance > 0
-                          ? <span className="text-emerald-600 font-medium">{formatCurrency(patient.accountBalance)}</span>
-                          : <span className="text-muted-foreground">—</span>}
-                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{formatShamsiDate(patient.createdAt)}</TableCell>
                       <TableCell>
                         <Link href={`/patients/${patient.id}`}>
@@ -376,7 +240,7 @@ export default function Patients() {
                   ))}
                   {!sorted.length && (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
                         <Users className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         مراجعی یافت نشد
                       </TableCell>
@@ -414,7 +278,6 @@ export default function Patients() {
                     <TableHead className="font-bold text-foreground">شماره پرونده</TableHead>
                     <TableHead className="font-bold text-foreground">نام مراجع</TableHead>
                     <TableHead className="font-bold text-foreground">تماس</TableHead>
-                    <TableHead className="font-bold text-foreground">معرف</TableHead>
                     <TableHead className="font-bold text-foreground">جنسیت</TableHead>
                     <TableHead className="font-bold text-foreground">تاریخ ثبت</TableHead>
                     <TableHead className="font-bold text-foreground">هشدار</TableHead>
@@ -440,19 +303,13 @@ export default function Patients() {
                             <span className="font-mono font-bold text-primary">{patient.fileNumber}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium">
-                          <span className="inline-flex items-center gap-1.5">
-                            {patient.name}
-                            <TierBadge tier={patient.tier} />
-                          </span>
-                        </TableCell>
+                        <TableCell className="font-medium">{patient.name}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-1 text-sm font-mono">
                             <Phone className="h-3 w-3 text-muted-foreground" />
                             {patient.phone}
                           </div>
                         </TableCell>
-                        <TableCell><ReferrerCell patient={patient} /></TableCell>
                         <TableCell>
                           {patient.gender
                             ? <Badge variant="outline" className="text-xs">{patient.gender === "female" ? "خانم" : patient.gender === "male" ? "آقا" : patient.gender}</Badge>
@@ -473,7 +330,7 @@ export default function Patients() {
                     ))}
                   {!patientsList?.data.length && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                         <FolderOpen className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         پرونده‌ای یافت نشد
                       </TableCell>

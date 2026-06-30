@@ -162,46 +162,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppointmentWithDetailsList"
 
-  /patients/{id}/account-transactions:
-    get:
-      operationId: listPatientAccountTransactions
-      tags: [patients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/PatientAccountTransaction"
-    post:
-      operationId: createPatientAccountTransaction
-      tags: [patients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PatientAccountTransactionInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PatientAccountTransaction"
-
   /patients/{id}/notes:
     get:
       operationId: listPatientNotes
@@ -866,23 +826,6 @@ paths:
         "404":
           description: Not found
 
-  /commission-recipients/{id}/referrals:
-    get:
-      operationId: getCommissionRecipientReferrals
-      tags: [commission-recipients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CommissionRecipientReferrals"
-
   # ── Reminders ──────────────────────────────────────────────────────────────
   /reminders:
     get:
@@ -1053,12 +996,6 @@ components:
         birthdate: { type: ["string", "null"] }
         gender: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
-        tier: { type: ["string", "null"] }
-        accountBalance: { type: integer }
-        referrerType: { type: ["string", "null"] }
-        referrerId: { type: ["integer", "null"] }
-        referrerRate: { type: ["integer", "null"] }
-        referrerName: { type: ["string", "null"] }
         createdAt: { type: integer }
 
     PatientInput:
@@ -1072,11 +1009,6 @@ components:
         birthdate: { type: string }
         gender: { type: string }
         notes: { type: string }
-        tier: { type: string }
-        accountBalance: { type: integer }
-        referrerType: { type: string }
-        referrerId: { type: integer }
-        referrerRate: { type: integer }
 
     PatientUpdate:
       type: object
@@ -1088,32 +1020,6 @@ components:
         birthdate: { type: ["string", "null"] }
         gender: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
-        tier: { type: ["string", "null"] }
-        accountBalance: { type: integer }
-        referrerType: { type: ["string", "null"] }
-        referrerId: { type: ["integer", "null"] }
-        referrerRate: { type: ["integer", "null"] }
-
-    PatientAccountTransaction:
-      type: object
-      required: [id, patientId, amount, type, createdAt]
-      properties:
-        id: { type: integer }
-        patientId: { type: integer }
-        amount: { type: integer }
-        type: { type: string }
-        description: { type: ["string", "null"] }
-        paymentId: { type: ["integer", "null"] }
-        createdAt: { type: integer }
-
-    PatientAccountTransactionInput:
-      type: object
-      required: [amount, type]
-      properties:
-        amount: { type: integer }
-        type: { type: string }
-        description: { type: string }
-        paymentId: { type: integer }
 
     PatientList:
       type: object
@@ -1256,7 +1162,6 @@ components:
         patientName: { type: ["string", "null"] }
         patientPhone: { type: ["string", "null"] }
         patientFileNumber: { type: ["string", "null"] }
-        patientTier: { type: ["string", "null"] }
         serviceName: { type: ["string", "null"] }
         servicePrice: { type: ["integer", "null"] }
         staffName: { type: ["string", "null"] }
@@ -1345,8 +1250,6 @@ components:
         discountName: { type: string }
         discountAmount: { type: integer }
         depositAmount: { type: integer }
-        # مبلغی که هنگام همین پرداخت باید از موجودی اکانت مراجع کسر شود (اتمیک، سمت سرور)
-        applyAccountBalance: { type: integer }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
@@ -1466,28 +1369,6 @@ components:
         phone: { type: ["string", "null"] }
         description: { type: ["string", "null"] }
 
-    CommissionRecipientReferrals:
-      type: object
-      required: [recipient, referrals, totalSpent, totalCommission, count]
-      properties:
-        recipient:
-          $ref: "#/components/schemas/CommissionRecipient"
-        referrals:
-          type: array
-          items:
-            type: object
-            required: [patientId, name, totalSpent, referrerRate, commission]
-            properties:
-              patientId: { type: integer }
-              name: { type: string }
-              fileNumber: { type: ["string", "null"] }
-              totalSpent: { type: integer }
-              referrerRate: { type: ["integer", "null"] }
-              commission: { type: integer }
-        totalSpent: { type: integer }
-        totalCommission: { type: integer }
-        count: { type: integer }
-
     # ── Commission ────────────────────────────────────────────────────────────
     Commission:
       type: object
@@ -1497,7 +1378,6 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: ["integer", "null"] }
-        paymentId: { type: ["integer", "null"] }
         description: { type: ["string", "null"] }
         amount: { type: integer }
         rate: { type: ["integer", "null"] }
@@ -1515,7 +1395,6 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: integer }
-        paymentId: { type: integer }
         description: { type: string }
         amount: { type: integer }
         rate: { type: integer }
@@ -1568,7 +1447,6 @@ components:
         status: { type: string }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
-        patientTier: { type: ["string", "null"] }
 
     ReminderInput:
       type: object

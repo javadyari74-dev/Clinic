@@ -32,12 +32,6 @@ export const ListPatientsResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
-  "tier": zod.string().nullish(),
-  "accountBalance": zod.number().optional(),
-  "referrerType": zod.string().nullish(),
-  "referrerId": zod.number().nullish(),
-  "referrerRate": zod.number().nullish(),
-  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })),
   "total": zod.number(),
@@ -53,12 +47,7 @@ export const CreatePatientBody = zod.object({
   "email": zod.string().optional(),
   "birthdate": zod.string().optional(),
   "gender": zod.string().optional(),
-  "notes": zod.string().optional(),
-  "tier": zod.string().optional(),
-  "accountBalance": zod.number().optional(),
-  "referrerType": zod.string().optional(),
-  "referrerId": zod.number().optional(),
-  "referrerRate": zod.number().optional()
+  "notes": zod.string().optional()
 })
 
 
@@ -75,12 +64,6 @@ export const GetPatientResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
-  "tier": zod.string().nullish(),
-  "accountBalance": zod.number().optional(),
-  "referrerType": zod.string().nullish(),
-  "referrerId": zod.number().nullish(),
-  "referrerRate": zod.number().nullish(),
-  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })
 
@@ -96,12 +79,7 @@ export const UpdatePatientBody = zod.object({
   "email": zod.string().nullish(),
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
-  "notes": zod.string().nullish(),
-  "tier": zod.string().nullish(),
-  "accountBalance": zod.number().optional(),
-  "referrerType": zod.string().nullish(),
-  "referrerId": zod.number().nullish(),
-  "referrerRate": zod.number().nullish()
+  "notes": zod.string().nullish()
 })
 
 export const UpdatePatientResponse = zod.object({
@@ -113,12 +91,6 @@ export const UpdatePatientResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
-  "tier": zod.string().nullish(),
-  "accountBalance": zod.number().optional(),
-  "referrerType": zod.string().nullish(),
-  "referrerId": zod.number().nullish(),
-  "referrerRate": zod.number().nullish(),
-  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })
 
@@ -149,7 +121,6 @@ export const ListPatientAppointmentsResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
-  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -160,34 +131,6 @@ export const ListPatientAppointmentsResponse = zod.object({
   "serviceUnitCount": zod.number().nullish()
 })),
   "total": zod.number()
-})
-
-
-export const ListPatientAccountTransactionsParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const ListPatientAccountTransactionsResponseItem = zod.object({
-  "id": zod.number(),
-  "patientId": zod.number(),
-  "amount": zod.number(),
-  "type": zod.string(),
-  "description": zod.string().nullish(),
-  "paymentId": zod.number().nullish(),
-  "createdAt": zod.number()
-})
-export const ListPatientAccountTransactionsResponse = zod.array(ListPatientAccountTransactionsResponseItem)
-
-
-export const CreatePatientAccountTransactionParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const CreatePatientAccountTransactionBody = zod.object({
-  "amount": zod.number(),
-  "type": zod.string(),
-  "description": zod.string().optional(),
-  "paymentId": zod.number().optional()
 })
 
 
@@ -380,7 +323,6 @@ export const ListAppointmentsResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
-  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -425,7 +367,6 @@ export const GetTodayWaitingListResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
-  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -459,7 +400,6 @@ export const GetAppointmentResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
-  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -504,7 +444,6 @@ export const UpdateAppointmentResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
-  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -561,8 +500,7 @@ export const CreatePaymentBody = zod.object({
   "unitLabel": zod.string().optional(),
   "discountName": zod.string().optional(),
   "discountAmount": zod.number().optional(),
-  "depositAmount": zod.number().optional(),
-  "applyAccountBalance": zod.number().optional()
+  "depositAmount": zod.number().optional()
 })
 
 
@@ -742,7 +680,6 @@ export const ListCommissionsResponseItem = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
-  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -760,7 +697,6 @@ export const CreateCommissionBody = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().optional(),
-  "paymentId": zod.number().optional(),
   "description": zod.string().optional(),
   "amount": zod.number(),
   "rate": zod.number().optional(),
@@ -791,7 +727,6 @@ export const UpdateCommissionResponse = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
-  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -850,32 +785,6 @@ export const DeleteCommissionRecipientParams = zod.object({
 })
 
 
-export const GetCommissionRecipientReferralsParams = zod.object({
-  "id": zod.coerce.number()
-})
-
-export const GetCommissionRecipientReferralsResponse = zod.object({
-  "recipient": zod.object({
-  "id": zod.number(),
-  "name": zod.string(),
-  "phone": zod.string().nullish(),
-  "description": zod.string().nullish(),
-  "createdAt": zod.number()
-}),
-  "referrals": zod.array(zod.object({
-  "patientId": zod.number(),
-  "name": zod.string(),
-  "fileNumber": zod.string().nullish(),
-  "totalSpent": zod.number(),
-  "referrerRate": zod.number().nullable(),
-  "commission": zod.number()
-})),
-  "totalSpent": zod.number(),
-  "totalCommission": zod.number(),
-  "count": zod.number()
-})
-
-
 export const ListRemindersQueryParams = zod.object({
   "status": zod.coerce.string().optional(),
   "type": zod.coerce.string().optional()
@@ -890,8 +799,7 @@ export const ListRemindersResponseItem = zod.object({
   "dueAt": zod.number(),
   "status": zod.string(),
   "createdAt": zod.number(),
-  "patientName": zod.string().nullish(),
-  "patientTier": zod.string().nullish()
+  "patientName": zod.string().nullish()
 })
 export const ListRemindersResponse = zod.array(ListRemindersResponseItem)
 
@@ -928,8 +836,7 @@ export const UpdateReminderResponse = zod.object({
   "dueAt": zod.number(),
   "status": zod.string(),
   "createdAt": zod.number(),
-  "patientName": zod.string().nullish(),
-  "patientTier": zod.string().nullish()
+  "patientName": zod.string().nullish()
 })
 
 

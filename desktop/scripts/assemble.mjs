@@ -33,6 +33,30 @@ async function exists(p) {
 }
 
 async function main() {
+  // ---------------------------------------------------------------------------
+  // Pre-built mode.
+  //
+  // The web frontend and the server are plain JavaScript / static files, so we
+  // build them once on Linux (where the workspace pnpm/esbuild config works) and
+  // ship the result inside desktop/dist. On a Windows machine those JS bundles
+  // run as-is, so we MUST NOT try to rebuild them there: the workspace
+  // pnpm-workspace.yaml strips all non-Linux esbuild/lightningcss binaries,
+  // which makes `pnpm build` fail on Windows.
+  //
+  // If desktop/dist is already assembled, skip everything and let
+  // electron-builder package it directly.
+  // ---------------------------------------------------------------------------
+  const prebuiltServer = path.join(serverOut, "index.mjs");
+  const prebuiltPublic = path.join(publicOut, "index.html");
+  if ((await exists(prebuiltServer)) && (await exists(prebuiltPublic))) {
+    console.log(
+      "\n✓ Using pre-built bundle in desktop/dist (skipping the workspace build).",
+    );
+    console.log("  - server  ->", serverOut);
+    console.log("  - public  ->", publicOut);
+    return;
+  }
+
   if (process.platform !== "win32") {
     console.warn(
       "\n[warning] You are not on Windows. The native SQLite binary bundled here\n" +
