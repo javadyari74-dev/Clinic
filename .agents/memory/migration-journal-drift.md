@@ -26,14 +26,32 @@ The Drizzle schema can declare columns that the journaled migrations also add vi
 `clinic.db` had `unit_count` but 0009 was unrecorded → drizzle `migrate()` replayed
 0009 → crash.
 
-## Fix: idempotent applier replaces drizzle migrate()
+## Fix: idempotent applier replaces drizzle migrate(), replays ALL entries
 
 `runMigrations()` in `lib/db/src/index.ts` no longer calls drizzle's `migrate()`.
-It iterates journal entries with `when > MAX(created_at)`, splits each file on
-`--> statement-breakpoint`, runs each statement, and **swallows only the specific
-SQLite "object already present" errors** (duplicate column / table|index|trigger|view
-already exists), then records the migration. Fresh DB applies everything in order;
-push-synced and partially-applied DBs self-heal.
+It splits each file on `--> statement-breakpoint`, runs each statement, and
+**swallows only the specific SQLite "object already present" errors** (duplicate
+column / table|index|trigger|view already exists), then records the migration.
+
+**Critical: do NOT gate by `when > MAX(created_at)`.** An earlier version skipped
+any entry whose `when <= appliedMax`. That re-introduced the exact silent-drift
+failure below: if `__drizzle_migrations` claims everything applied but a column
+from an earlier migration is actually missing (partial apply, `drizzle-kit push`,
+a column dropped), the skip means it is never recreated. The server starts
+("migrations applied successfully") but every query selecting the column 500s.
+Now **every** journaled migration is replayed on each startup; safe because all
+DDL self-heals via the benign-error swallow and all DML is idempotent
+(`INSERT OR IGNORE`, `UPDATE ... WHERE col IS NULL`). `recordMigration` inserts
+via `WHERE NOT EXISTS (... created_at = when)` so replaying doesn't duplicate rows.
+
+**Drift presenting as "no server connection" (offline desktop):** the Electron app
+showed "اتصالی به سرور ندارم" and patient registration failed. The server, main.cjs,
+and frontend were all fine (renderer loads over http://127.0.0.1:port, relative
+`/api` is same-origin). The actual fault was a **server-side 500** on
+`GET/POST /api/patients` from missing 0007 columns (tier/account_balance/referrer_*)
+in a drifted DB — surfaced by the UI as a generic "cannot reach server" message.
+Lesson: a frontend "can't reach server" error can be a backend 500, not connectivity;
+reproduce the real endpoint before blaming the network/Electron load path.
 
 **Why this is safe here:** every migration is DDL plus naturally-idempotent DML
 (`INSERT OR IGNORE`, `UPDATE ... WHERE col IS NULL`). A non-benign error (bad SQL,
