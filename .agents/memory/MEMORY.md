@@ -2,9 +2,5 @@
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
 - [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
 - [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
-- [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
-- [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.
-- [Payments balance vs accrual](payments-balance-accrual.md) — staff/external accrual + wallet deduction are server-side/atomic; patient-referrer credit is UI-orchestrated; zero cash amount is valid.
-- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, and discount usage; commissions link by paymentId (legacy rows by appointmentId only when sole payment).
-- [Codegen + project references](codegen-project-references.md) — api-server consumes api-zod via TS project references → stale dist .d.ts after codegen unless the composite is rebuilt (tsc --build).
-- [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
+- [Backup/Restore feature](backup-restore-feature.md) — every table group must be in download+restore; restore wipe must be section-aware; coerce date columns from ISO on restore.
+- [Migrations hand-written → drift](migrations-hand-written-drift.md) — dev uses drizzle push so added schema cols work in dev but crash fresh/desktop/prod DBs; hand-write ALTER + journal entry.
