@@ -32,3 +32,34 @@ IntersectionObserver / pointer-capture / scrollIntoView for Radix + recharts.
 **How to apply:** when adding pages/routes, add a matching entry to the `routes` and
 `lazyModules` tables. If a new page early-returns a loading state before its heading,
 assert its loading text rather than the heading.
+
+## Loaded-state smoke test (route-data-smoke.test.tsx)
+
+Sibling test that asserts pages render their *loaded* state (catches `.map`/field
+crashes the never-resolving stub can't). A single URL-aware `fetch` mock
+(`api-fixtures.ts`) covers every page — generated react-query hooks, the
+`use-accounting` hook, and raw `fetch` in users/laser/backup all route through
+global `fetch`, so one mock that matches on `URL.pathname` is enough.
+
+- **List endpoint shapes are inconsistent and must be matched exactly or pages
+  crash:** `/patients` and `/appointments` (incl. `/patients/:id/appointments`,
+  waiting-list) return `{data,total,...}`; almost everything else (`/payments`,
+  `/services`, `/staff`, `/inventory`, `/discounts`, `/commissions`,
+  `/commission-recipients`, `/reminders`, `/activity`, account-transactions,
+  notes) returns a **bare array**. `/reports/summary`, `/dashboard/summary`,
+  `/accounting/*`, `/commission-recipients/:id/referrals` are objects.
+- **App.tsx has no error boundary**, so a post-load render crash throws out of
+  `render()`. The test wraps `<App/>` in a recording boundary and re-throws the
+  caught error inside `waitFor` — failures carry the real stack, not a timeout.
+- **Markers must target each page's default tab.** Radix `TabsContent` unmounts
+  inactive tabs, so data in a non-default tab never renders: accounting defaults
+  to "chart" (per-service is hidden), reminders defaults to "birthday" (follow-up
+  list hidden — assert the upcoming-birthday patient name instead). Use a regex
+  marker when the value is concatenated with other text in one node (testing-lib
+  `getByText` only joins an element's *direct* text nodes).
+- Reminder type buckets use `"followup"` (no underscore), not `"follow_up"`.
+
+**How to apply:** new page → add a `{path, marker}` row whose marker is a value
+rendered in the page's *default* view, and add its on-mount endpoints to
+`api-fixtures.ts` `routes` (most-specific path regex first). Default fallthrough
+returns `[]`, so a forgotten object endpoint surfaces as an assertion failure.
