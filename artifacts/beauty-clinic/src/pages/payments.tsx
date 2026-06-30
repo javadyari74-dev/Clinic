@@ -472,6 +472,8 @@ export default function Payments() {
               data: {
                 amount: commissionAmount,
                 type: "referral_credit",
+                // اتصال اعتبار معرفی به همین پرداخت تا هنگام حذف پرداخت، این اعتبار نیز برگردانده شود
+                paymentId: payment.id,
                 description: [
                   payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
                   commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
@@ -495,6 +497,7 @@ export default function Payments() {
                 recipientType: commRecipientType,
                 recipientId: commRecipientId,
                 appointmentId: form.getValues("appointmentId") ?? undefined,
+                paymentId: payment.id,
                 amount: commissionAmount,
                 rate: commCalcType === "percentage" ? commCalcValue : undefined,
                 description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
@@ -544,6 +547,21 @@ export default function Payments() {
         setActiveReceipt(receipt);
         setReceiptOpen(true);
         toast({ title: "پرداخت با موفقیت ثبت شد" });
+      },
+      onError: (error) => {
+        // پیام خطای سرور (فارسی) را نمایش می‌دهیم تا رد شدن پرداخت کیف پول
+        // برای اپراتور قابل فهم باشد (به‌ویژه «موجودی اکانت کافی نیست»).
+        const serverMessage =
+          (error as any)?.data?.error ??
+          (error as any)?.data?.message;
+        toast({
+          title: "ثبت پرداخت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت پرداخت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
