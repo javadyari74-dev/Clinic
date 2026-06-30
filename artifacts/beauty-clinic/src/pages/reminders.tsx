@@ -17,6 +17,7 @@ import { ErrorNotice } from "@/components/error-notice";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } from "lucide-react";
+import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -95,7 +96,10 @@ function ReminderRow({
         </p>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {r.patientName && (
-            <span className="text-xs text-muted-foreground">مراجع: {r.patientName}</span>
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              مراجع: {r.patientName}
+              <TierBadge tier={r.patientTier} />
+            </span>
           )}
           <span className="text-xs text-muted-foreground font-mono">{formatShamsiDate(r.dueAt)}</span>
         </div>
@@ -283,43 +287,15 @@ export default function Reminders() {
                         field.value
                           ? (() => {
                               const d = new Date(field.value * 1000);
-                              const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                                year: "numeric", month: "2-digit", day: "2-digit",
-                              }).formatToParts(d);
-                              const g = (t: string) => parts.find(p => p.type === t)?.value ?? "";
-                              return `${g("year")}-${g("month")}-${g("day")}`;
+                              const pad = (n: number) => String(n).padStart(2, "0");
+                              return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
                             })()
                           : ""
                       }
-                      onChange={(shamsiStr) => {
-                        if (!shamsiStr) { field.onChange(0); return; }
-                        const [y, m, day] = shamsiStr.split("-").map(Number);
-                        // Convert Shamsi to Gregorian unix
-                        const ref = new Date();
-                        ref.setHours(12, 0, 0, 0);
-                        const rp = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                          year: "numeric", month: "numeric", day: "numeric",
-                        }).formatToParts(ref);
-                        const rg = (t: string) => parseInt(rp.find(p => p.type === t)?.value ?? "0");
-                        const ry = rg("year"), rm = rg("month"), rd = rg("day");
-                        const approx = Math.round(
-                          (y - ry) * 365.25 + ((m - 1) * 30.5 + day) - ((rm - 1) * 30.5 + rd),
-                        );
-                        const base = new Date(ref);
-                        base.setDate(base.getDate() + approx);
-                        let found = base;
-                        for (let offset = -8; offset <= 8; offset++) {
-                          const test = new Date(base);
-                          test.setDate(test.getDate() + offset);
-                          const tp = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                            year: "numeric", month: "numeric", day: "numeric",
-                          }).formatToParts(test);
-                          const tg = (t: string) => parseInt(tp.find(p => p.type === t)?.value ?? "0");
-                          if (tg("year") === y && tg("month") === m && tg("day") === day) {
-                            found = test; break;
-                          }
-                        }
-                        field.onChange(Math.floor(found.getTime() / 1000));
+                      onChange={(iso) => {
+                        if (!iso) { field.onChange(0); return; }
+                        const [y, m, day] = iso.split("-").map(Number);
+                        field.onChange(Math.floor(new Date(y, m - 1, day, 12, 0, 0).getTime() / 1000));
                       }}
                       placeholder="انتخاب تاریخ سررسید..."
                     />

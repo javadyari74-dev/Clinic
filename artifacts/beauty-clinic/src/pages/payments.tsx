@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell } from "lucide-react";
+import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -32,12 +32,20 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { TierBadge } from "@/components/tier-badge";
 
 const methods: Record<string, string> = {
   cash: "نقد",
   card: "کارت",
   transfer: "کارت به کارت",
   insurance: "بیمه",
+};
+
+const REFERRER_TYPE_LABELS: Record<string, string> = {
+  patient: "مراجع",
+  recipient: "کمیسیون‌گیرنده",
+  staff: "کارمند",
+  laser: "لیزر",
 };
 
 // ─── Shamsi → Unix helper ──────────────────────────────────────────────────────
@@ -244,6 +252,7 @@ export default function Payments() {
   const { data: discounts } = useListDiscounts();
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
+  const { data: patientsList } = useListPatients();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -255,7 +264,7 @@ export default function Payments() {
 
   // Commission state
   const [commissionEnabled, setCommissionEnabled] = useState(false);
-  const [commRecipientType, setCommRecipientType] = useState<"staff" | "external">("staff");
+  const [commRecipientType, setCommRecipientType] = useState<"staff" | "external" | "patient">("staff");
   const [commRecipientId, setCommRecipientId] = useState<number | null>(null);
   const [commCalcType, setCommCalcType] = useState<"percentage" | "fixed">("percentage");
   const [commCalcValue, setCommCalcValue] = useState<number>(0);
@@ -273,6 +282,10 @@ export default function Payments() {
   const [svcReminderType, setSvcReminderType] = useState<"followup" | "payment">("followup");
   const [svcReminderDate, setSvcReminderDate] = useState("");
 
+  // Account balance application state
+  const [balanceApplyEnabled, setBalanceApplyEnabled] = useState(false);
+  const [balanceApplied, setBalanceApplied] = useState(0);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 },
@@ -287,6 +300,36 @@ export default function Payments() {
     [allActiveAppointments, watchedAppointmentId],
   );
   const isPerUnit = selectedAppt?.priceMode === "per_unit";
+  const selectedPatientId = (selectedAppt as any)?.patientId as number | undefined;
+  const selectedPatient = useMemo(
+    () => (patientsList?.data ?? []).find(p => p.id === selectedPatientId) ?? null,
+    [patientsList, selectedPatientId],
+  );
+  const patientBalance = selectedPatient?.accountBalance ?? 0;
+
+  // اگر بیمارِ انتخاب‌شده معرفی از نوع «مراجع» داشته باشد، بخش تخصیص کمیسیون به‌صورت
+  // خودکار فعال و با گیرنده‌ی معرف + درصدِ ذخیره‌شده پر می‌شود تا اعتبار به حساب او شارژ شود.
+  useEffect(() => {
+    if (selectedPatient && selectedPatient.referrerType === "patient" && selectedPatient.referrerId) {
+      setCommissionEnabled(true);
+      setCommRecipientType("patient");
+      setCommRecipientId(selectedPatient.referrerId);
+      setCommCalcType("percentage");
+      setCommCalcValue(selectedPatient.referrerRate ?? 0);
+    } else {
+      // بیمارِ انتخاب‌شده معرفِ مراجع ندارد؛ اگر بخش کمیسیون قبلاً به‌صورت خودکار روی
+      // حالت «مراجع» پر شده بود، آن را پاک می‌کنیم تا اعتبار اشتباهی به معرفِ قبلی داده نشود.
+      setCommRecipientType((prev) => {
+        if (prev === "patient") {
+          setCommissionEnabled(false);
+          setCommRecipientId(null);
+          setCommCalcValue(0);
+          return "staff";
+        }
+        return prev;
+      });
+    }
+  }, [selectedPatient]);
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
   useEffect(() => {
@@ -321,16 +364,19 @@ export default function Payments() {
   // وقتی چک‌باکس «مبلغ کامل» تغییر می‌کنه
   useEffect(() => {
     if (fullAmountChecked) {
-      form.setValue("amount", Math.max(0, (originalAmount || 0) - currentDeposit));
+      const afterDeposit = Math.max(0, (originalAmount || 0) - currentDeposit);
+      const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
+      setBalanceApplied(applied);
+      form.setValue("amount", Math.max(0, afterDeposit - applied));
     }
-  }, [fullAmountChecked, originalAmount, currentDeposit]);
+  }, [fullAmountChecked, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
 
   const selectedDiscount = useMemo(
     () => discounts?.find(d => d.id === selectedDiscountId) ?? null,
     [discounts, selectedDiscountId]
   );
 
-  // محاسبه مبلغ پس از تخفیف و کسر بیعانه
+  // محاسبه مبلغ پس از تخفیف و کسر بیعانه و استفاده از موجودی اکانت
   useEffect(() => {
     const base = originalAmount || 0;
     let afterDiscount: number;
@@ -345,8 +391,11 @@ export default function Payments() {
       afterDiscount = base;
       form.setValue("discountId", undefined);
     }
-    form.setValue("amount", Math.max(0, afterDiscount - currentDeposit));
-  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit]);
+    const afterDeposit = Math.max(0, afterDiscount - currentDeposit);
+    const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
+    setBalanceApplied(applied);
+    form.setValue("amount", Math.max(0, afterDeposit - applied));
+  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
 
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
@@ -366,6 +415,26 @@ export default function Payments() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+      },
+    },
+  });
+
+  // کسر موجودی اکانت اکنون سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود؛
+  // این میوتیشن فقط برای ثبت «اعتبار معرفی» مراجعِ معرف (referral_credit) باقی مانده است.
+  const createAccountTxn = useCreatePatientAccountTransaction({
+    mutation: {
+      onSuccess: (_data, vars) => {
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(vars.id) });
+        queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(vars.id) });
+      },
+      onError: () => {
+        // اگر ثبت اعتبار معرفی ناموفق شد، اپراتور باید مطلع شود تا حساب مراجع را دستی اصلاح کند.
+        toast({
+          title: "ثبت اعتبار معرفی ناموفق بود",
+          description: "پرداخت ثبت شد اما اعتبار معرفی به حساب مراجعِ معرف اعمال نشد. لطفاً حساب را دستی بررسی کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -396,16 +465,6 @@ export default function Payments() {
         if (commissionEnabled && commRecipientId && commissionAmount > 0) {
           const apptId = form.getValues("appointmentId");
           const appt = allActiveAppointments.find(a => a.id === apptId);
-          const recipientName =
-            commRecipientType === "staff"
-              ? staff?.find(s => s.id === commRecipientId)?.name
-              : recipients?.find(r => r.id === commRecipientId)?.name;
-          const desc = [
-            appt?.serviceName,
-            commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
-            `${formatCurrency(commissionAmount)}`,
-            recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
-          ].filter(Boolean).join(" — ");
 
           if (commRecipientType === "patient") {
             // معرف از نوع مراجع → اعتبار معرفی به حساب همان بیمارِ معرف شارژ می‌شود
@@ -532,6 +591,8 @@ export default function Payments() {
     setSvcReminderEnabled(false);
     setSvcReminderType("followup");
     setSvcReminderDate("");
+    setBalanceApplyEnabled(false);
+    setBalanceApplied(0);
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -546,7 +607,8 @@ export default function Payments() {
       data: {
         ...values,
         originalAmount: values.originalAmount,
-        amount: values.amount || values.originalAmount,
+        // وقتی موجودی اکانت یا بیعانه بخشی/تمام مبلغ را پوشش دهد، مبلغِ نقدیِ صفر معتبر است و نباید به مبلغ کل برگردد
+        amount: (balanceApplyEnabled || currentDeposit > 0) ? values.amount : (values.amount || values.originalAmount),
         appointmentId: values.appointmentId ?? 0,
         unitsUsed: isPerUnit ? (values.unitsUsed ?? 1) : undefined,
         // اسنپ‌شات جزئیات تا هر پرداخت به‌صورت کامل و دائمی در دیتابیس بماند
@@ -557,6 +619,8 @@ export default function Payments() {
         discountName: discountEnabled && selectedDiscount ? selectedDiscount.name : undefined,
         discountAmount: discountAmt > 0 ? discountAmt : undefined,
         depositAmount: currentDeposit > 0 ? currentDeposit : undefined,
+        // کسر از موجودی اکانت سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
+        applyAccountBalance: balanceApplyEnabled && balanceApplied > 0 ? balanceApplied : undefined,
       },
     });
   }
@@ -790,6 +854,60 @@ export default function Payments() {
 
             <div className="space-y-3 min-w-0">
 
+              {/* Patient Info Panel (tier + referrer) */}
+              {selectedPatient && (
+                <>
+                  <div className="rounded-lg border p-3 bg-muted/30 space-y-2">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-muted-foreground">مراجع:</span>
+                      <span className="font-medium">{selectedPatient.name}</span>
+                      <TierBadge tier={selectedPatient.tier} showLabel />
+                    </div>
+                    {selectedPatient.referrerType && selectedPatient.referrerId ? (
+                      <div className="flex items-center gap-2 text-sm flex-wrap">
+                        <span className="text-muted-foreground">معرف:</span>
+                        <span className="font-medium">{selectedPatient.referrerName ?? "—"}</span>
+                        <Badge variant="outline" className="text-[11px]">
+                          {REFERRER_TYPE_LABELS[selectedPatient.referrerType] ?? selectedPatient.referrerType}
+                        </Badge>
+                        {selectedPatient.referrerRate != null && (
+                          <span className="text-xs text-muted-foreground">({toPersianDigits(selectedPatient.referrerRate)}٪ پورسانت)</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-muted-foreground">بدون معرف</div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
+
+              {/* Account Balance Section */}
+              {selectedPatient && patientBalance > 0 && (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2 font-medium cursor-pointer" htmlFor="balance-toggle">
+                        <Wallet className="h-4 w-4 text-emerald-600" />
+                        استفاده از موجودی اکانت
+                      </Label>
+                      <Switch id="balance-toggle" checked={balanceApplyEnabled} onCheckedChange={setBalanceApplyEnabled} />
+                    </div>
+                    <div className="text-sm rounded-md bg-emerald-50 border border-emerald-200 px-3 py-2 flex justify-between text-emerald-800">
+                      <span>موجودی اکانت {selectedPatient.name}:</span>
+                      <span className="font-bold font-mono">{formatCurrency(patientBalance)}</span>
+                    </div>
+                    {balanceApplyEnabled && balanceApplied > 0 && (
+                      <div className="text-sm rounded-md bg-emerald-100 px-3 py-2 flex justify-between text-emerald-900">
+                        <span>مبلغ کسرشده از اکانت:</span>
+                        <span className="font-bold font-mono">− {formatCurrency(balanceApplied)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
+
               {/* Service Reminder Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -914,14 +1032,21 @@ export default function Payments() {
 
                 {commissionEnabled && (
                   <div className="space-y-3 rounded-lg border p-3 bg-muted/30">
+                    {commRecipientType === "patient" && (
+                      <div className="text-xs rounded-md bg-pink-50 border border-pink-200 px-3 py-2 text-pink-800">
+                        این بیمار توسط یک مراجعِ دیگر معرفی شده؛ مبلغِ کمیسیون به‌صورت اعتبار به حساب معرف اضافه می‌شود.
+                      </div>
+                    )}
+
                     <div>
                       <Label className="text-sm mb-1 block">نوع گیرنده</Label>
                       <Select
                         value={commRecipientType}
-                        onValueChange={(v) => { setCommRecipientType(v as "staff" | "external"); setCommRecipientId(null); }}
+                        onValueChange={(v) => { setCommRecipientType(v as "staff" | "external" | "patient"); setCommRecipientId(null); }}
                       >
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="patient">مراجع (معرف)</SelectItem>
                           <SelectItem value="staff">کارمند (پرسنل)</SelectItem>
                           <SelectItem value="external">گیرنده خارجی</SelectItem>
                         </SelectContent>
@@ -938,7 +1063,9 @@ export default function Payments() {
                         <SelectContent>
                           {commRecipientType === "staff"
                             ? staff?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)
-                            : recipients?.map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)
+                            : commRecipientType === "patient"
+                              ? (patientsList?.data ?? []).map(p => <SelectItem key={p.id} value={String(p.id)}>{p.name} ({p.fileNumber})</SelectItem>)
+                              : recipients?.map(r => <SelectItem key={r.id} value={String(r.id)}>{r.name}</SelectItem>)
                           }
                         </SelectContent>
                       </Select>
