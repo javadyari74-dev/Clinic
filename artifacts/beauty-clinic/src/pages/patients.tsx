@@ -1,5 +1,9 @@
 import { useState, useMemo } from "react";
-import { useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients } from "@workspace/api-client-react";
+import {
+  useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients,
+  getGetPatientQueryOptions, getListPatientAppointmentsQueryOptions,
+  getListPatientNotesQueryOptions, getListPatientAccountTransactionsQueryOptions,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -87,6 +91,15 @@ export default function Patients() {
   const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  function prefetchPatient(patientId: number) {
+    prefetchPatientDetail();
+    const staleTime = 30_000;
+    queryClient.prefetchQuery({ ...getGetPatientQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientAppointmentsQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientNotesQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientAccountTransactionsQueryOptions(patientId), staleTime });
+  }
 
   const createPatient = useCreatePatient({
     mutation: {
@@ -353,8 +366,8 @@ export default function Patients() {
                     <TableRow
                       key={patient.id}
                       className="cursor-pointer hover:bg-muted/50"
-                      onMouseEnter={prefetchPatientDetail}
-                      onFocus={prefetchPatientDetail}
+                      onMouseEnter={() => prefetchPatient(patient.id)}
+                      onFocus={() => prefetchPatient(patient.id)}
                     >
                       <TableCell className="font-mono text-sm font-medium">{patient.fileNumber}</TableCell>
                       <TableCell className="font-medium">
@@ -439,8 +452,8 @@ export default function Patients() {
                         key={patient.id}
                         className="cursor-pointer hover:bg-primary/5 transition-colors group"
                         onClick={() => navigate(`/patients/${patient.id}`)}
-                        onMouseEnter={prefetchPatientDetail}
-                        onFocus={prefetchPatientDetail}
+                        onMouseEnter={() => prefetchPatient(patient.id)}
+                        onFocus={() => prefetchPatient(patient.id)}
                       >
                         <TableCell>
                           <div className="flex items-center gap-1.5">
