@@ -186,7 +186,8 @@ export const CreatePatientAccountTransactionParams = zod.object({
 export const CreatePatientAccountTransactionBody = zod.object({
   "amount": zod.number(),
   "type": zod.string(),
-  "description": zod.string().optional()
+  "description": zod.string().optional(),
+  "paymentId": zod.number().optional()
 })
 
 
@@ -741,6 +742,7 @@ export const ListCommissionsResponseItem = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -758,6 +760,7 @@ export const CreateCommissionBody = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().optional(),
+  "paymentId": zod.number().optional(),
   "description": zod.string().optional(),
   "amount": zod.number(),
   "rate": zod.number().optional(),
@@ -788,6 +791,7 @@ export const UpdateCommissionResponse = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),

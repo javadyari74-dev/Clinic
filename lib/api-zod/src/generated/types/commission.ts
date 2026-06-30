@@ -13,6 +13,8 @@ export interface Commission {
   /** @nullable */
   appointmentId?: number | null;
   /** @nullable */
+  paymentId?: number | null;
+  /** @nullable */
   description?: string | null;
   amount: number;
   /** @nullable */

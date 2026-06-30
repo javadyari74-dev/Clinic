@@ -472,6 +472,8 @@ export default function Payments() {
               data: {
                 amount: commissionAmount,
                 type: "referral_credit",
+                // اتصال اعتبار معرفی به همین پرداخت تا هنگام حذف پرداخت، این اعتبار نیز برگردانده شود
+                paymentId: payment.id,
                 description: [
                   payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
                   commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
@@ -495,6 +497,7 @@ export default function Payments() {
                 recipientType: commRecipientType,
                 recipientId: commRecipientId,
                 appointmentId: form.getValues("appointmentId") ?? undefined,
+                paymentId: payment.id,
                 amount: commissionAmount,
                 rate: commCalcType === "percentage" ? commCalcValue : undefined,
                 description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
