@@ -448,44 +448,60 @@ const laserSettings = { id: 1, commissionRate: 15 };
 
 type Handler = () => unknown;
 
+// Empty equivalents, matching the *shape* the API uses when there are no rows:
+//   - paginated list endpoints → { data: [], total: 0 }
+//   - plain collection endpoints → []
+//   - aggregate/summary objects → {} (every field undefined — the most hostile
+//     "brand-new clinic" shape, which is exactly where `value.toLocaleString()`
+//     on an undefined field crashes)
+// Single-resource detail objects (a patient, a laser client, settings) keep
+// their populated value: the realistic "empty" case for a detail page is a
+// record that exists but has no related rows yet, not a missing record. A
+// missing record is exercised by ERROR mode instead.
+const EMPTY_LIST = { data: [] as unknown[], total: 0, page: 1, limit: 500 };
+const emptyArr = () => [] as unknown[];
+const emptyObj = () => ({});
+const emptyList = () => EMPTY_LIST;
+
 // Ordered most-specific first. Each entry matches the request pathname (query
-// string already stripped). Only GET endpoints fired on mount need realistic
-// data; everything else falls through to a benign empty response.
-const routes: Array<[RegExp, Handler]> = [
-  [/\/api\/dashboard\/summary$/, () => dashboardSummary],
-  [/\/api\/dashboard\/revenue-chart$/, () => revenueChart],
-  [/\/api\/activity$/, () => activity],
-  [/\/api\/reports\/summary$/, () => reportsSummary],
-  [/\/api\/accounting\/summary$/, () => accountingSummary],
-  [/\/api\/accounting\/by-service$/, () => accountingByService],
-  [/\/api\/accounting\/chart$/, () => accountingChart],
-  [/\/api\/accounting\/expenses$/, () => expenses],
-  [/\/api\/patients\/upcoming-birthdays$/, () => upcomingBirthdays],
-  [/\/api\/patients\/\d+\/appointments$/, () => appointmentsList],
-  [/\/api\/patients\/\d+\/account-transactions$/, () => [] as unknown[]],
-  [/\/api\/patients\/\d+\/notes$/, () => [] as unknown[]],
-  [/\/api\/patients\/\d+$/, () => patientOne],
-  [/\/api\/patients$/, () => patientsList],
-  [/\/api\/appointments\/today\/waiting-list$/, () => appointmentsList],
-  [/\/api\/appointments$/, () => appointmentsList],
-  [/\/api\/payments$/, () => payments],
-  [/\/api\/services$/, () => services],
-  [/\/api\/staff$/, () => staff],
-  [/\/api\/inventory$/, () => inventory],
-  [/\/api\/discounts$/, () => discounts],
-  [/\/api\/commissions$/, () => commissions],
-  [/\/api\/commission-recipients\/\d+\/referrals$/, () => recipientReferrals],
-  [/\/api\/commission-recipients$/, () => commissionRecipients],
-  [/\/api\/reminders$/, () => reminders],
-  [/\/api\/laser\/clients\/\d+$/, () => laserClients[0]],
-  [/\/api\/laser\/clients$/, () => laserClients],
-  [/\/api\/laser\/services$/, () => laserServices],
-  [/\/api\/laser\/appointments$/, () => laserAppointments],
-  [/\/api\/laser\/payments$/, () => laserPayments],
-  [/\/api\/laser\/reminders$/, () => laserReminders],
-  [/\/api\/laser\/settings$/, () => laserSettings],
-  [/\/api\/users$/, () => users],
-  [/\/api\/health$/, () => ({ status: "ok" })],
+// string already stripped). The triple is [pattern, populatedHandler,
+// emptyHandler]. Only GET endpoints fired on mount need realistic data;
+// everything else falls through to a benign empty response.
+const routes: Array<[RegExp, Handler, Handler]> = [
+  [/\/api\/dashboard\/summary$/, () => dashboardSummary, emptyObj],
+  [/\/api\/dashboard\/revenue-chart$/, () => revenueChart, emptyArr],
+  [/\/api\/activity$/, () => activity, emptyArr],
+  [/\/api\/reports\/summary$/, () => reportsSummary, emptyObj],
+  [/\/api\/accounting\/summary$/, () => accountingSummary, emptyObj],
+  [/\/api\/accounting\/by-service$/, () => accountingByService, emptyArr],
+  [/\/api\/accounting\/chart$/, () => accountingChart, emptyArr],
+  [/\/api\/accounting\/expenses$/, () => expenses, emptyArr],
+  [/\/api\/patients\/upcoming-birthdays$/, () => upcomingBirthdays, emptyArr],
+  [/\/api\/patients\/\d+\/appointments$/, () => appointmentsList, emptyList],
+  [/\/api\/patients\/\d+\/account-transactions$/, emptyArr, emptyArr],
+  [/\/api\/patients\/\d+\/notes$/, emptyArr, emptyArr],
+  [/\/api\/patients\/\d+$/, () => patientOne, () => patientOne],
+  [/\/api\/patients$/, () => patientsList, emptyList],
+  [/\/api\/appointments\/today\/waiting-list$/, () => appointmentsList, emptyList],
+  [/\/api\/appointments$/, () => appointmentsList, emptyList],
+  [/\/api\/payments$/, () => payments, emptyArr],
+  [/\/api\/services$/, () => services, emptyArr],
+  [/\/api\/staff$/, () => staff, emptyArr],
+  [/\/api\/inventory$/, () => inventory, emptyArr],
+  [/\/api\/discounts$/, () => discounts, emptyArr],
+  [/\/api\/commissions$/, () => commissions, emptyArr],
+  [/\/api\/commission-recipients\/\d+\/referrals$/, () => recipientReferrals, () => recipientReferrals],
+  [/\/api\/commission-recipients$/, () => commissionRecipients, emptyArr],
+  [/\/api\/reminders$/, () => reminders, emptyArr],
+  [/\/api\/laser\/clients\/\d+$/, () => laserClients[0], () => laserClients[0]],
+  [/\/api\/laser\/clients$/, () => laserClients, emptyArr],
+  [/\/api\/laser\/services$/, () => laserServices, emptyArr],
+  [/\/api\/laser\/appointments$/, () => laserAppointments, emptyArr],
+  [/\/api\/laser\/payments$/, () => laserPayments, emptyArr],
+  [/\/api\/laser\/reminders$/, () => laserReminders, emptyArr],
+  [/\/api\/laser\/settings$/, () => laserSettings, () => laserSettings],
+  [/\/api\/users$/, () => users, emptyArr],
+  [/\/api\/health$/, () => ({ status: "ok" }), () => ({ status: "ok" })],
 ];
 
 function pathOf(input: RequestInfo | URL): string {
@@ -509,17 +525,36 @@ function jsonResponse(data: unknown, status = 200): Response {
   });
 }
 
+export type ApiMode = "populated" | "empty" | "error";
+
 /**
- * A `fetch` replacement that returns realistic JSON for every endpoint the
- * authenticated pages hit on mount. Unmatched paths return an empty array so a
- * forgotten endpoint surfaces as a render assertion failure rather than a
- * network hang.
+ * Build a `fetch` replacement for a given data mode:
+ *
+ *   - "populated" (default): realistic JSON for every endpoint the
+ *     authenticated pages hit on mount. Unmatched paths return an empty array
+ *     so a forgotten endpoint surfaces as a render assertion failure rather
+ *     than a network hang.
+ *   - "empty": the empty-but-valid shape for every endpoint ([] / {} /
+ *     {data:[],total:0}), so pages are exercised against a brand-new clinic
+ *     with no records.
+ *   - "error": a 500 for every GET, so pages are exercised against a backend
+ *     that is failing. Bodies are still valid JSON ({ error }) so the client's
+ *     response parsing doesn't itself throw before the page sees the failure.
  */
-export const mockApiFetch = (
-  input: RequestInfo | URL,
-  _init?: RequestInit,
-): Promise<Response> => {
-  const path = pathOf(input);
-  const match = routes.find(([pattern]) => pattern.test(path));
-  return Promise.resolve(jsonResponse(match ? match[1]() : []));
-};
+export function makeMockApiFetch(mode: ApiMode = "populated") {
+  return (input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => {
+    if (mode === "error") {
+      return Promise.resolve(
+        jsonResponse({ error: "internal server error" }, 500),
+      );
+    }
+    const path = pathOf(input);
+    const match = routes.find(([pattern]) => pattern.test(path));
+    if (!match) return Promise.resolve(jsonResponse([]));
+    const handler = mode === "empty" ? match[2] : match[1];
+    return Promise.resolve(jsonResponse(handler()));
+  };
+}
+
+/** Populated-mode `fetch` replacement (kept for the loaded-state smoke test). */
+export const mockApiFetch = makeMockApiFetch("populated");

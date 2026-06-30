@@ -43,7 +43,9 @@ function PageFallback() {
   );
 }
 
-const queryClient = new QueryClient({
+// Exported so tests can reset the shared cache between renders; the app is the
+// sole consumer at runtime.
+export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,

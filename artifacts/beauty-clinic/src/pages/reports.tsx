@@ -101,12 +101,16 @@ export default function Reports() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {summary?.appointmentsByStatus.map((s) => (
-                <div key={s.status} className="flex items-center justify-between">
-                  <span className="text-sm">{statusLabels[s.status] ?? s.status}</span>
-                  <Badge variant="secondary">{toPersianDigits(s.count)} نوبت</Badge>
-                </div>
-              ))}
+              {summary?.appointmentsByStatus?.length ? (
+                summary.appointmentsByStatus.map((s) => (
+                  <div key={s.status} className="flex items-center justify-between">
+                    <span className="text-sm">{statusLabels[s.status] ?? s.status}</span>
+                    <Badge variant="secondary">{toPersianDigits(s.count)} نوبت</Badge>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">داده‌ای موجود نیست</p>
+              )}
             </div>
           </CardContent>
         </Card>

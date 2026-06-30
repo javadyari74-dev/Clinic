@@ -298,7 +298,7 @@ export default function Accounting() {
           </Card>
 
           {/* Expenses by Category */}
-          {summary && Object.keys(summary.expensesByCategory).length > 0 && (
+          {summary?.expensesByCategory && Object.keys(summary.expensesByCategory).length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">هزینه به تفکیک دسته‌بندی</CardTitle>
