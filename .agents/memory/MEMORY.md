@@ -9,6 +9,7 @@
 - [Codegen + project references](codegen-project-references.md) — api-server consumes api-zod via TS project references → stale dist .d.ts after codegen unless the composite is rebuilt (tsc --build).
 - [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
 - [Migration journal drift](migration-journal-drift.md) — lost unit_label migration re-added as 0009; drizzle libsql gates by MAX(created_at) not hashes; runMigrations reconciles drift so already-present columns don't crash on re-apply.
+- [Seeding against the live dev DB](seed-concurrency.md) — a seed script writing clinic.db while api-server runs hits SQLITE_BUSY; set PRAGMA busy_timeout on the seed connection (no stop tool exists).
 - [Frontend smoke tests](frontend-smoke-tests.md) — beauty-clinic vitest/jsdom route smoke test: never-resolving fetch, assert h1 by role (sidebar labels collide), patient-detail asserts loading text.
 - [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
 - [Frontend api types source](frontend-api-types-source.md) — beauty-clinic imports generated hooks/types from @workspace/api-client-react, NOT @workspace/api-zod; orval query overrides need queryKey alongside enabled.

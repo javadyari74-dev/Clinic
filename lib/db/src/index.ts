@@ -17,31 +17,20 @@ export const db = drizzle(client, { schema });
 // drizzle's libsql migrator decides whether to run a migration purely by
 // comparing each migration's `when` timestamp against the single newest
 // `created_at` recorded in `__drizzle_migrations` — it never checks per-file
-// hashes. Several "ADD COLUMN" migrations (notably 0009) are therefore NOT
-// idempotent: if a long-lived / production database already contains those
-// columns (e.g. it was created or synced via `drizzle-kit push`, which does
-// not populate `__drizzle_migrations`), drizzle would still try to re-apply
-// the migration and crash with "duplicate column name" at startup.
+// hashes. The journaled migrations are also not idempotent: a bare
+// `CREATE TABLE x` / `ALTER TABLE y ADD COLUMN z` crashes if the object
+// already exists. This happens whenever the database was created or synced via
+// `drizzle-kit push` (our post-merge step runs `pnpm --filter db push`), which
+// builds the full schema directly but does NOT populate `__drizzle_migrations`.
+// On the next startup `migrate()` then tries to replay migrations for objects
+// that already exist and crashes ("table already exists" / "duplicate column").
 //
 // To make startup robust we reconcile that drift BEFORE running migrate():
-// when the schema already contains the columns a column-adding migration
-// would create, we record that migration in `__drizzle_migrations` so drizzle
-// skips it. A fresh database is untouched (the tables don't exist yet) and a
-// database that is genuinely missing the columns still gets them via migrate().
-
-type DriftTarget = {
-  // Migration tag whose ADD COLUMN statements are not idempotent.
-  tag: string;
-  // A sentinel (table, column) that the migration introduces. If this column
-  // already exists, every column the migration adds is assumed present.
-  table: string;
-  column: string;
-};
-
-// Only column-adding migrations that would throw on re-application need guards.
-const DRIFT_TARGETS: DriftTarget[] = [
-  { tag: "0009_add_service_unit_label", table: "services", column: "unit_label" },
-];
+// for every migration drizzle is about to run, if every object it would create
+// (tables / columns / indexes) already exists, we record it in
+// `__drizzle_migrations` so drizzle skips it. A fresh database is untouched
+// (its objects don't exist yet, so nothing is skipped and migrate() builds
+// everything), and a database genuinely missing an object still gets it.
 
 async function tableExists(name: string): Promise<boolean> {
   const rows = await db.all<{ name: string }>(
@@ -51,54 +40,117 @@ async function tableExists(name: string): Promise<boolean> {
 }
 
 async function columnExists(table: string, column: string): Promise<boolean> {
-  // PRAGMA does not accept bound parameters; table names here are fixed
-  // constants from DRIFT_TARGETS, so there is no untrusted input.
+  if (!(await tableExists(table))) return false;
+  // PRAGMA does not accept bound parameters. `table` here originates only from
+  // our own committed migration SQL (not user input), and we further restrict
+  // it to a safe identifier to avoid any injection surface.
+  if (!/^[A-Za-z0-9_]+$/.test(table)) return false;
   const rows = await db.all<{ name: string }>(sql.raw(`PRAGMA table_info(${table})`));
   return rows.some((row) => row.name === column);
 }
 
-async function markMigrationApplied(migrationsFolder: string, tag: string): Promise<void> {
-  const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
-  const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
-    entries: { tag: string; when: number }[];
-  };
-  const entry = journal.entries.find((e) => e.tag === tag);
-  if (!entry) return;
-
-  const when = entry.when;
-  const migrationSql = fs.readFileSync(path.join(migrationsFolder, `${tag}.sql`), "utf-8");
-  const hash = crypto.createHash("sha256").update(migrationSql).digest("hex");
-
-  // Mirror the table definition drizzle's migrator uses.
-  await db.run(
-    sql`CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
+async function indexExists(name: string): Promise<boolean> {
+  const rows = await db.all<{ name: string }>(
+    sql`SELECT name FROM sqlite_master WHERE type = 'index' AND name = ${name}`,
   );
+  return rows.length > 0;
+}
 
-  // If a migration with an equal-or-newer timestamp is already recorded,
-  // drizzle would skip this one anyway — nothing to do.
-  const alreadyRecorded = await db.all<{ created_at: number }>(
-    sql`SELECT created_at FROM __drizzle_migrations WHERE created_at >= ${when} LIMIT 1`,
-  );
-  if (alreadyRecorded.length > 0) return;
+type MigrationObject =
+  | { kind: "table"; name: string }
+  | { kind: "column"; table: string; column: string }
+  | { kind: "index"; name: string }
+  | { kind: "unknown" };
 
+// Parse the objects a drizzle-generated migration creates. Drizzle separates
+// statements with `--> statement-breakpoint`. We only need to recognise the
+// object-creating statements; anything unrecognised marks the migration as
+// not auto-skippable so it is always run by migrate().
+function parseMigrationObjects(migrationSql: string): MigrationObject[] {
+  const unquote = (s: string) => s.replace(/^[`"']|[`"']$/g, "");
+  return migrationSql
+    .split("--> statement-breakpoint")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map<MigrationObject>((stmt) => {
+      const table = stmt.match(
+        /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"'\w]+)/i,
+      );
+      if (table) return { kind: "table", name: unquote(table[1]) };
+
+      const column = stmt.match(
+        /^ALTER\s+TABLE\s+([`"'\w]+)\s+ADD\s+(?:COLUMN\s+)?([`"'\w]+)/i,
+      );
+      if (column)
+        return { kind: "column", table: unquote(column[1]), column: unquote(column[2]) };
+
+      const index = stmt.match(
+        /^CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?([`"'\w]+)/i,
+      );
+      if (index) return { kind: "index", name: unquote(index[1]) };
+
+      return { kind: "unknown" };
+    });
+}
+
+async function migrationFullyApplied(objects: MigrationObject[]): Promise<boolean> {
+  if (objects.length === 0) return false;
+  for (const obj of objects) {
+    if (obj.kind === "unknown") return false;
+    if (obj.kind === "table" && !(await tableExists(obj.name))) return false;
+    if (obj.kind === "column" && !(await columnExists(obj.table, obj.column))) return false;
+    if (obj.kind === "index" && !(await indexExists(obj.name))) return false;
+  }
+  return true;
+}
+
+async function recordMigration(tag: string, when: number, hash: string): Promise<void> {
   await db.run(
     sql`INSERT INTO __drizzle_migrations ("hash", "created_at") VALUES (${hash}, ${when})`,
   );
 }
 
-async function reconcileColumnDrift(migrationsFolder: string): Promise<void> {
-  for (const target of DRIFT_TARGETS) {
-    // Fresh database: let migrate() create everything from scratch.
-    if (!(await tableExists(target.table))) continue;
-    // Columns are genuinely missing: let migrate() add them via the migration.
-    if (!(await columnExists(target.table, target.column))) continue;
-    // Columns already present: record the migration so drizzle skips it.
-    await markMigrationApplied(migrationsFolder, target.tag);
+// Mark every still-pending migration whose objects already exist as applied so
+// drizzle's migrate() skips it instead of crashing on a push-synced database.
+async function reconcileMigrationDrift(migrationsFolder: string): Promise<void> {
+  const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+  if (!fs.existsSync(journalPath)) return;
+  const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as {
+    entries: { tag: string; when: number }[];
+  };
+  const entries = [...journal.entries].sort((a, b) => a.when - b.when);
+
+  await db.run(
+    sql`CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
+  );
+
+  const maxRows = await db.all<{ maxWhen: number | null }>(
+    sql`SELECT MAX(created_at) AS maxWhen FROM __drizzle_migrations`,
+  );
+  let appliedMax = maxRows[0]?.maxWhen != null ? Number(maxRows[0].maxWhen) : null;
+
+  for (const entry of entries) {
+    // drizzle treats migrations with when <= newest recorded as already applied.
+    if (appliedMax !== null && entry.when <= appliedMax) continue;
+
+    const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
+    if (!fs.existsSync(sqlPath)) continue;
+    const migrationSql = fs.readFileSync(sqlPath, "utf-8");
+
+    if (!(await migrationFullyApplied(parseMigrationObjects(migrationSql)))) {
+      // Objects are (at least partly) missing — let migrate() run this and any
+      // later migration normally; do not skip ahead.
+      break;
+    }
+
+    const hash = crypto.createHash("sha256").update(migrationSql).digest("hex");
+    await recordMigration(entry.tag, entry.when, hash);
+    appliedMax = entry.when;
   }
 }
 
 export async function runMigrations(migrationsFolder: string) {
-  await reconcileColumnDrift(migrationsFolder);
+  await reconcileMigrationDrift(migrationsFolder);
   await migrate(db, { migrationsFolder });
 }
 
