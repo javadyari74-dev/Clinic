@@ -7,7 +7,6 @@ import {
   useCreateReminder, getListRemindersQueryKey,
   useListPatients, getListPatientsQueryKey,
   useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
-  getGetPaymentQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +25,6 @@ import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet }
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
-import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -242,7 +240,7 @@ const formSchema = z.object({
 });
 
 export default function Payments() {
-  const { data: payments, isLoading, isError, refetch } = useListPayments();
+  const { data: payments, isLoading } = useListPayments();
   const { data: scheduledAppts } = useListAppointments({ status: "scheduled", limit: 1000 });
   const { data: confirmedAppts } = useListAppointments({ status: "confirmed", limit: 1000 });
   const allActiveAppointments = useMemo(() => [
@@ -625,38 +623,14 @@ export default function Payments() {
     });
   }
 
-  const prefetchPayment = useCallback((id: number) => {
-    queryClient.prefetchQuery({ ...getGetPaymentQueryOptions(id), staleTime: 30_000 });
-  }, [queryClient]);
-
-  // رسید از رکورد اختصاصیِ همان پرداخت ساخته می‌شود (getPayment) تا جزئیاتِ
-  // تکمیل‌شده روی سرور همیشه نمایش داده شود. اگر هاور روی ردیف کش را گرم کرده باشد
-  // نمایش آنی است؛ در غیر این صورت یک‌بار واکشی می‌شود و در صورت خطا به دادهٔ
-  // ردیفِ فهرست برمی‌گردیم تا رسید همیشه باز شود.
-  async function openReceiptForPayment(paymentId: number) {
-    try {
-      const payment = await queryClient.ensureQueryData({
-        ...getGetPaymentQueryOptions(paymentId),
-        staleTime: 30_000,
-      });
-      setActiveReceipt(receiptFromPayment(payment));
-      setReceiptOpen(true);
+  function openReceiptForPayment(paymentId: number) {
+    const p = payments?.find(x => x.id === paymentId);
+    if (!p) {
+      toast({ title: "تراکنش یافت نشد", variant: "destructive" });
       return;
-    } catch {
-      const p = payments?.find(x => x.id === paymentId);
-      if (!p) {
-        toast({ title: "تراکنش یافت نشد", variant: "destructive" });
-        return;
-      }
-      // واکشی رکورد کامل پرداخت ناموفق بود؛ رسید از دادهٔ ردیفِ فهرست ساخته می‌شود
-      // و ممکن است برخی جزئیاتِ تکمیل‌شده روی سرور را نداشته باشد.
-      setActiveReceipt(receiptFromPayment(p));
-      setReceiptOpen(true);
-      toast({
-        title: "رسید با اطلاعات محلی نمایش داده شد",
-        description: "دریافت جزئیات کامل پرداخت از سرور ناموفق بود؛ ممکن است برخی اطلاعات کامل نباشد.",
-      });
     }
+    setActiveReceipt(receiptFromPayment(p));
+    setReceiptOpen(true);
   }
 
   const totalToday = payments?.reduce((sum, p) => {
@@ -690,8 +664,6 @@ export default function Payments() {
           ثبت پرداخت
         </Button>
       </div>
-
-      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -1138,11 +1110,7 @@ export default function Payments() {
             </TableHeader>
             <TableBody>
               {payments?.map((p) => (
-                <TableRow
-                  key={p.id}
-                  onMouseEnter={() => prefetchPayment(p.id)}
-                  onFocus={() => prefetchPayment(p.id)}
-                >
+                <TableRow key={p.id}>
                   <TableCell>{formatShamsiDate(p.paidAt, true)}</TableCell>
                   <TableCell className="text-sm">{(p as any).patientName || "—"}</TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-[160px] truncate">

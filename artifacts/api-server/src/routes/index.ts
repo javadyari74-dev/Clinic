@@ -2,7 +2,6 @@ import { Router, type IRouter } from "express";
 import { requireAuth } from "../lib/auth";
 import healthRouter from "./health";
 import authRouter from "./auth";
-import clientErrorsRouter from "./client-errors";
 import patientsRouter from "./patients";
 import servicesRouter from "./services";
 import staffRouter from "./staff";
@@ -25,7 +24,6 @@ const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use(authRouter);
-router.use(clientErrorsRouter);
 
 router.use(requireAuth);
 

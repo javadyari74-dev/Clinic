@@ -64,20 +64,6 @@
       "when": 1783069668716,
       "tag": "0008_commission_payment_id",
       "breakpoints": true
-    },
-    {
-      "idx": 9,
-      "version": "6",
-      "when": 1783156068716,
-      "tag": "0009_add_service_unit_label",
-      "breakpoints": true
-    },
-    {
-      "idx": 10,
-      "version": "6",
-      "when": 1783242468716,
-      "tag": "0010_add_client_errors",
-      "breakpoints": true
     }
   ]
 }

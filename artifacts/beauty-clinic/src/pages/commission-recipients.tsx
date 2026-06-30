@@ -1,9 +1,8 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
   useDeleteCommissionRecipient, getListCommissionRecipientsQueryKey,
   useListCommissions, useListStaff, useGetCommissionRecipientReferrals,
-  getGetCommissionRecipientReferralsQueryKey, getGetCommissionRecipientReferralsQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
@@ -15,7 +14,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ErrorNotice } from "@/components/error-notice";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -28,10 +26,7 @@ function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: n
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { data, isLoading } = useGetCommissionRecipientReferrals(recipientId ?? 0, {
-    query: {
-      enabled: open && !!recipientId,
-      queryKey: getGetCommissionRecipientReferralsQueryKey(recipientId ?? 0),
-    },
+    query: { enabled: open && !!recipientId },
   });
 
   function generateMessage() {
@@ -164,7 +159,7 @@ type RecipientRow = {
 };
 
 export default function CommissionRecipients() {
-  const { data: recipients, isLoading: loadingExternal, isError, refetch } = useListCommissionRecipients();
+  const { data: recipients, isLoading: loadingExternal } = useListCommissionRecipients();
   const { data: staff, isLoading: loadingStaff } = useListStaff();
   const { data: allCommissions } = useListCommissions({});
   const { toast } = useToast();
@@ -186,10 +181,6 @@ export default function CommissionRecipients() {
       setProfileId(null);
     }
   }, [search]);
-
-  const prefetchReferrals = useCallback((id: number) => {
-    queryClient.prefetchQuery({ ...getGetCommissionRecipientReferralsQueryOptions(id), staleTime: 30_000 });
-  }, [queryClient]);
 
   function openProfile(id: number) {
     navigate(`/commission-recipients?profile=${id}`);
@@ -324,8 +315,6 @@ export default function CommissionRecipients() {
         </Button>
       </div>
 
-      {isError && <ErrorNotice onRetry={() => refetch()} />}
-
       {totalUnpaid > 0 && (
         <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex items-center gap-3 text-orange-800">
           <Clock className="h-4 w-4 shrink-0" />
@@ -414,8 +403,6 @@ export default function CommissionRecipients() {
                         key={key}
                         className={`cursor-pointer transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/50"}`}
                         onClick={() => setSelectedKey(isSelected ? null : key)}
-                        onMouseEnter={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
-                        onFocus={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
                       >
                         <TableCell>
                           {row.type === "staff" ? (

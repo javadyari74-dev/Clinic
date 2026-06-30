@@ -12,7 +12,6 @@ export * from './appointmentInput';
 export * from './appointmentUpdate';
 export * from './appointmentWithDetails';
 export * from './appointmentWithDetailsList';
-export * from './clientErrorReport';
 export * from './commission';
 export * from './commissionInput';
 export * from './commissionRecipient';

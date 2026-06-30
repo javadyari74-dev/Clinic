@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { ErrorNotice } from "@/components/error-notice";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -95,12 +94,10 @@ export default function Accounting() {
   const [newDesc, setNewDesc] = useState("");
   const [newDate, setNewDate] = useState(() => new Date().toISOString().split("T")[0]);
 
-  const { data: summary, isError: summaryError, refetch: refetchSummary } = useAccountingSummary(period);
-  const { data: byService, isError: byServiceError, refetch: refetchByService } = useAccountingByService(period);
-  const { data: chart, isError: chartError, refetch: refetchChart } = useAccountingChart(chartPeriod);
-  const { data: expenses, isError: expensesError, refetch: refetchExpenses } = useExpenses();
-  const isError = summaryError || byServiceError || chartError || expensesError;
-  const retry = () => { refetchSummary(); refetchByService(); refetchChart(); refetchExpenses(); };
+  const { data: summary } = useAccountingSummary(period);
+  const { data: byService } = useAccountingByService(period);
+  const { data: chart } = useAccountingChart(chartPeriod);
+  const { data: expenses } = useExpenses();
   const createExpense = useCreateExpense();
   const deleteExpense = useDeleteExpense();
 
@@ -118,18 +115,6 @@ export default function Accounting() {
           toast({ title: "هزینه ثبت شد" });
           setExpOpen(false);
           setNewAmount(""); setNewDesc("");
-        },
-        onError: (error) => {
-          const serverMessage =
-            (error as any)?.data?.error ?? (error as any)?.data?.message;
-          toast({
-            title: "ثبت هزینه ناموفق بود",
-            description:
-              typeof serverMessage === "string" && serverMessage.trim()
-                ? serverMessage
-                : "ثبت هزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
-            variant: "destructive",
-          });
         },
       }
     );
@@ -181,8 +166,6 @@ export default function Accounting() {
           </Button>
         </div>
       </div>
-
-      {isError && <ErrorNotice onRetry={retry} />}
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
@@ -315,7 +298,7 @@ export default function Accounting() {
           </Card>
 
           {/* Expenses by Category */}
-          {summary?.expensesByCategory && Object.keys(summary.expensesByCategory).length > 0 && (
+          {summary && Object.keys(summary.expensesByCategory).length > 0 && (
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">هزینه به تفکیک دسته‌بندی</CardTitle>

@@ -12,5 +12,3 @@ description: Why api-server can see stale generated types after an openapi/codeg
 **How to apply:** after any openapi/codegen change that adds/changes a field, rebuild the referenced project's declarations before typechecking api-server:
 `pnpm --filter @workspace/api-zod exec tsc --build --force`
 The api-spec `codegen` script runs `pnpm -w run typecheck:libs` (`tsc --build`) which usually rebuilds it, but if you edit generated output out-of-band or typecheck api-server in isolation, force the composite build first.
-
-**Same trap across merges:** lib `dist/` is gitignored, and the per-artifact `typecheck` validation (`pnpm --filter @workspace/<artifact> typecheck`) does NOT rebuild libs first — only the root `typecheck` script runs `typecheck:libs` beforehand. So a merge that brings in new codegen output (e.g. a new endpoint's `useX`/`XType` in `@workspace/api-client-react`) leaves consuming artifacts failing typecheck against stale/missing `.d.ts` until the composite is rebuilt. `scripts/post-merge.sh` now runs `pnpm run typecheck:libs` so merged codegen stays in sync automatically.

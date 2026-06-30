@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { formatCurrency, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
-import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -31,7 +30,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export default function Discounts() {
-  const { data: discounts, isLoading, isError, refetch } = useListDiscounts();
+  const { data: discounts, isLoading } = useListDiscounts();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
@@ -113,8 +112,6 @@ export default function Discounts() {
           تخفیف جدید
         </Button>
       </div>
-
-      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent>

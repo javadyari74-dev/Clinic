@@ -39,7 +39,7 @@ async function nextServiceCode(gender: string): Promise<string> {
   const prefix = gender === "female" ? "KH" : "AG";
   const all = await db.select({ code: laserServicesTable.code })
     .from(laserServicesTable)
-    .where(eq(laserServicesTable.genderCategory, gender as "female" | "male"))
+    .where(eq(laserServicesTable.genderCategory, gender))
     .all();
   const usedNums = all
     .map(r => r.code)
@@ -110,7 +110,7 @@ router.delete("/laser/clients/:id", async (req, res) => {
 router.get("/laser/services", async (req, res) => {
   const { gender } = req.query;
   const rows = gender
-    ? await db.select().from(laserServicesTable).where(eq(laserServicesTable.genderCategory, gender as "female" | "male")).orderBy(laserServicesTable.name).all()
+    ? await db.select().from(laserServicesTable).where(eq(laserServicesTable.genderCategory, gender as string)).orderBy(laserServicesTable.name).all()
     : await db.select().from(laserServicesTable).orderBy(laserServicesTable.genderCategory, laserServicesTable.name).all();
   res.json(rows);
 });
@@ -157,7 +157,7 @@ router.delete("/laser/services/:id", async (req, res) => {
 router.get("/laser/appointments", async (req, res) => {
   const { status } = req.query;
   const rows = status
-    ? await db.select().from(laserAppointmentsTable).where(eq(laserAppointmentsTable.status, status as "completed" | "cancelled" | "scheduled")).orderBy(desc(laserAppointmentsTable.scheduledAt)).all()
+    ? await db.select().from(laserAppointmentsTable).where(eq(laserAppointmentsTable.status, status as string)).orderBy(desc(laserAppointmentsTable.scheduledAt)).all()
     : await db.select().from(laserAppointmentsTable).orderBy(desc(laserAppointmentsTable.scheduledAt)).all();
 
   // Enrich with client and service info

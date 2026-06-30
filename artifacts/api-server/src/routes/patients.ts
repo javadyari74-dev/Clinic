@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, or, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, or, ilike, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable } from "@workspace/db";
 import {
@@ -74,9 +74,9 @@ router.get("/patients", async (req, res): Promise<void> => {
 
   if (q) {
     const where = or(
-      like(patientsTable.name, `%${q}%`),
-      like(patientsTable.phone, `%${q}%`),
-      like(patientsTable.fileNumber, `%${q}%`)
+      ilike(patientsTable.name, `%${q}%`),
+      ilike(patientsTable.phone, `%${q}%`),
+      ilike(patientsTable.fileNumber, `%${q}%`)
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);

@@ -13,7 +13,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Pencil, Trash2, ShieldCheck, User, Zap } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
-import { ErrorNotice } from "@/components/error-notice";
 import { toPersianDigits } from "@/lib/format";
 
 const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
@@ -286,7 +285,7 @@ export default function Users() {
   const [editUser, setEditUser] = useState<UserRecord | undefined>();
   const [deleteId, setDeleteId] = useState<number | null>(null);
 
-  const { data: users = [], isLoading, isError, refetch } = useQuery<UserRecord[]>({
+  const { data: users = [], isLoading } = useQuery<UserRecord[]>({
     queryKey: ["users"],
     queryFn: async () => {
       const res = await authFetch("/api/users");
@@ -348,8 +347,6 @@ export default function Users() {
           کاربر جدید
         </Button>
       </div>
-
-      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <LaserCommissionCard />
 

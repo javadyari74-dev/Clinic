@@ -23,48 +23,14 @@ let serverProcess = null;
 let mainWindow = null;
 let activePort = PREFERRED_PORT;
 
-// Rolling buffer of the most recent server output, used to surface the real
-// error to the user (and to a log file) when the server fails to start.
-let serverOutput = "";
-let logStream = null;
-const SERVER_OUTPUT_LIMIT = 16000;
-
-function getUserDataDir() {
+function getUserDbPath() {
   const dir = app.getPath("userData");
   try {
     fs.mkdirSync(dir, { recursive: true });
   } catch {
     /* ignore */
   }
-  return dir;
-}
-
-function getUserDbPath() {
-  return path.join(getUserDataDir(), "clinic.db");
-}
-
-function getServerLogPath() {
-  return path.join(getUserDataDir(), "server.log");
-}
-
-function recordServerOutput(chunk) {
-  const text = chunk.toString();
-  serverOutput += text;
-  if (serverOutput.length > SERVER_OUTPUT_LIMIT) {
-    serverOutput = serverOutput.slice(serverOutput.length - SERVER_OUTPUT_LIMIT);
-  }
-  if (logStream) {
-    try {
-      logStream.write(text);
-    } catch {
-      /* ignore */
-    }
-  }
-}
-
-function lastOutputLines(maxLines = 25) {
-  const lines = serverOutput.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  return lines.slice(-maxLines).join("\n");
+  return path.join(dir, "clinic.db");
 }
 
 function getLanAddresses(port) {
@@ -94,14 +60,10 @@ function findFreePort(start) {
   });
 }
 
-function waitForServer(port, timeoutMs = 30000, shouldAbort = () => false) {
+function waitForServer(port, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const attempt = () => {
-      if (shouldAbort()) {
-        reject(new Error("aborted"));
-        return;
-      }
       const req = http.get(
         { host: "127.0.0.1", port, path: "/api/healthz", timeout: 2000 },
         (res) => {
@@ -120,12 +82,8 @@ function waitForServer(port, timeoutMs = 30000, shouldAbort = () => false) {
       });
     };
     const retry = () => {
-      if (shouldAbort()) {
-        reject(new Error("aborted"));
-        return;
-      }
       if (Date.now() > deadline) {
-        reject(new Error("سرور برنامه به‌موقع آماده نشد (Server did not become ready in time)."));
+        reject(new Error("Server did not become ready in time"));
         return;
       }
       setTimeout(attempt, 300);
@@ -134,74 +92,9 @@ function waitForServer(port, timeoutMs = 30000, shouldAbort = () => false) {
   });
 }
 
-function failureDetail(message) {
-  const detail = lastOutputLines();
-  return (
-    `${message}\n\n` +
-    `جزئیات سرور (لطفاً از این پیام عکس بگیرید و برای پشتیبانی بفرستید):\n` +
-    `${detail || "(خروجی‌ای ثبت نشد)"}\n\n` +
-    `گزارش کامل: ${getServerLogPath()}`
-  );
-}
-
-function closeLogStream() {
-  if (logStream) {
-    try {
-      logStream.end();
-    } catch {
-      /* ignore */
-    }
-    logStream = null;
-  }
-}
-
 function startServer(port) {
   return new Promise((resolve, reject) => {
     const dbPath = getUserDbPath();
-    const logPath = getServerLogPath();
-
-    serverOutput = "";
-    try {
-      logStream = fs.createWriteStream(logPath, { flags: "w" });
-      logStream.on("error", () => {
-        logStream = null;
-      });
-      logStream.write(
-        `--- Doctor Yari Clinic server log ---\n` +
-          `time: ${new Date().toISOString()}\n` +
-          `entry: ${SERVER_ENTRY}\n` +
-          `db: ${dbPath}\n` +
-          `port: ${port}\n\n`,
-      );
-    } catch {
-      logStream = null;
-    }
-
-    if (!fs.existsSync(SERVER_ENTRY)) {
-      reject(
-        new Error(
-          `فایل سرور پیدا نشد:\n${SERVER_ENTRY}\nبه نظر می‌رسد بسته‌ی برنامه ناقص ساخته شده است.`,
-        ),
-      );
-      return;
-    }
-
-    // Single source of truth for the startup outcome so the user never sees
-    // two competing error dialogs (server-exit vs. readiness-timeout).
-    let settled = false;
-    let serverReady = false;
-    const finishOk = () => {
-      if (settled) return;
-      settled = true;
-      serverReady = true;
-      resolve();
-    };
-    const finishErr = (err) => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    };
-
     serverProcess = utilityProcess.fork(SERVER_ENTRY, [], {
       env: {
         ...process.env,
@@ -214,51 +107,22 @@ function startServer(port) {
     });
 
     if (serverProcess.stdout) {
-      serverProcess.stdout.on("data", (d) => {
-        recordServerOutput(d);
-        process.stdout.write(`[server] ${d}`);
-      });
+      serverProcess.stdout.on("data", (d) => process.stdout.write(`[server] ${d}`));
     }
     if (serverProcess.stderr) {
-      serverProcess.stderr.on("data", (d) => {
-        recordServerOutput(d);
-        process.stderr.write(`[server] ${d}`);
-      });
+      serverProcess.stderr.on("data", (d) => process.stderr.write(`[server] ${d}`));
     }
 
-    serverProcess.on("error", (err) => {
-      recordServerOutput(`\n[main] failed to launch server process: ${err && err.message}\n`);
-      finishErr(
-        new Error(
-          failureDetail(`برنامه نتوانست سرور داخلی را اجرا کند: ${err && err.message}`),
-        ),
-      );
-    });
-
     serverProcess.on("exit", (code) => {
-      if (code === 0) {
-        closeLogStream();
-        return;
-      }
-      if (!serverReady) {
-        // Crashed during startup -> single, immediate failure handled by bootstrap.
-        finishErr(new Error(failureDetail(`سرور داخلی هنگام راه‌اندازی متوقف شد (کد ${code}).`)));
-      } else if (!app.isQuitting) {
-        // Crashed after a successful start -> standalone notification.
+      if (code !== 0 && !app.isQuitting) {
         dialog.showErrorBox(
           "خطای سرور",
-          failureDetail(`سرور داخلی برنامه متوقف شد (کد ${code}). لطفاً برنامه را دوباره باز کنید.`),
+          `سرور داخلی برنامه متوقف شد (کد ${code}). لطفاً برنامه را دوباره باز کنید.`,
         );
       }
-      closeLogStream();
     });
 
-    waitForServer(port, 30000, () => settled)
-      .then(finishOk)
-      .catch((err) => {
-        if (err && err.message === "aborted") return;
-        finishErr(new Error(failureDetail(err.message)));
-      });
+    waitForServer(port).then(resolve).catch(reject);
   });
 }
 
@@ -402,7 +266,6 @@ app.on("before-quit", () => {
       /* ignore */
     }
   }
-  closeLogStream();
 });
 
 app.on("window-all-closed", () => {

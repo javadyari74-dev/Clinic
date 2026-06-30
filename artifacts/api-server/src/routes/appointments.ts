@@ -243,4 +243,5 @@ router.delete("/appointments/:id", async (req, res): Promise<void> => {
   res.sendStatus(204);
 });
 
+export { buildAppointmentCode };
 export default router;

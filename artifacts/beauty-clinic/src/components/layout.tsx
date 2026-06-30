@@ -20,17 +20,15 @@ import {
   ShieldCheck,
   UserCog,
   Zap,
-  Bug,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState, useEffect } from "react";
 import { GlobalSearch } from "./global-search";
-import { useAuth, type Permission, type AuthUser } from "@/hooks/use-auth";
-import { prefetchRoute } from "@/lib/page-loaders";
+import { useAuth, type Permission } from "@/hooks/use-auth";
 
-export interface NavItem {
+interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
@@ -38,17 +36,7 @@ export interface NavItem {
   adminOnly?: boolean;
 }
 
-export function canAccessNavItem(
-  item: Pick<NavItem, "permission" | "adminOnly">,
-  role: AuthUser["role"] | undefined,
-  hasPermission: (p: Permission) => boolean,
-): boolean {
-  if (item.adminOnly) return role === "admin";
-  if (!item.permission) return true;
-  return hasPermission(item.permission);
-}
-
-export const navItems: NavItem[] = [
+const navItems: NavItem[] = [
   { href: "/", label: "داشبورد", icon: LayoutDashboard, permission: "dashboard" },
   { href: "/patients", label: "مراجعین", icon: Users, permission: "patients" },
   { href: "/appointments", label: "نوبت‌ها", icon: CalendarDays, permission: "appointments" },
@@ -65,7 +53,6 @@ export const navItems: NavItem[] = [
   { href: "/reminders", label: "یادآوری‌ها", icon: BellRing, permission: "reminders" },
   { href: "/backup", label: "پشتیبان‌گیری", icon: Database, permission: "backup" },
   { href: "/users", label: "مدیریت کاربران", icon: UserCog, adminOnly: true },
-  { href: "/client-errors", label: "گزارش‌های خطا", icon: Bug, adminOnly: true },
 ];
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -77,9 +64,11 @@ export function Layout({ children }: { children: ReactNode }) {
     setIsMobileOpen(false);
   }, [location]);
 
-  const visibleItems = navItems.filter(item =>
-    canAccessNavItem(item, user?.role, hasPermission),
-  );
+  const visibleItems = navItems.filter(item => {
+    if (item.adminOnly) return user?.role === "admin";
+    if (!item.permission) return true;
+    return hasPermission(item.permission);
+  });
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
@@ -91,13 +80,7 @@ export function Layout({ children }: { children: ReactNode }) {
           const Icon = item.icon;
           const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onMouseEnter={() => prefetchRoute(item.href)}
-              onFocus={() => prefetchRoute(item.href)}
-              onTouchStart={() => prefetchRoute(item.href)}
-            >
+            <Link key={item.href} href={item.href}>
               <div
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 cursor-pointer",

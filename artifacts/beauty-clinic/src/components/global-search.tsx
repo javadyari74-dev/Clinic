@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import {
   useListPatients, useListPatientAppointments, useListPatientNotes,
-  useCreateAppointment, getListAppointmentsQueryKey, getListPatientsQueryKey,
+  useCreateAppointment, getListAppointmentsQueryKey,
   useListServices, useListStaff, useListPayments,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -282,14 +282,10 @@ export function GlobalSearch() {
 
   const debouncedQuery = useDebounce(query, 300);
 
-  const patientSearchParams =
-    debouncedQuery.length >= 2 ? { q: debouncedQuery, limit: 8 } : undefined;
-  const { data: patients } = useListPatients(patientSearchParams, {
-    query: {
-      enabled: debouncedQuery.length >= 2,
-      queryKey: getListPatientsQueryKey(patientSearchParams),
-    },
-  });
+  const { data: patients } = useListPatients(
+    debouncedQuery.length >= 2 ? { q: debouncedQuery, limit: 8 } : undefined,
+    { query: { enabled: debouncedQuery.length >= 2 } }
+  );
 
   // Close dropdown on outside click
   useEffect(() => {

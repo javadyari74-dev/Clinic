@@ -57,28 +57,6 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (!id.includes("node_modules")) {
-            return undefined;
-          }
-          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
-            return "react-vendor";
-          }
-          if (/[\\/]node_modules[\\/]@tanstack[\\/]/.test(id)) {
-            return "query-vendor";
-          }
-          if (/[\\/]node_modules[\\/](@radix-ui|cmdk|vaul|lucide-react)[\\/]/.test(id)) {
-            return "ui-vendor";
-          }
-          if (/[\\/]node_modules[\\/](recharts|d3-[^\\/]+|victory-[^\\/]+)[\\/]/.test(id)) {
-            return "charts-vendor";
-          }
-          return "vendor";
-        },
-      },
-    },
   },
   server: {
     port,

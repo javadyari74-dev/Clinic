@@ -621,22 +621,6 @@ export interface ActivityLogEntry {
   createdAt: number;
 }
 
-export interface ClientErrorReport {
-  id: number;
-  message: string;
-  /** @nullable */
-  stack?: string | null;
-  /** @nullable */
-  componentStack?: string | null;
-  /** @nullable */
-  url?: string | null;
-  /** @nullable */
-  userAgent?: string | null;
-  /** @nullable */
-  occurredAt?: string | null;
-  createdAt: number;
-}
-
 export type ReportsSummaryAppointmentsByStatusItem = {
   status: string;
   count: number;

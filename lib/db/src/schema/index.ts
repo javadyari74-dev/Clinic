@@ -16,4 +16,3 @@ export * from "./laser-services";
 export * from "./laser-appointments";
 export * from "./laser-payments";
 export * from "./laser-settings";
-export * from "./client-errors";

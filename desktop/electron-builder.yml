@@ -5,11 +5,6 @@ productName: Doctor Yari Clinic
 # load with zero unpack juggling. Simpler and more robust for a desktop app.
 asar: false
 
-# libsql ships prebuilt N-API binaries (ABI-stable across Node/Electron).
-# Rebuilding them against Electron's headers is unnecessary and can break the
-# native SQLite binding, so disable the automatic rebuild step.
-npmRebuild: false
-
 directories:
   output: release
   buildResources: build

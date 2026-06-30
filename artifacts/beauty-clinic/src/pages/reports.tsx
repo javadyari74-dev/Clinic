@@ -4,7 +4,6 @@ import { formatCurrency, toPersianDigits } from "@/lib/format";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { TrendingUp, Users, Calendar, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { ErrorNotice } from "@/components/error-notice";
 
 const statusLabels: Record<string, string> = {
   scheduled: "رزرو شده",
@@ -17,10 +16,8 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function Reports() {
-  const { data: summary, isError: summaryError, refetch: refetchSummary } = useGetReportsSummary();
-  const { data: chartData, isError: chartError, refetch: refetchChart } = useGetRevenueChart();
-  const isError = summaryError || chartError;
-  const retry = () => { refetchSummary(); refetchChart(); };
+  const { data: summary } = useGetReportsSummary();
+  const { data: chartData } = useGetRevenueChart();
 
   const chartFormatted = chartData?.map(d => ({
     date: d.date,
@@ -34,8 +31,6 @@ export default function Reports() {
         <h1 className="text-3xl font-bold tracking-tight">گزارشات</h1>
         <p className="text-muted-foreground mt-1">تحلیل جامع عملکرد مطب</p>
       </div>
-
-      {isError && <ErrorNotice onRetry={retry} />}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
@@ -106,16 +101,12 @@ export default function Reports() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {summary?.appointmentsByStatus?.length ? (
-                summary.appointmentsByStatus.map((s) => (
-                  <div key={s.status} className="flex items-center justify-between">
-                    <span className="text-sm">{statusLabels[s.status] ?? s.status}</span>
-                    <Badge variant="secondary">{toPersianDigits(s.count)} نوبت</Badge>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">داده‌ای موجود نیست</p>
-              )}
+              {summary?.appointmentsByStatus.map((s) => (
+                <div key={s.status} className="flex items-center justify-between">
+                  <span className="text-sm">{statusLabels[s.status] ?? s.status}</span>
+                  <Badge variant="secondary">{toPersianDigits(s.count)} نوبت</Badge>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
