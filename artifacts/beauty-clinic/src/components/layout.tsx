@@ -26,10 +26,10 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState, useEffect } from "react";
 import { GlobalSearch } from "./global-search";
-import { useAuth, type Permission } from "@/hooks/use-auth";
+import { useAuth, type Permission, type AuthUser } from "@/hooks/use-auth";
 import { prefetchRoute } from "@/lib/page-loaders";
 
-interface NavItem {
+export interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
@@ -37,7 +37,17 @@ interface NavItem {
   adminOnly?: boolean;
 }
 
-const navItems: NavItem[] = [
+export function canAccessNavItem(
+  item: Pick<NavItem, "permission" | "adminOnly">,
+  role: AuthUser["role"] | undefined,
+  hasPermission: (p: Permission) => boolean,
+): boolean {
+  if (item.adminOnly) return role === "admin";
+  if (!item.permission) return true;
+  return hasPermission(item.permission);
+}
+
+export const navItems: NavItem[] = [
   { href: "/", label: "داشبورد", icon: LayoutDashboard, permission: "dashboard" },
   { href: "/patients", label: "مراجعین", icon: Users, permission: "patients" },
   { href: "/appointments", label: "نوبت‌ها", icon: CalendarDays, permission: "appointments" },
@@ -65,11 +75,9 @@ export function Layout({ children }: { children: ReactNode }) {
     setIsMobileOpen(false);
   }, [location]);
 
-  const visibleItems = navItems.filter(item => {
-    if (item.adminOnly) return user?.role === "admin";
-    if (!item.permission) return true;
-    return hasPermission(item.permission);
-  });
+  const visibleItems = navItems.filter(item =>
+    canAccessNavItem(item, user?.role, hasPermission),
+  );
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">

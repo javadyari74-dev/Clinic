@@ -1,11 +1,11 @@
-import { useEffect, lazy, Suspense } from "react";
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { useEffect, lazy, Suspense, type ReactNode } from "react";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
-import { Layout } from "@/components/layout";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { Layout, navItems, canAccessNavItem } from "@/components/layout";
+import { AuthProvider, useAuth, type Permission } from "@/hooks/use-auth";
 import { pageLoaders, prefetchCommonRoutes } from "@/lib/page-loaders";
 
 const NotFound = lazy(pageLoaders.notFound);
@@ -51,6 +51,38 @@ function RedirectToLogin() {
   return null;
 }
 
+// The first nav destination the current user is actually allowed to open. Used
+// as the redirect target when someone lands (e.g. via a typed URL or the post
+// login redirect to "/") on a route their role/permissions don't cover.
+function useFirstAllowedPath(): string | null {
+  const { user, hasPermission } = useAuth();
+  const item = navItems.find(i => canAccessNavItem(i, user?.role, hasPermission));
+  return item?.href ?? null;
+}
+
+// Route-level access control mirroring the sidebar visibility rules. Without it
+// the sidebar only *hides* links — the pages themselves stay reachable by URL.
+function Protected({
+  permission,
+  adminOnly,
+  children,
+}: {
+  permission?: Permission;
+  adminOnly?: boolean;
+  children: ReactNode;
+}) {
+  const { user, hasPermission } = useAuth();
+  const fallback = useFirstAllowedPath();
+  const allowed = canAccessNavItem({ permission, adminOnly }, user?.role, hasPermission);
+  if (allowed) return <>{children}</>;
+  if (fallback) return <Redirect to={fallback} />;
+  return (
+    <div className="flex h-full w-full items-center justify-center py-24 text-muted-foreground">
+      شما به این بخش دسترسی ندارید
+    </div>
+  );
+}
+
 function Router() {
   const { user } = useAuth();
 
@@ -75,23 +107,23 @@ function Router() {
     <Layout>
       <Suspense fallback={<PageFallback />}>
         <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/patients" component={Patients} />
-          <Route path="/patients/:id" component={PatientDetail} />
-          <Route path="/appointments" component={Appointments} />
-          <Route path="/payments" component={Payments} />
-          <Route path="/services" component={Services} />
-          <Route path="/laser" component={Laser} />
-          <Route path="/staff" component={Staff} />
-          <Route path="/commissions" component={Commissions} />
-          <Route path="/commission-recipients" component={CommissionRecipients} />
-          <Route path="/discounts" component={Discounts} />
-          <Route path="/inventory" component={Inventory} />
-          <Route path="/reports" component={Reports} />
-          <Route path="/reminders" component={Reminders} />
-          <Route path="/backup" component={Backup} />
-          <Route path="/accounting" component={Accounting} />
-          <Route path="/users" component={Users} />
+          <Route path="/"><Protected permission="dashboard"><Dashboard /></Protected></Route>
+          <Route path="/patients"><Protected permission="patients"><Patients /></Protected></Route>
+          <Route path="/patients/:id"><Protected permission="patients"><PatientDetail /></Protected></Route>
+          <Route path="/appointments"><Protected permission="appointments"><Appointments /></Protected></Route>
+          <Route path="/payments"><Protected permission="payments"><Payments /></Protected></Route>
+          <Route path="/services"><Protected permission="services"><Services /></Protected></Route>
+          <Route path="/laser"><Protected permission="laser"><Laser /></Protected></Route>
+          <Route path="/staff"><Protected permission="staff"><Staff /></Protected></Route>
+          <Route path="/commissions"><Protected permission="commissions"><Commissions /></Protected></Route>
+          <Route path="/commission-recipients"><Protected permission="commissions"><CommissionRecipients /></Protected></Route>
+          <Route path="/discounts"><Protected permission="discounts"><Discounts /></Protected></Route>
+          <Route path="/inventory"><Protected permission="inventory"><Inventory /></Protected></Route>
+          <Route path="/reports"><Protected permission="reports"><Reports /></Protected></Route>
+          <Route path="/reminders"><Protected permission="reminders"><Reminders /></Protected></Route>
+          <Route path="/backup"><Protected permission="backup"><Backup /></Protected></Route>
+          <Route path="/accounting"><Protected permission="accounting"><Accounting /></Protected></Route>
+          <Route path="/users"><Protected adminOnly><Users /></Protected></Route>
           <Route component={NotFound} />
         </Switch>
       </Suspense>

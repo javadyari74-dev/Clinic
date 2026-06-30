@@ -1,12 +1,22 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import App from "@/App";
 
 const TOKEN_KEY = "clinic_auth_token";
 
-function makeAdminToken(): string {
-  const payload = { sub: 1, username: "admin", role: "admin", permissions: [] };
+// Mirrors the unsigned-payload shape the AuthProvider decodes from the JWT
+// (only the middle segment is read). `role` + `permissions` drive every access
+// decision, so varying them here lets us exercise the real gating logic.
+function makeToken(
+  role: "admin" | "staff" | "laser_operator",
+  permissions: string[] = [],
+): string {
+  const payload = { sub: 1, username: role, role, permissions };
   return `header.${btoa(JSON.stringify(payload))}.signature`;
+}
+
+function makeAdminToken(): string {
+  return makeToken("admin");
 }
 
 // One entry per authenticated route registered in App.tsx. `heading` is the
@@ -94,4 +104,95 @@ describe("lazy page chunks expose a default component", () => {
       expect(typeof mod.default).toBe("function");
     },
   );
+});
+
+// Sidebar nav labels (filtered by role/permission) — kept separate from the
+// page <h1> text in `routes` above because the two collide. We query inside the
+// <nav> landmark so a label only counts when it's an actual menu item.
+const NAV_LABELS = {
+  dashboard: "داشبورد",
+  patients: "مراجعین",
+  appointments: "نوبت‌ها",
+  payments: "صندوق",
+  services: "خدمات",
+  laser: "لیزر",
+  staff: "کارمندان",
+  commissions: "کمیسیون",
+  discounts: "تخفیفات",
+  inventory: "انبار",
+  accounting: "حسابداری و سود/زیان",
+  reports: "گزارشات",
+  reminders: "یادآوری‌ها",
+  backup: "پشتیبان‌گیری",
+  users: "مدیریت کاربران",
+} as const;
+
+describe("permission-gated sidebar reveals only allowed nav items", () => {
+  it("a staff user sees only their permitted items (and never admin-only ones)", async () => {
+    localStorage.setItem(TOKEN_KEY, makeToken("staff", ["patients", "appointments"]));
+    window.history.pushState(null, "", "/patients");
+    render(<App />);
+
+    // Wait for the permitted landing page to mount so the sidebar is rendered.
+    expect(
+      await screen.findByRole("heading", { name: NAV_LABELS.patients }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+
+    const nav = within(screen.getByRole("navigation"));
+    expect(nav.getByText(NAV_LABELS.patients)).toBeInTheDocument();
+    expect(nav.getByText(NAV_LABELS.appointments)).toBeInTheDocument();
+
+    for (const key of ["dashboard", "payments", "services", "laser", "staff",
+      "commissions", "discounts", "inventory", "accounting", "reports",
+      "reminders", "backup", "users"] as const) {
+      expect(nav.queryByText(NAV_LABELS[key])).not.toBeInTheDocument();
+    }
+  });
+
+  it("a laser operator sees only the laser item", async () => {
+    localStorage.setItem(TOKEN_KEY, makeToken("laser_operator"));
+    window.history.pushState(null, "", "/laser");
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "بخش لیزر" }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+
+    const nav = within(screen.getByRole("navigation"));
+    expect(nav.getByText(NAV_LABELS.laser)).toBeInTheDocument();
+
+    for (const key of ["dashboard", "patients", "appointments", "payments",
+      "services", "staff", "commissions", "discounts", "inventory",
+      "accounting", "reports", "reminders", "backup", "users"] as const) {
+      expect(nav.queryByText(NAV_LABELS[key])).not.toBeInTheDocument();
+    }
+  });
+});
+
+describe("restricted routes are not reachable by URL", () => {
+  it("a laser operator landing on /staff does not see the staff page", async () => {
+    localStorage.setItem(TOKEN_KEY, makeToken("laser_operator"));
+    window.history.pushState(null, "", "/staff");
+    render(<App />);
+
+    // Redirected to the only page they may open; the staff page never renders.
+    expect(
+      await screen.findByRole("heading", { name: "بخش لیزر" }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: NAV_LABELS.staff })).not.toBeInTheDocument();
+  });
+
+  it("a staff user landing on an unpermitted route is redirected away from it", async () => {
+    localStorage.setItem(TOKEN_KEY, makeToken("staff", ["patients"]));
+    window.history.pushState(null, "", "/users");
+    render(<App />);
+
+    // First permitted nav item (مراجعین/patients) becomes the landing page.
+    expect(
+      await screen.findByRole("heading", { name: NAV_LABELS.patients }, { timeout: 5000 }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "مدیریت کاربران" }),
+    ).not.toBeInTheDocument();
+  });
 });

@@ -10,3 +10,4 @@
 - [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
 - [Migration journal drift](migration-journal-drift.md) — lost unit_label migration re-added as 0009; drizzle libsql gates by MAX(created_at) not hashes; runMigrations reconciles drift so already-present columns don't crash on re-apply.
 - [Frontend smoke tests](frontend-smoke-tests.md) — beauty-clinic vitest/jsdom route smoke test: never-resolving fetch, assert h1 by role (sidebar labels collide), patient-detail asserts loading text.
+- [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
