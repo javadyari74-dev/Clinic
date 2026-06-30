@@ -1,31 +1,55 @@
 ---
-name: Migration journal drift (lost unit_label migration)
-description: The schema declares many columns that no tip migration creates; a migration was lost during 0007 renumbering, crashing fresh-DB startup in backfill.
+name: Migration journal drift + idempotent applier
+description: Schema columns drift from journaled migrations (push-synced/partial DBs); runMigrations now applies statements idempotently instead of using drizzle migrate().
 ---
 
 # Migration journal drift
 
-The Drizzle schema declares columns that **no migration at the branch tips creates**:
-`services.{unit_label,unit_count,price_mode,doctor_fee_mode,material_cost_mode,other_cost_mode}`,
-`appointments.units_used`,
-`payments.{patient_name,service_name,session_number,units_used,unit_label,discount_name,discount_amount,deposit_amount}`.
+The Drizzle schema can declare columns that the journaled migrations also add via
+`ALTER TABLE ADD COLUMN`. Two things make this fragile:
 
-The original migration that added them (`0007_add_service_unit_label.sql`) was **dropped when `0007` was renumbered** to `0007_patient_tiers_balance_referrals`. The columns survived only because long-lived dev DBs were created via `drizzle-kit push` (full schema sync). A **freshly migrated DB lacks these columns** and the API server crashes at startup in `artifacts/api-server/src/lib/backfill.ts` (`backfillPaymentSnapshots` selects `services.unit_label` / `payments.patient_name`).
+1. **Drizzle's libsql migrator gates by timestamp, not hashes.** It runs a journal
+   entry iff its `when` is greater than `MAX(created_at)` in `__drizzle_migrations`,
+   and it replays the *entire* migration file from the top. The migrations are not
+   idempotent, so replaying `ALTER ADD COLUMN`/`CREATE TABLE` on an object that
+   already exists throws (`duplicate column name` / `... already exists`).
 
-**Fix applied:** re-added the lost migration as `lib/db/migrations/0009_add_service_unit_label.sql` (same column set/types/defaults as the original) and registered idx 9 in `meta/_journal.json`.
+2. **DBs drift from the journal.** A `drizzle-kit push`-created DB has the full
+   schema but no `__drizzle_migrations` rows. A DB whose last startup applied a
+   multi-statement migration only partially (e.g. added `services.unit_count` but
+   never recorded the migration) has the column without the journal row. On the next
+   startup drizzle replays that migration and crashes.
 
-**Why:** schema and journaled migrations drifted silently; `push`-created DBs masked it, so it only surfaces on a clean `migrate()` run.
+**Real incident:** the packaged Windows desktop app crashed at startup with
+`SQLITE_ERROR: duplicate column name: unit_count` (migration 0009 adds
+`unit_count` + `unit_label` on services + `unit_label` on payments). The user's
+`clinic.db` had `unit_count` but 0009 was unrecorded → drizzle `migrate()` replayed
+0009 → crash.
 
-**How to apply:** when startup fails with `no such column: <x>` in backfill, or after any migration renumber, diff schema columns against the union of migration `ALTER/CREATE` statements before trusting the journal. ALTER ADD COLUMN migrations are not idempotent — a DB that already has the columns (prior `push`) will fail re-applying.
+## Fix: idempotent applier replaces drizzle migrate()
 
-## Drizzle libsql migrator: timestamp-only gate (not hashes)
+`runMigrations()` in `lib/db/src/index.ts` no longer calls drizzle's `migrate()`.
+It iterates journal entries with `when > MAX(created_at)`, splits each file on
+`--> statement-breakpoint`, runs each statement, and **swallows only the specific
+SQLite "object already present" errors** (duplicate column / table|index|trigger|view
+already exists), then records the migration. Fresh DB applies everything in order;
+push-synced and partially-applied DBs self-heal.
 
-`drizzle-orm/libsql/migrator` decides whether to run a migration by comparing each journal entry's `when` against the **single newest `created_at`** in `__drizzle_migrations` (`MAX(created_at)`). It does NOT check per-file hashes. So a migration runs iff its `when` is greater than the latest recorded timestamp. Consequences:
-- A `drizzle-kit push`-created DB has the full schema but NO `__drizzle_migrations` rows → migrate() would replay everything.
-- A DB migrated only through 0008 that also has the 0009 columns (push/sync) → migrate() replays 0009 → `duplicate column` crash.
+**Why this is safe here:** every migration is DDL plus naturally-idempotent DML
+(`INSERT OR IGNORE`, `UPDATE ... WHERE col IS NULL`). A non-benign error (bad SQL,
+constraint violation, missing table) still fails startup loudly. A journal entry
+with a missing `.sql` file now throws instead of being skipped.
 
-**Fix in `lib/db/src/index.ts`:** `runMigrations()` calls `reconcileColumnDrift()` BEFORE `migrate()`. For each non-idempotent ADD-COLUMN migration (DRIFT_TARGETS, sentinel = `services.unit_label` for 0009): if the table exists AND the sentinel column already exists AND no record has `created_at >= when`, insert a `(hash, created_at=when)` row into `__drizzle_migrations` so drizzle skips it. Fresh DB (table absent) and genuinely-missing-columns DB are left untouched so migrate() runs normally.
+**Gotcha that cost time:** the benign-error check must walk the **`.cause` chain**.
+Drizzle wraps the driver error in `DrizzleQueryError` whose `message` is only
+`"Failed query: <sql>"`; the actual `duplicate column name` text lives in
+`cause` → LibsqlError → SqliteError. Matching on `err.message` alone misses it,
+and a re-thrown error keeps its *original* stack, so it looks like the throw came
+straight from `db.run` even though your catch ran.
 
-**Why:** marking the newest migration applied is safe precisely because the sentinel column existing means the schema is already current (push syncs the whole schema). Since the gate is timestamp-only, recording the newest `when` also covers any older unrecorded entries.
-
-**How to apply:** when adding a future non-idempotent ALTER ADD COLUMN migration, add a DRIFT_TARGETS entry (tag + a sentinel column it introduces). Verify with a fresh-DB run AND a drifted-DB run (build full schema, `DELETE FROM __drizzle_migrations WHERE created_at >= <when>`, confirm raw `migrate()` throws `duplicate column` but `runMigrations()` survives).
+**How to apply / verify:** test a fresh DB (all migrations apply, health 200) AND a
+drifted DB (build full schema, `DELETE FROM __drizzle_migrations WHERE created_at >=
+<when>` for the last entries, confirm startup self-heals and the column appears
+exactly once). When the server is bundled (desktop/api-server), `@workspace/db`
+resolves to `src/index.ts` (no stale dist), so editing source + re-running the
+bundle assembler is enough — no separate db build step.
