@@ -3,6 +3,7 @@ import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
   useDeleteCommissionRecipient, getListCommissionRecipientsQueryKey,
   useListCommissions, useListStaff, useGetCommissionRecipientReferrals,
+  getGetCommissionRecipientReferralsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
@@ -26,7 +27,10 @@ function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: n
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { data, isLoading } = useGetCommissionRecipientReferrals(recipientId ?? 0, {
-    query: { enabled: open && !!recipientId },
+    query: {
+      enabled: open && !!recipientId,
+      queryKey: getGetCommissionRecipientReferralsQueryKey(recipientId ?? 0),
+    },
   });
 
   function generateMessage() {

@@ -75,7 +75,7 @@ export default function Staff() {
 
   function openEdit(s: NonNullable<typeof staff>[0]) {
     setEditing(s);
-    form.reset({ name: s.name, role: s.role, phone: s.phone ?? "", email: s.email ?? "" });
+    form.reset({ name: s.name, role: s.role ?? "", phone: s.phone ?? "", email: s.email ?? "" });
     setIsOpen(true);
   }
 

@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
-function authHeader() {
+function authHeader(): Record<string, string> {
   const token = localStorage.getItem("clinic_auth_token");
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

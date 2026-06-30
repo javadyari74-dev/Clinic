@@ -80,7 +80,7 @@ export default function Inventory() {
 
   function openEdit(item: NonNullable<typeof items>[0]) {
     setEditing(item);
-    form.reset({ name: item.name, category: item.category ?? "", unit: item.unit, quantity: item.quantity, minQuantity: item.minQuantity ?? 0, costPrice: item.costPrice ?? undefined, salePrice: item.salePrice ?? undefined, description: item.description ?? "" });
+    form.reset({ name: item.name, category: item.category ?? "", unit: item.unit ?? "", quantity: item.quantity, minQuantity: item.minQuantity ?? 0, costPrice: item.costPrice ?? undefined, salePrice: item.salePrice ?? undefined, description: item.description ?? "" });
     setIsOpen(true);
   }
 
