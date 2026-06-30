@@ -24,6 +24,30 @@ const INITIAL_STATE: ErrorBoundaryState = {
   copied: false,
 };
 
+// Client-side throttle so a page stuck in a render loop (or an operator who
+// keeps hitting "بارگذاری مجدد") doesn't fire a stream of near-identical
+// reports. The same error+page is reported at most once per window; distinct
+// crashes are always sent. Keyed across all boundary instances so remounts
+// don't reset the throttle. The server applies its own guard as a backstop.
+const REPORT_THROTTLE_MS = 30_000;
+const lastReportedAt = new Map<string, number>();
+
+function shouldReport(signature: string): boolean {
+  const now = Date.now();
+  const previous = lastReportedAt.get(signature);
+  if (previous !== undefined && now - previous < REPORT_THROTTLE_MS) {
+    return false;
+  }
+  lastReportedAt.set(signature, now);
+  // Drop stale entries so the map can't grow without bound over a long session.
+  if (lastReportedAt.size > 200) {
+    for (const [key, at] of lastReportedAt) {
+      if (now - at >= REPORT_THROTTLE_MS) lastReportedAt.delete(key);
+    }
+  }
+  return true;
+}
+
 // Contains a render crash to the page it happened on instead of letting it
 // propagate to the root and unmount the whole app (blank white screen).
 export class ErrorBoundary extends Component<
@@ -56,6 +80,10 @@ export class ErrorBoundary extends Component<
   }
 
   private async reportError(error: Error, componentStack: string | null) {
+    // Skip near-identical repeats of the same crash on the same page.
+    const signature = `${error.message}\n${window.location.href}`;
+    if (!shouldReport(signature)) return;
+
     try {
       await fetch("/api/client-errors", {
         method: "POST",
