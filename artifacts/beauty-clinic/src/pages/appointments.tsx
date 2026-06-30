@@ -234,7 +234,7 @@ export default function Appointments() {
     (b.scheduledAt ?? 0) - (a.scheduledAt ?? 0)
   );
 
-  const { data: patients } = useListPatients();
+  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { toast } = useToast();
@@ -434,7 +434,16 @@ export default function Appointments() {
                         }}>
                           <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
                           <CommandList>
-                            <CommandEmpty>مراجعی یافت نشد</CommandEmpty>
+                            {patientsLoading ? (
+                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
+                            ) : patientsError ? (
+                              <div className="py-6 px-4 text-center text-sm space-y-2">
+                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
+                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
+                              </div>
+                            ) : (patients?.data.length ?? 0) === 0 ? (
+                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
+                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
                             <CommandGroup>
                               {patients?.data.map(p => (
                                 <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
