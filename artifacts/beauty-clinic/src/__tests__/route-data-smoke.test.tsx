@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Component, type ReactNode } from "react";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import App, { queryClient } from "@/App";
 import { ERROR_NOTICE_TITLE } from "@/components/error-notice";
 import {
@@ -15,6 +15,7 @@ import {
   REMINDER_TITLE,
   USER_NAME,
   LASER_CLIENT_NAME,
+  PAYMENT_BACKFILL_NOTE,
 } from "./api-fixtures";
 
 const TOKEN_KEY = "clinic_auth_token";
@@ -262,4 +263,101 @@ describe("authenticated routes render an error state without crashing", () => {
     },
     15000,
   );
+});
+
+// Regression guard for the receipt source-of-truth. The receipt must read from
+// the dedicated single-payment record (GET /api/payments/:id, surfaced via
+// getPayment) so backfilled/fuller fields always show — never from the leaner
+// list row. PAYMENT_BACKFILL_NOTE lives ONLY on the single-payment record, so
+// its presence proves the authoritative fetch was used. The second case covers
+// the fallback: when that fetch fails, the receipt must still open from the
+// list row (without the backfilled note) rather than silently failing.
+describe("payment receipt reflects the authoritative single-payment record", () => {
+  const RECEIPT_TITLE = "رسید پرداخت";
+  const RECEIPT_BUTTON_TITLE = "مشاهده رسید";
+
+  async function renderPaymentsAndOpenReceipt() {
+    window.history.pushState(null, "", "/payments");
+
+    let crash: Error | null = null;
+    render(
+      <CrashRecorder onCrash={(e) => (crash = e)}>
+        <App />
+      </CrashRecorder>,
+    );
+
+    // Wait for the payments table to reach its loaded state (the patient name
+    // only renders once the list row is in the DOM), then click the receipt
+    // button on that row.
+    const button = await waitFor(
+      () => {
+        if (crash) throw crash;
+        const buttons = screen.getAllByTitle(RECEIPT_BUTTON_TITLE);
+        expect(buttons.length).toBeGreaterThan(0);
+        return buttons[0];
+      },
+      { timeout: 5000 },
+    );
+
+    // openReceiptForPayment awaits the single-payment fetch before opening, so
+    // flush that microtask/network work inside act() before asserting.
+    await act(async () => {
+      fireEvent.click(button);
+    });
+
+    await waitFor(
+      () => {
+        if (crash) throw crash;
+        expect(screen.getByText(RECEIPT_TITLE)).toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
+
+    return () => {
+      if (crash) throw crash;
+    };
+  }
+
+  it("shows fields from getPayment, not the leaner list row", async () => {
+    vi.stubGlobal("fetch", vi.fn(makeMockApiFetch("populated")));
+
+    const assertNoCrash = await renderPaymentsAndOpenReceipt();
+
+    // The backfilled note exists only on the single-payment record; seeing it
+    // proves the receipt was built from getPayment, not the list row.
+    expect(screen.getByText(PAYMENT_BACKFILL_NOTE)).toBeInTheDocument();
+    assertNoCrash();
+  });
+
+  it("falls back to the list row when the single-payment fetch fails", async () => {
+    // Populated for everything except the single-payment endpoint, which 500s.
+    // This forces openReceiptForPayment down its catch/fallback branch.
+    const base = makeMockApiFetch("populated");
+    const fallbackFetch = (input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : (input as Request).url;
+      if (/\/api\/payments\/\d+(?:\?|$)/.test(url)) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: "boom" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return base(input, init);
+    };
+    vi.stubGlobal("fetch", vi.fn(fallbackFetch));
+
+    const assertNoCrash = await renderPaymentsAndOpenReceipt();
+
+    // The receipt still opens (title present), but from the list row — which
+    // lacks the backfilled note — so that note must be absent.
+    expect(screen.getByText(RECEIPT_TITLE)).toBeInTheDocument();
+    expect(screen.queryByText(PAYMENT_BACKFILL_NOTE)).not.toBeInTheDocument();
+    assertNoCrash();
+  });
 });

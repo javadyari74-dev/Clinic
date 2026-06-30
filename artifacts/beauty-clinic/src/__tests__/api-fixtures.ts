@@ -146,6 +146,11 @@ const appointment = {
 
 const appointmentsList = { data: [appointment], total: 1 };
 
+// The receipt-only marker: a note that lives ONLY on the authoritative
+// single-payment record (`paymentDetail`), never on the list row. A receipt
+// that shows this text proves it was built from getPayment, not the list row.
+export const PAYMENT_BACKFILL_NOTE = "یادداشت تکمیل‌شده روی سرور";
+
 const payments = [
   {
     id: 1,
@@ -155,6 +160,9 @@ const payments = [
     amount: 1_200_000,
     method: "cash",
     paidAt: NOW - DAY,
+    // The list row deliberately lacks the backfilled note that the dedicated
+    // single-payment record carries — this is the missing-detail bug the
+    // receipt regression test guards against.
     notes: "",
     patientName: PATIENT_ONE_NAME,
     serviceName: SERVICE_NAME,
@@ -166,6 +174,14 @@ const payments = [
     depositAmount: 0,
   },
 ];
+
+// The authoritative single-payment record returned by GET /api/payments/:id.
+// It mirrors the list row but carries the backfilled note the list row omits,
+// standing in for any detail that only the dedicated fetch surfaces.
+const paymentDetail = {
+  ...payments[0],
+  notes: PAYMENT_BACKFILL_NOTE,
+};
 
 const inventory = [
   {
@@ -484,6 +500,7 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/patients$/, () => patientsList, emptyList],
   [/\/api\/appointments\/today\/waiting-list$/, () => appointmentsList, emptyList],
   [/\/api\/appointments$/, () => appointmentsList, emptyList],
+  [/\/api\/payments\/\d+$/, () => paymentDetail, () => paymentDetail],
   [/\/api\/payments$/, () => payments, emptyArr],
   [/\/api\/services$/, () => services, emptyArr],
   [/\/api\/staff$/, () => staff, emptyArr],
