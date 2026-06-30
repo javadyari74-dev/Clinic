@@ -1,10 +1,17 @@
 import { useEffect, lazy, Suspense, type ReactNode } from "react";
-import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
+import {
+  Switch,
+  Route,
+  Router as WouterRouter,
+  Redirect,
+  useLocation,
+} from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Layout, navItems, canAccessNavItem } from "@/components/layout";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { AuthProvider, useAuth, type Permission } from "@/hooks/use-auth";
 import { pageLoaders, prefetchCommonRoutes } from "@/lib/page-loaders";
 
@@ -47,7 +54,9 @@ const queryClient = new QueryClient({
 
 function RedirectToLogin() {
   const [, setLocation] = useLocation();
-  useEffect(() => { setLocation("/login"); }, [setLocation]);
+  useEffect(() => {
+    setLocation("/login");
+  }, [setLocation]);
   return null;
 }
 
@@ -56,7 +65,9 @@ function RedirectToLogin() {
 // login redirect to "/") on a route their role/permissions don't cover.
 function useFirstAllowedPath(): string | null {
   const { user, hasPermission } = useAuth();
-  const item = navItems.find(i => canAccessNavItem(i, user?.role, hasPermission));
+  const item = navItems.find((i) =>
+    canAccessNavItem(i, user?.role, hasPermission),
+  );
   return item?.href ?? null;
 }
 
@@ -73,7 +84,11 @@ function Protected({
 }) {
   const { user, hasPermission } = useAuth();
   const fallback = useFirstAllowedPath();
-  const allowed = canAccessNavItem({ permission, adminOnly }, user?.role, hasPermission);
+  const allowed = canAccessNavItem(
+    { permission, adminOnly },
+    user?.role,
+    hasPermission,
+  );
   if (allowed) return <>{children}</>;
   if (fallback) return <Redirect to={fallback} />;
   return (
@@ -85,6 +100,7 @@ function Protected({
 
 function Router() {
   const { user } = useAuth();
+  const [location] = useLocation();
 
   useEffect(() => {
     if (user) {
@@ -105,28 +121,98 @@ function Router() {
 
   return (
     <Layout>
-      <Suspense fallback={<PageFallback />}>
-        <Switch>
-          <Route path="/"><Protected permission="dashboard"><Dashboard /></Protected></Route>
-          <Route path="/patients"><Protected permission="patients"><Patients /></Protected></Route>
-          <Route path="/patients/:id"><Protected permission="patients"><PatientDetail /></Protected></Route>
-          <Route path="/appointments"><Protected permission="appointments"><Appointments /></Protected></Route>
-          <Route path="/payments"><Protected permission="payments"><Payments /></Protected></Route>
-          <Route path="/services"><Protected permission="services"><Services /></Protected></Route>
-          <Route path="/laser"><Protected permission="laser"><Laser /></Protected></Route>
-          <Route path="/staff"><Protected permission="staff"><Staff /></Protected></Route>
-          <Route path="/commissions"><Protected permission="commissions"><Commissions /></Protected></Route>
-          <Route path="/commission-recipients"><Protected permission="commissions"><CommissionRecipients /></Protected></Route>
-          <Route path="/discounts"><Protected permission="discounts"><Discounts /></Protected></Route>
-          <Route path="/inventory"><Protected permission="inventory"><Inventory /></Protected></Route>
-          <Route path="/reports"><Protected permission="reports"><Reports /></Protected></Route>
-          <Route path="/reminders"><Protected permission="reminders"><Reminders /></Protected></Route>
-          <Route path="/backup"><Protected permission="backup"><Backup /></Protected></Route>
-          <Route path="/accounting"><Protected permission="accounting"><Accounting /></Protected></Route>
-          <Route path="/users"><Protected adminOnly><Users /></Protected></Route>
-          <Route component={NotFound} />
-        </Switch>
-      </Suspense>
+      <ErrorBoundary resetKey={location}>
+        <Suspense fallback={<PageFallback />}>
+          <Switch>
+            <Route path="/">
+              <Protected permission="dashboard">
+                <Dashboard />
+              </Protected>
+            </Route>
+            <Route path="/patients">
+              <Protected permission="patients">
+                <Patients />
+              </Protected>
+            </Route>
+            <Route path="/patients/:id">
+              <Protected permission="patients">
+                <PatientDetail />
+              </Protected>
+            </Route>
+            <Route path="/appointments">
+              <Protected permission="appointments">
+                <Appointments />
+              </Protected>
+            </Route>
+            <Route path="/payments">
+              <Protected permission="payments">
+                <Payments />
+              </Protected>
+            </Route>
+            <Route path="/services">
+              <Protected permission="services">
+                <Services />
+              </Protected>
+            </Route>
+            <Route path="/laser">
+              <Protected permission="laser">
+                <Laser />
+              </Protected>
+            </Route>
+            <Route path="/staff">
+              <Protected permission="staff">
+                <Staff />
+              </Protected>
+            </Route>
+            <Route path="/commissions">
+              <Protected permission="commissions">
+                <Commissions />
+              </Protected>
+            </Route>
+            <Route path="/commission-recipients">
+              <Protected permission="commissions">
+                <CommissionRecipients />
+              </Protected>
+            </Route>
+            <Route path="/discounts">
+              <Protected permission="discounts">
+                <Discounts />
+              </Protected>
+            </Route>
+            <Route path="/inventory">
+              <Protected permission="inventory">
+                <Inventory />
+              </Protected>
+            </Route>
+            <Route path="/reports">
+              <Protected permission="reports">
+                <Reports />
+              </Protected>
+            </Route>
+            <Route path="/reminders">
+              <Protected permission="reminders">
+                <Reminders />
+              </Protected>
+            </Route>
+            <Route path="/backup">
+              <Protected permission="backup">
+                <Backup />
+              </Protected>
+            </Route>
+            <Route path="/accounting">
+              <Protected permission="accounting">
+                <Accounting />
+              </Protected>
+            </Route>
+            <Route path="/users">
+              <Protected adminOnly>
+                <Users />
+              </Protected>
+            </Route>
+            <Route component={NotFound} />
+          </Switch>
+        </Suspense>
+      </ErrorBoundary>
     </Layout>
   );
 }
