@@ -26,6 +26,10 @@ INCLUDE_MAIN="${INCLUDE_MAIN:-0}"
 echo ">>> اگر ادغام ناتمامی در جریان است، لغوش می‌کنیم..."
 git merge --abort 2>/dev/null || true
 
+echo ">>> پاک‌کردن فایل‌های قفلِ باقی‌مانده از اجراهای قبلی..."
+rm -f .git/refs/remotes/origin/HEAD.lock 2>/dev/null || true
+rm -f .git/index.lock 2>/dev/null || true
+
 echo ">>> دریافت آخرین تغییرات از ریموت..."
 git fetch origin
 
@@ -44,9 +48,8 @@ ORDER=(
   "origin/subrepl-uiyrwrdf"   # 2026-06-30 16:22 (جدیدترین)
 )
 
-echo ">>> ساخت شاخهٔ consolidated از پایه: $BASE"
-git branch -f consolidated "$BASE"
-git checkout consolidated
+echo ">>> ساخت/بازنشانی شاخهٔ consolidated از پایه: $BASE"
+git checkout -B consolidated "$BASE"
 
 # ادغام زنجیره‌ای دودمان اصلی
 for BRANCH in "${ORDER[@]}"; do
