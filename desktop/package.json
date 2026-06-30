@@ -11,7 +11,9 @@
     "assemble": "node scripts/assemble.mjs",
     "start": "npm run assemble && electron .",
     "dist": "npm run assemble && electron-builder --win --x64",
-    "dist:dir": "npm run assemble && electron-builder --win --x64 --dir"
+    "dist:dir": "npm run assemble && electron-builder --win --x64 --dir",
+    "dist:prebuilt": "electron-builder --win --x64",
+    "dist:prebuilt:dir": "electron-builder --win --x64 --dir"
   },
   "dependencies": {
     "@libsql/client": "^0.15.4"
