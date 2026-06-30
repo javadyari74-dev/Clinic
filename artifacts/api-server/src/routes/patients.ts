@@ -351,6 +351,7 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
     amount: signed,
     type: parsed.data.type,
     description: parsed.data.description ?? null,
+    paymentId: parsed.data.paymentId ?? null,
   }).returning();
   await db.update(patientsTable).set({ accountBalance: newBalance }).where(eq(patientsTable.id, patient.id));
 
