@@ -162,46 +162,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/AppointmentWithDetailsList"
 
-  /patients/{id}/account-transactions:
-    get:
-      operationId: listPatientAccountTransactions
-      tags: [patients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/PatientAccountTransaction"
-    post:
-      operationId: createPatientAccountTransaction
-      tags: [patients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/PatientAccountTransactionInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/PatientAccountTransaction"
-
   /patients/{id}/notes:
     get:
       operationId: listPatientNotes
@@ -866,23 +826,6 @@ paths:
         "404":
           description: Not found
 
-  /commission-recipients/{id}/referrals:
-    get:
-      operationId: getCommissionRecipientReferrals
-      tags: [commission-recipients]
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: integer }
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/CommissionRecipientReferrals"
-
   # ── Reminders ──────────────────────────────────────────────────────────────
   /reminders:
     get:
@@ -1005,6 +948,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityLogEntry"
 
+  # ── Client Errors ──────────────────────────────────────────────────────────
+  /client-errors:
+    get:
+      operationId: listClientErrors
+      tags: [client-errors]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientErrorReport"
+
   # ── Reports ────────────────────────────────────────────────────────────────
   /reports/summary:
     get:
@@ -1053,12 +1011,6 @@ components:
         birthdate: { type: ["string", "null"] }
         gender: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
-        tier: { type: ["string", "null"] }
-        accountBalance: { type: integer }
-        referrerType: { type: ["string", "null"] }
-        referrerId: { type: ["integer", "null"] }
-        referrerRate: { type: ["integer", "null"] }
-        referrerName: { type: ["string", "null"] }
         createdAt: { type: integer }
 
     PatientInput:
@@ -1072,11 +1024,6 @@ components:
         birthdate: { type: string }
         gender: { type: string }
         notes: { type: string }
-        tier: { type: string }
-        accountBalance: { type: integer }
-        referrerType: { type: string }
-        referrerId: { type: integer }
-        referrerRate: { type: integer }
 
     PatientUpdate:
       type: object
@@ -1256,7 +1203,6 @@ components:
         patientName: { type: ["string", "null"] }
         patientPhone: { type: ["string", "null"] }
         patientFileNumber: { type: ["string", "null"] }
-        patientTier: { type: ["string", "null"] }
         serviceName: { type: ["string", "null"] }
         servicePrice: { type: ["integer", "null"] }
         staffName: { type: ["string", "null"] }
@@ -1345,8 +1291,6 @@ components:
         discountName: { type: string }
         discountAmount: { type: integer }
         depositAmount: { type: integer }
-        # مبلغی که هنگام همین پرداخت باید از موجودی اکانت مراجع کسر شود (اتمیک، سمت سرور)
-        applyAccountBalance: { type: integer }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
@@ -1466,28 +1410,6 @@ components:
         phone: { type: ["string", "null"] }
         description: { type: ["string", "null"] }
 
-    CommissionRecipientReferrals:
-      type: object
-      required: [recipient, referrals, totalSpent, totalCommission, count]
-      properties:
-        recipient:
-          $ref: "#/components/schemas/CommissionRecipient"
-        referrals:
-          type: array
-          items:
-            type: object
-            required: [patientId, name, totalSpent, referrerRate, commission]
-            properties:
-              patientId: { type: integer }
-              name: { type: string }
-              fileNumber: { type: ["string", "null"] }
-              totalSpent: { type: integer }
-              referrerRate: { type: ["integer", "null"] }
-              commission: { type: integer }
-        totalSpent: { type: integer }
-        totalCommission: { type: integer }
-        count: { type: integer }
-
     # ── Commission ────────────────────────────────────────────────────────────
     Commission:
       type: object
@@ -1568,7 +1490,6 @@ components:
         status: { type: string }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
-        patientTier: { type: ["string", "null"] }
 
     ReminderInput:
       type: object
@@ -1620,6 +1541,20 @@ components:
         entityType: { type: string }
         entityId: { type: ["integer", "null"] }
         description: { type: string }
+        createdAt: { type: integer }
+
+    # ── Client Errors ─────────────────────────────────────────────────────────
+    ClientErrorReport:
+      type: object
+      required: [id, message, createdAt]
+      properties:
+        id: { type: integer }
+        message: { type: string }
+        stack: { type: ["string", "null"] }
+        componentStack: { type: ["string", "null"] }
+        url: { type: ["string", "null"] }
+        userAgent: { type: ["string", "null"] }
+        occurredAt: { type: ["string", "null"] }
         createdAt: { type: integer }
 
     # ── Reports ───────────────────────────────────────────────────────────────

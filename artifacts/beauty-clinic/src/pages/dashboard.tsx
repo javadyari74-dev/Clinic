@@ -7,6 +7,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -14,7 +15,6 @@ import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
   Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone,
 } from "lucide-react";
-import { TierBadge } from "@/components/tier-badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -126,13 +126,34 @@ export default function Dashboard() {
     year: number; month: number; day: number;
   } | null>(todayShamsi);
 
-  const { data: summary }          = useGetDashboardSummary();
-  const { data: chartData }        = useGetRevenueChart();
-  const { data: reminders }        = useListReminders({ status: "pending" });
-  const { data: activities }       = useListActivity({ limit: 10 });
-  const { data: allAppointments }  = useListAppointments();
-  const { data: allPayments }      = useListPayments();
+  const summaryQuery     = useGetDashboardSummary();
+  const chartQuery       = useGetRevenueChart();
+  const remindersQuery   = useListReminders({ status: "pending" });
+  const activitiesQuery  = useListActivity({ limit: 10 });
+  const appointmentsQuery = useListAppointments();
+  const paymentsQuery    = useListPayments();
+  const { data: summary }          = summaryQuery;
+  const { data: chartData }        = chartQuery;
+  const { data: reminders }        = remindersQuery;
+  const { data: activities }       = activitiesQuery;
+  const { data: allAppointments }  = appointmentsQuery;
+  const { data: allPayments }      = paymentsQuery;
   const { data: birthdays = [] }   = useUpcomingBirthdays(10);
+  const isError =
+    summaryQuery.isError ||
+    chartQuery.isError ||
+    remindersQuery.isError ||
+    activitiesQuery.isError ||
+    appointmentsQuery.isError ||
+    paymentsQuery.isError;
+  const retry = () => {
+    summaryQuery.refetch();
+    chartQuery.refetch();
+    remindersQuery.refetch();
+    activitiesQuery.refetch();
+    appointmentsQuery.refetch();
+    paymentsQuery.refetch();
+  };
 
   // ── Calendar grid ──────────────────────────────────────────────────────────
   const { grid } = useMemo(() => {
@@ -230,6 +251,8 @@ export default function Dashboard() {
         <h1 className="text-3xl font-bold tracking-tight text-foreground">داشبورد</h1>
         <p className="text-muted-foreground mt-1">خلاصه وضعیت مطب در یک نگاه</p>
       </div>
+
+      {isError && <ErrorNotice onRetry={retry} />}
 
       {/* ── Stats ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -513,10 +536,7 @@ export default function Dashboard() {
                             )}
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate flex items-center gap-1.5">
-                              {a.patientName}
-                              <TierBadge tier={a.patientTier} />
-                            </p>
+                            <p className="font-medium truncate">{a.patientName}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {a.serviceName}
                               {a.staffName ? ` · ${a.staffName}` : ""}
@@ -557,9 +577,8 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{r.title}</p>
                             {r.patientName && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <p className="text-xs text-muted-foreground">
                                 مراجع: {r.patientName}
-                                <TierBadge tier={r.patientTier} />
                               </p>
                             )}
                           </div>
@@ -690,9 +709,8 @@ export default function Dashboard() {
                       <div className="flex-1 space-y-0.5">
                         <p className="text-sm font-medium">{r.title}</p>
                         {r.patientName && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">
                             مراجع: {r.patientName}
-                            <TierBadge tier={r.patientTier} />
                           </p>
                         )}
                         <p className="text-xs font-mono text-muted-foreground">

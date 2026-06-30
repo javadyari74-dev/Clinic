@@ -48,4 +48,13 @@ Thumbs.db
 .cache/
 .local/
 
+# Local database files (must never be committed — they bloat git history)
+*.db
+*.sqlite
+*.sqlite3
 clinic.db
+
+# Build archives / prebuilt bundles
+*.zip
+exports/
+desktop-prebuilt.zip

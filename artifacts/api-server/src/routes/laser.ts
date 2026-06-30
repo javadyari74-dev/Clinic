@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, and, asc, desc, count } from "drizzle-orm";
 import {
   db,
   laserClientsTable,
@@ -7,10 +7,22 @@ import {
   laserAppointmentsTable,
   laserPaymentsTable,
   laserSettingsTable,
+  usersTable,
 } from "@workspace/db";
 import { requireAdmin } from "../lib/auth";
 
 const router = Router();
+
+// ─── Laser operator (for auto-fill of operator name) ──────────────────────────
+router.get("/laser/operator", async (_req, res) => {
+  const operators = await db
+    .select({ username: usersTable.username })
+    .from(usersTable)
+    .where(and(eq(usersTable.role, "laser_operator"), eq(usersTable.isActive, true)))
+    .orderBy(asc(usersTable.id))
+    .all();
+  res.json({ operatorName: operators[0]?.username ?? null });
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -39,7 +51,7 @@ async function nextServiceCode(gender: string): Promise<string> {
   const prefix = gender === "female" ? "KH" : "AG";
   const all = await db.select({ code: laserServicesTable.code })
     .from(laserServicesTable)
-    .where(eq(laserServicesTable.genderCategory, gender))
+    .where(eq(laserServicesTable.genderCategory, gender as "female" | "male"))
     .all();
   const usedNums = all
     .map(r => r.code)
@@ -110,7 +122,7 @@ router.delete("/laser/clients/:id", async (req, res) => {
 router.get("/laser/services", async (req, res) => {
   const { gender } = req.query;
   const rows = gender
-    ? await db.select().from(laserServicesTable).where(eq(laserServicesTable.genderCategory, gender as string)).orderBy(laserServicesTable.name).all()
+    ? await db.select().from(laserServicesTable).where(eq(laserServicesTable.genderCategory, gender as "female" | "male")).orderBy(laserServicesTable.name).all()
     : await db.select().from(laserServicesTable).orderBy(laserServicesTable.genderCategory, laserServicesTable.name).all();
   res.json(rows);
 });
@@ -157,7 +169,7 @@ router.delete("/laser/services/:id", async (req, res) => {
 router.get("/laser/appointments", async (req, res) => {
   const { status } = req.query;
   const rows = status
-    ? await db.select().from(laserAppointmentsTable).where(eq(laserAppointmentsTable.status, status as string)).orderBy(desc(laserAppointmentsTable.scheduledAt)).all()
+    ? await db.select().from(laserAppointmentsTable).where(eq(laserAppointmentsTable.status, status as "completed" | "cancelled" | "scheduled")).orderBy(desc(laserAppointmentsTable.scheduledAt)).all()
     : await db.select().from(laserAppointmentsTable).orderBy(desc(laserAppointmentsTable.scheduledAt)).all();
 
   // Enrich with client and service info
@@ -267,34 +279,6 @@ router.post("/laser/payments", async (req, res) => {
   await db.update(laserAppointmentsTable).set({ status: "completed" }).where(eq(laserAppointmentsTable.id, Number(appointmentId)));
 
   res.status(201).json(payment);
-});
-
-// Edit a payment record — admin only
-router.put("/laser/payments/:id", requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const existing = await db.select().from(laserPaymentsTable).where(eq(laserPaymentsTable.id, id)).get();
-  if (!existing) { res.status(404).json({ message: "پرداخت یافت نشد" }); return; }
-  const { amount, method, operatorName, commissionAmount, notes, nextSessionDate, nextSessionNote } = req.body ?? {};
-  const updates: Partial<typeof laserPaymentsTable.$inferInsert> = {};
-  if (amount !== undefined) updates.amount = Number(amount);
-  if (method !== undefined) updates.method = method || "cash";
-  if (operatorName !== undefined) updates.operatorName = operatorName || null;
-  if (commissionAmount !== undefined) updates.commissionAmount = Number(commissionAmount ?? 0);
-  if (notes !== undefined) updates.notes = notes || null;
-  if (nextSessionDate !== undefined) updates.nextSessionDate = nextSessionDate || null;
-  if (nextSessionNote !== undefined) updates.nextSessionNote = nextSessionNote || null;
-  const [row] = await db.update(laserPaymentsTable).set(updates).where(eq(laserPaymentsTable.id, id)).returning();
-  res.json(row);
-});
-
-// Delete a payment record — admin only. Reverts the linked appointment to active.
-router.delete("/laser/payments/:id", requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const existing = await db.select().from(laserPaymentsTable).where(eq(laserPaymentsTable.id, id)).get();
-  if (!existing) { res.status(404).json({ message: "پرداخت یافت نشد" }); return; }
-  await db.delete(laserPaymentsTable).where(eq(laserPaymentsTable.id, id));
-  await db.update(laserAppointmentsTable).set({ status: "scheduled" }).where(eq(laserAppointmentsTable.id, existing.appointmentId));
-  res.status(204).end();
 });
 
 // ─── Reminders ────────────────────────────────────────────────────────────────

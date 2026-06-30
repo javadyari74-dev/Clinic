@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, or, ilike, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, or, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -10,55 +10,10 @@ import {
   UpdatePatientBody,
   DeletePatientParams,
   ListPatientAppointmentsParams,
-  ListPatientAccountTransactionsParams,
-  CreatePatientAccountTransactionParams,
-  CreatePatientAccountTransactionBody,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 
 const router: IRouter = Router();
-
-type PatientRow = typeof patientsTable.$inferSelect;
-
-// نام معرف هر بیمار را بر اساس نوع معرف (مراجع/کمیسیون‌گیرنده/کارمند/لیزر) پیدا می‌کند
-async function enrichReferrerNames<T extends PatientRow>(rows: T[]): Promise<(T & { referrerName: string | null })[]> {
-  const patientIds = new Set<number>();
-  const recipientIds = new Set<number>();
-  const staffIds = new Set<number>();
-  for (const r of rows) {
-    if (!r.referrerType || !r.referrerId) continue;
-    if (r.referrerType === "patient") patientIds.add(r.referrerId);
-    else if (r.referrerType === "staff") staffIds.add(r.referrerId);
-    else recipientIds.add(r.referrerId); // recipient / laser
-  }
-
-  const patientMap = new Map<number, string>();
-  const recipientMap = new Map<number, string>();
-  const staffMap = new Map<number, string>();
-
-  if (patientIds.size > 0) {
-    const ps = await db.select({ id: patientsTable.id, name: patientsTable.name }).from(patientsTable).where(inArray(patientsTable.id, [...patientIds]));
-    for (const p of ps) patientMap.set(p.id, p.name);
-  }
-  if (recipientIds.size > 0) {
-    const rs = await db.select({ id: commissionRecipientsTable.id, name: commissionRecipientsTable.name }).from(commissionRecipientsTable).where(inArray(commissionRecipientsTable.id, [...recipientIds]));
-    for (const r of rs) recipientMap.set(r.id, r.name);
-  }
-  if (staffIds.size > 0) {
-    const ss = await db.select({ id: staffTable.id, name: staffTable.name }).from(staffTable).where(inArray(staffTable.id, [...staffIds]));
-    for (const s of ss) staffMap.set(s.id, s.name);
-  }
-
-  return rows.map((r) => {
-    let referrerName: string | null = null;
-    if (r.referrerType && r.referrerId) {
-      if (r.referrerType === "patient") referrerName = patientMap.get(r.referrerId) ?? null;
-      else if (r.referrerType === "staff") referrerName = staffMap.get(r.referrerId) ?? null;
-      else referrerName = recipientMap.get(r.referrerId) ?? null;
-    }
-    return { ...r, referrerName };
-  });
-}
 
 router.get("/patients", async (req, res): Promise<void> => {
   const query = ListPatientsQueryParams.safeParse(req.query);
@@ -74,19 +29,19 @@ router.get("/patients", async (req, res): Promise<void> => {
 
   if (q) {
     const where = or(
-      ilike(patientsTable.name, `%${q}%`),
-      ilike(patientsTable.phone, `%${q}%`),
-      ilike(patientsTable.fileNumber, `%${q}%`)
+      like(patientsTable.name, `%${q}%`),
+      like(patientsTable.phone, `%${q}%`),
+      like(patientsTable.fileNumber, `%${q}%`)
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);
-    res.json({ data: await enrichReferrerNames(rows), total, page, limit });
+    res.json({ data: rows, total, page, limit });
     return;
   }
 
   const rows = await baseQuery.orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
   const [{ count: total }] = await countQuery;
-  res.json({ data: await enrichReferrerNames(rows), total, page, limit });
+  res.json({ data: rows, total, page, limit });
 });
 
 router.post("/patients", async (req, res): Promise<void> => {
@@ -157,18 +112,7 @@ router.get("/patients/upcoming-birthdays", async (req, res): Promise<void> => {
     if (!patient.birthdate) continue;
     const parts = patient.birthdate.split("-").map(Number);
     if (parts.length !== 3 || parts.some(isNaN)) continue;
-    let birthMonth: number, birthDay: number;
-    if (parts[0] > 1700) {
-      // Stored as Gregorian — convert to Shamsi month/day for the birthday match
-      const g = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
-      const sh = getShamsiPartsServer(g);
-      birthMonth = sh.month;
-      birthDay = sh.day;
-    } else {
-      // Legacy value already stored as Shamsi
-      birthMonth = parts[1];
-      birthDay = parts[2];
-    }
+    const [, birthMonth, birthDay] = parts;
 
     // Try this year first, then next year
     for (const yearOffset of [0, 1]) {
@@ -227,8 +171,7 @@ router.get("/patients/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  const [enriched] = await enrichReferrerNames([patient]);
-  res.json(enriched);
+  res.json(patient);
 });
 
 router.put("/patients/:id", async (req, res): Promise<void> => {

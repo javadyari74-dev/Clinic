@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
   getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
+  getGetAppointmentQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -15,12 +16,12 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { formatShamsiDate, formatCurrency, toPersianDigits } from "@/lib/format";
 import { Check, ChevronsUpDown, Plus, Pencil, Trash2 } from "lucide-react";
-import { TierBadge } from "@/components/tier-badge";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -97,7 +98,6 @@ type AppRow = {
   id: number;
   scheduledAt: number;
   patientName?: string | null;
-  patientTier?: string | null;
   serviceName?: string | null;
   sessionNumber?: number | null;
   deposit?: number | null;
@@ -115,23 +115,23 @@ type RowProps = {
   onEdit: (app: AppRow) => void;
   onDelete: (id: number) => void;
   onStatusChange: (id: number, status: string) => void;
+  onPrefetch: (id: number) => void;
 };
 
-function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange }: RowProps) {
+function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
   return (
-    <TableRow className={selected.has(app.id) ? "bg-muted/50" : undefined}>
+    <TableRow
+      className={selected.has(app.id) ? "bg-muted/50" : undefined}
+      onMouseEnter={() => onPrefetch(app.id)}
+      onFocus={() => onPrefetch(app.id)}
+    >
       {isAdmin && (
         <TableCell className="w-10 pr-4">
           <Checkbox checked={selected.has(app.id)} onCheckedChange={() => onToggle(app.id)} aria-label="انتخاب" />
         </TableCell>
       )}
       <TableCell className="text-sm">{formatShamsiDate(app.scheduledAt, true)}</TableCell>
-      <TableCell className="font-medium">
-        <span className="flex items-center gap-1.5">
-          {app.patientName}
-          <TierBadge tier={app.patientTier} />
-        </span>
-      </TableCell>
+      <TableCell className="font-medium">{app.patientName}</TableCell>
       <TableCell>{app.serviceName}</TableCell>
       <TableCell>
         {app.sessionNumber
@@ -216,7 +216,7 @@ export default function Appointments() {
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const { data: rawList } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
+  const { data: rawList, isError, refetch } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
   const { data: allAppointments } = useListAppointments({ limit: 500 } as any);
 
   const appointmentsList = statusFilter === "active"
@@ -227,7 +227,7 @@ export default function Appointments() {
     (b.scheduledAt ?? 0) - (a.scheduledAt ?? 0)
   );
 
-  const { data: patients } = useListPatients();
+  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { toast } = useToast();
@@ -237,6 +237,10 @@ export default function Appointments() {
     queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
   }, [queryClient]);
 
+  const prefetchAppointment = useCallback((id: number) => {
+    queryClient.prefetchQuery({ ...getGetAppointmentQueryOptions(id), staleTime: 30_000 });
+  }, [queryClient]);
+
   const createAppointment = useCreateAppointment({
     mutation: {
       onSuccess: () => {
@@ -244,6 +248,18 @@ export default function Appointments() {
         setIsOpen(false);
         toast({ title: "نوبت با موفقیت ثبت شد" });
         form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
+      },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "ثبت نوبت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت نوبت با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -351,7 +367,7 @@ export default function Appointments() {
     }
   }
 
-  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange };
+  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
   const activeIds = (appointmentsList?.data ?? []).map(a => a.id);
   const historyIds = historyList.map(a => a.id);
 
@@ -367,6 +383,8 @@ export default function Appointments() {
           نوبت جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {/* Admin bulk action bar */}
       {isAdmin && selected.size > 0 && (
@@ -409,7 +427,16 @@ export default function Appointments() {
                         }}>
                           <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
                           <CommandList>
-                            <CommandEmpty>مراجعی یافت نشد</CommandEmpty>
+                            {patientsLoading ? (
+                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
+                            ) : patientsError ? (
+                              <div className="py-6 px-4 text-center text-sm space-y-2">
+                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
+                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
+                              </div>
+                            ) : (patients?.data.length ?? 0) === 0 ? (
+                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
+                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
                             <CommandGroup>
                               {patients?.data.map(p => (
                                 <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>

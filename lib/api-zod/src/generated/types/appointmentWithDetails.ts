@@ -32,8 +32,6 @@ export interface AppointmentWithDetails {
   /** @nullable */
   patientFileNumber?: string | null;
   /** @nullable */
-  patientTier?: string | null;
-  /** @nullable */
   serviceName?: string | null;
   /** @nullable */
   servicePrice?: number | null;

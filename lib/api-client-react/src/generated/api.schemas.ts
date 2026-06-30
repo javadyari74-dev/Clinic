@@ -22,17 +22,6 @@ export interface Patient {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
-  /** @nullable */
-  tier?: string | null;
-  accountBalance?: number;
-  /** @nullable */
-  referrerType?: string | null;
-  /** @nullable */
-  referrerId?: number | null;
-  /** @nullable */
-  referrerRate?: number | null;
-  /** @nullable */
-  referrerName?: string | null;
   createdAt: number;
 }
 
@@ -44,11 +33,6 @@ export interface PatientInput {
   birthdate?: string;
   gender?: string;
   notes?: string;
-  tier?: string;
-  accountBalance?: number;
-  referrerType?: string;
-  referrerId?: number;
-  referrerRate?: number;
 }
 
 export interface PatientUpdate {
@@ -247,8 +231,6 @@ export interface AppointmentWithDetails {
   /** @nullable */
   patientFileNumber?: string | null;
   /** @nullable */
-  patientTier?: string | null;
-  /** @nullable */
   serviceName?: string | null;
   /** @nullable */
   servicePrice?: number | null;
@@ -347,7 +329,6 @@ export interface PaymentInput {
   discountName?: string;
   discountAmount?: number;
   depositAmount?: number;
-  applyAccountBalance?: number;
 }
 
 export interface Discount {
@@ -474,25 +455,6 @@ export interface CommissionRecipientUpdate {
   description?: string | null;
 }
 
-export type CommissionRecipientReferralsReferralsItem = {
-  patientId: number;
-  name: string;
-  /** @nullable */
-  fileNumber?: string | null;
-  totalSpent: number;
-  /** @nullable */
-  referrerRate: number | null;
-  commission: number;
-};
-
-export interface CommissionRecipientReferrals {
-  recipient: CommissionRecipient;
-  referrals: CommissionRecipientReferralsReferralsItem[];
-  totalSpent: number;
-  totalCommission: number;
-  count: number;
-}
-
 export interface Commission {
   id: number;
   recipientType: string;
@@ -573,8 +535,6 @@ export interface Reminder {
   createdAt: number;
   /** @nullable */
   patientName?: string | null;
-  /** @nullable */
-  patientTier?: string | null;
 }
 
 export interface ReminderInput {
@@ -618,6 +578,22 @@ export interface ActivityLogEntry {
   /** @nullable */
   entityId?: number | null;
   description: string;
+  createdAt: number;
+}
+
+export interface ClientErrorReport {
+  id: number;
+  message: string;
+  /** @nullable */
+  stack?: string | null;
+  /** @nullable */
+  componentStack?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  userAgent?: string | null;
+  /** @nullable */
+  occurredAt?: string | null;
   createdAt: number;
 }
 

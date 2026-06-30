@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import {
   useListPatients, useListPatientAppointments, useListPatientNotes,
-  useCreateAppointment, getListAppointmentsQueryKey,
+  useCreateAppointment, getListAppointmentsQueryKey, getListPatientsQueryKey,
   useListServices, useListStaff, useListPayments,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatCurrency, formatShamsiDate, toPersianDigits, formatBirthdate } from "@/lib/format";
+import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import {
   Search, X, User, Phone, FileText, CalendarDays, CreditCard,
   Clock, CheckCircle, XCircle, CalendarPlus, ChevronDown, StickyNote,
@@ -282,10 +282,14 @@ export function GlobalSearch() {
 
   const debouncedQuery = useDebounce(query, 300);
 
-  const { data: patients } = useListPatients(
-    debouncedQuery.length >= 2 ? { q: debouncedQuery, limit: 8 } : undefined,
-    { query: { enabled: debouncedQuery.length >= 2 } }
-  );
+  const patientSearchParams =
+    debouncedQuery.length >= 2 ? { q: debouncedQuery, limit: 8 } : undefined;
+  const { data: patients } = useListPatients(patientSearchParams, {
+    query: {
+      enabled: debouncedQuery.length >= 2,
+      queryKey: getListPatientsQueryKey(patientSearchParams),
+    },
+  });
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -413,7 +417,7 @@ export function GlobalSearch() {
               <span className="text-muted-foreground">{selectedPatient.email}</span>
             )}
             {selectedPatient?.birthdate && (
-              <span className="text-muted-foreground">تولد: {formatBirthdate(selectedPatient.birthdate)}</span>
+              <span className="text-muted-foreground">تولد: {selectedPatient.birthdate}</span>
             )}
             {selectedPatient?.notes && (
               <span className="text-amber-700 bg-amber-50 rounded px-2 py-0.5 text-xs">
