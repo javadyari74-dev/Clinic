@@ -628,14 +628,34 @@ export default function Payments() {
     queryClient.prefetchQuery({ ...getGetPaymentQueryOptions(id), staleTime: 30_000 });
   }, [queryClient]);
 
-  function openReceiptForPayment(paymentId: number) {
-    const p = payments?.find(x => x.id === paymentId);
-    if (!p) {
-      toast({ title: "تراکنش یافت نشد", variant: "destructive" });
+  // رسید از رکورد اختصاصیِ همان پرداخت ساخته می‌شود (getPayment) تا جزئیاتِ
+  // تکمیل‌شده روی سرور همیشه نمایش داده شود. اگر هاور روی ردیف کش را گرم کرده باشد
+  // نمایش آنی است؛ در غیر این صورت یک‌بار واکشی می‌شود و در صورت خطا به دادهٔ
+  // ردیفِ فهرست برمی‌گردیم تا رسید همیشه باز شود.
+  async function openReceiptForPayment(paymentId: number) {
+    try {
+      const payment = await queryClient.ensureQueryData({
+        ...getGetPaymentQueryOptions(paymentId),
+        staleTime: 30_000,
+      });
+      setActiveReceipt(receiptFromPayment(payment));
+      setReceiptOpen(true);
       return;
+    } catch {
+      const p = payments?.find(x => x.id === paymentId);
+      if (!p) {
+        toast({ title: "تراکنش یافت نشد", variant: "destructive" });
+        return;
+      }
+      // واکشی رکورد کامل پرداخت ناموفق بود؛ رسید از دادهٔ ردیفِ فهرست ساخته می‌شود
+      // و ممکن است برخی جزئیاتِ تکمیل‌شده روی سرور را نداشته باشد.
+      setActiveReceipt(receiptFromPayment(p));
+      setReceiptOpen(true);
+      toast({
+        title: "رسید با اطلاعات محلی نمایش داده شد",
+        description: "دریافت جزئیات کامل پرداخت از سرور ناموفق بود؛ ممکن است برخی اطلاعات کامل نباشد.",
+      });
     }
-    setActiveReceipt(receiptFromPayment(p));
-    setReceiptOpen(true);
   }
 
   const totalToday = payments?.reduce((sum, p) => {
