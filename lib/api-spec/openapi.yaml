@@ -948,6 +948,21 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityLogEntry"
 
+  # ── Client Errors ──────────────────────────────────────────────────────────
+  /client-errors:
+    get:
+      operationId: listClientErrors
+      tags: [client-errors]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClientErrorReport"
+
   # ── Reports ────────────────────────────────────────────────────────────────
   /reports/summary:
     get:
@@ -1020,6 +1035,32 @@ components:
         birthdate: { type: ["string", "null"] }
         gender: { type: ["string", "null"] }
         notes: { type: ["string", "null"] }
+        tier: { type: ["string", "null"] }
+        accountBalance: { type: integer }
+        referrerType: { type: ["string", "null"] }
+        referrerId: { type: ["integer", "null"] }
+        referrerRate: { type: ["integer", "null"] }
+
+    PatientAccountTransaction:
+      type: object
+      required: [id, patientId, amount, type, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        amount: { type: integer }
+        type: { type: string }
+        description: { type: ["string", "null"] }
+        paymentId: { type: ["integer", "null"] }
+        createdAt: { type: integer }
+
+    PatientAccountTransactionInput:
+      type: object
+      required: [amount, type]
+      properties:
+        amount: { type: integer }
+        type: { type: string }
+        description: { type: string }
+        paymentId: { type: integer }
 
     PatientList:
       type: object
@@ -1378,6 +1419,7 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: ["integer", "null"] }
+        paymentId: { type: ["integer", "null"] }
         description: { type: ["string", "null"] }
         amount: { type: integer }
         rate: { type: ["integer", "null"] }
@@ -1395,6 +1437,7 @@ components:
         recipientType: { type: string }
         recipientId: { type: integer }
         appointmentId: { type: integer }
+        paymentId: { type: integer }
         description: { type: string }
         amount: { type: integer }
         rate: { type: integer }
@@ -1498,6 +1541,20 @@ components:
         entityType: { type: string }
         entityId: { type: ["integer", "null"] }
         description: { type: string }
+        createdAt: { type: integer }
+
+    # ── Client Errors ─────────────────────────────────────────────────────────
+    ClientErrorReport:
+      type: object
+      required: [id, message, createdAt]
+      properties:
+        id: { type: integer }
+        message: { type: string }
+        stack: { type: ["string", "null"] }
+        componentStack: { type: ["string", "null"] }
+        url: { type: ["string", "null"] }
+        userAgent: { type: ["string", "null"] }
+        occurredAt: { type: ["string", "null"] }
         createdAt: { type: integer }
 
     # ── Reports ───────────────────────────────────────────────────────────────

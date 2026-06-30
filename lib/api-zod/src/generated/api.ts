@@ -134,6 +134,34 @@ export const ListPatientAppointmentsResponse = zod.object({
 })
 
 
+export const ListPatientAccountTransactionsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListPatientAccountTransactionsResponseItem = zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "amount": zod.number(),
+  "type": zod.string(),
+  "description": zod.string().nullish(),
+  "paymentId": zod.number().nullish(),
+  "createdAt": zod.number()
+})
+export const ListPatientAccountTransactionsResponse = zod.array(ListPatientAccountTransactionsResponseItem)
+
+
+export const CreatePatientAccountTransactionParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const CreatePatientAccountTransactionBody = zod.object({
+  "amount": zod.number(),
+  "type": zod.string(),
+  "description": zod.string().optional(),
+  "paymentId": zod.number().optional()
+})
+
+
 export const ListPatientNotesParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -680,6 +708,7 @@ export const ListCommissionsResponseItem = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -697,6 +726,7 @@ export const CreateCommissionBody = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().optional(),
+  "paymentId": zod.number().optional(),
   "description": zod.string().optional(),
   "amount": zod.number(),
   "rate": zod.number().optional(),
@@ -727,6 +757,7 @@ export const UpdateCommissionResponse = zod.object({
   "recipientType": zod.string(),
   "recipientId": zod.number(),
   "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
   "description": zod.string().nullish(),
   "amount": zod.number(),
   "rate": zod.number().nullish(),
@@ -875,6 +906,19 @@ export const ListActivityResponseItem = zod.object({
   "createdAt": zod.number()
 })
 export const ListActivityResponse = zod.array(ListActivityResponseItem)
+
+
+export const ListClientErrorsResponseItem = zod.object({
+  "id": zod.number(),
+  "message": zod.string(),
+  "stack": zod.string().nullish(),
+  "componentStack": zod.string().nullish(),
+  "url": zod.string().nullish(),
+  "userAgent": zod.string().nullish(),
+  "occurredAt": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+export const ListClientErrorsResponse = zod.array(ListClientErrorsResponseItem)
 
 
 export const GetReportsSummaryResponse = zod.object({

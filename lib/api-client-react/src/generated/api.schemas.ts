@@ -47,6 +47,34 @@ export interface PatientUpdate {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tier?: string | null;
+  accountBalance?: number;
+  /** @nullable */
+  referrerType?: string | null;
+  /** @nullable */
+  referrerId?: number | null;
+  /** @nullable */
+  referrerRate?: number | null;
+}
+
+export interface PatientAccountTransaction {
+  id: number;
+  patientId: number;
+  amount: number;
+  type: string;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  paymentId?: number | null;
+  createdAt: number;
+}
+
+export interface PatientAccountTransactionInput {
+  amount: number;
+  type: string;
+  description?: string;
+  paymentId?: number;
 }
 
 export interface PatientList {
@@ -434,6 +462,8 @@ export interface Commission {
   /** @nullable */
   appointmentId?: number | null;
   /** @nullable */
+  paymentId?: number | null;
+  /** @nullable */
   description?: string | null;
   amount: number;
   /** @nullable */
@@ -453,6 +483,7 @@ export interface CommissionInput {
   recipientType: string;
   recipientId: number;
   appointmentId?: number;
+  paymentId?: number;
   description?: string;
   amount: number;
   rate?: number;
@@ -547,6 +578,22 @@ export interface ActivityLogEntry {
   /** @nullable */
   entityId?: number | null;
   description: string;
+  createdAt: number;
+}
+
+export interface ClientErrorReport {
+  id: number;
+  message: string;
+  /** @nullable */
+  stack?: string | null;
+  /** @nullable */
+  componentStack?: string | null;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  userAgent?: string | null;
+  /** @nullable */
+  occurredAt?: string | null;
   createdAt: number;
 }
 

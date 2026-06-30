@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } from "lucide-react";
@@ -143,7 +144,7 @@ function EmptyState({ icon: Icon, text }: { icon: React.ElementType; text: strin
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function Reminders() {
-  const { data: reminders, isLoading } = useListReminders({});
+  const { data: reminders, isLoading, isError, refetch } = useListReminders({});
   const { data: patients } = useListPatients();
   const { data: birthdays = [], isLoading: loadingBirthdays } = useUpcomingBirthdays(30);
   const { toast } = useToast();
@@ -339,6 +340,8 @@ export default function Reminders() {
         <h1 className="text-3xl font-bold tracking-tight">یادآوری‌ها</h1>
         <p className="text-muted-foreground mt-1">مدیریت یادآوری‌ها و پیگیری‌ها</p>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {/* Tabs */}
       <Tabs defaultValue="birthday" className="space-y-4">

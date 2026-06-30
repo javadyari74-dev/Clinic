@@ -10,15 +10,33 @@ The repo can be packaged as a standalone Windows app via the `desktop/` folder (
 ## The trap: workspace pnpm config strips all non-Linux native binaries
 `pnpm-workspace.yaml` has an `overrides` block that maps every non-linux-x64 platform binary of `esbuild` and `lightningcss` to `"-"` (removed), with the comment "replit uses linux-x64 only." Consequence: running the workspace build (`pnpm --filter ... run build`, i.e. vite + esbuild) **on Windows fails** — esbuild/vite have no win32 binary. Symptom the user hits: `ERR_PNPM_IGNORED_BUILDS` then `pnpm ... run build` exits code 1 inside `desktop/scripts/assemble.mjs`.
 
-## Why pre-building on Linux is the fix
-The build outputs are platform-independent:
-- frontend `artifacts/beauty-clinic/dist/public` = static HTML/CSS/JS
-- server `artifacts/api-server/dist/index.mjs` = plain JS bundle (esbuild externalizes `@libsql/client` and ALL its platform binaries incl. `@libsql/win32-x64-msvc`, so the native SQLite is resolved at runtime, not bundled)
+**Why:** the Linux-only esbuild binary present in the workspace fails on Windows,
+breaking any build that tries to bundle there.
 
-Only Electron itself and the native `@libsql` binary must be Windows-specific. Those are handled by the **separate** `desktop/package.json` (plain `npm install`, NOT the pnpm workspace), so they sidestep the workspace overrides entirely.
+## Runtime: the server is an external-deps ESM bundle
 
-**Approach:** build the JS bundles on Replit/Linux, ship `desktop/dist` pre-assembled. `assemble.mjs` was changed to skip the workspace build when `desktop/dist/server/index.mjs` + `desktop/dist/public/index.html` already exist. On Windows the user then only runs `cd desktop && npm install && npm run dist` — electron-builder packages the pre-built dist + Electron + win32 `@libsql`. No pnpm/esbuild on Windows.
+The api-server bundle externalizes the whole `@libsql/client` native stack, so at
+runtime the packaged app must resolve it from a real `node_modules`. The desktop
+forks `dist/server/index.mjs`; Node ESM walks up to the app-root `node_modules`
+that electron-builder auto-includes from `desktop/package.json` deps (only
+`@libsql/client` is needed — its closure pulls libsql, hrana, node-fetch, etc.).
+A flat `node_modules` at app root resolves and starts cleanly (verified by running
+the bundle directly). Do NOT hand-copy a partial @libsql subset — the closure has
+native + non-@libsql transitive deps and partial copies fail.
 
-**Why:** the workspace is Linux-only by design; forcing a Windows native build means either editing the security-sensitive overrides (lockfile churn) or pre-building the portable parts. Pre-building is cleaner and keeps the Replit setup untouched.
+**Set `npmRebuild: false`** in electron-builder.yml: libsql ships prebuilt N-API
+binaries (ABI-stable), and rebuilding them against Electron headers can break the
+native binding.
 
-Default login after install: `admin` / `admin123`. DB stored in Windows `AppData` (survives reinstall).
+## Diagnose Windows-only startup crashes via the in-app log
+
+Can't reproduce Windows crashes from Linux, so `main.cjs` self-diagnoses: it pipes
+the forked server's stdout/stderr to `%APPDATA%/<userData>/server.log` and shows
+the captured tail in the failure dialog. Ask the user for that file/screenshot.
+
+**Avoid the dual-dialog race:** the server `exit` handler and the `waitForServer`
+timeout are two failure paths. Without a shared `settled`/`serverReady` guard the
+user sees BOTH "خطای سرور (کد 1)" and "Server did not become ready in time". Keep a
+single settle: on crash-before-ready reject once (bootstrap shows one dialog) and
+abort the readiness poll; only show the standalone server-crash dialog if it died
+AFTER a successful start.

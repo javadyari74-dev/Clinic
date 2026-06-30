@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, or, ilike, desc, count, isNotNull, sql } from "drizzle-orm";
+import { eq, or, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { patientsTable, appointmentsTable, servicesTable, staffTable } from "@workspace/db";
 import {
@@ -29,9 +29,9 @@ router.get("/patients", async (req, res): Promise<void> => {
 
   if (q) {
     const where = or(
-      ilike(patientsTable.name, `%${q}%`),
-      ilike(patientsTable.phone, `%${q}%`),
-      ilike(patientsTable.fileNumber, `%${q}%`)
+      like(patientsTable.name, `%${q}%`),
+      like(patientsTable.phone, `%${q}%`),
+      like(patientsTable.fileNumber, `%${q}%`)
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);
@@ -242,6 +242,65 @@ router.get("/patients/:id/appointments", async (req, res): Promise<void> => {
     .where(eq(appointmentsTable.patientId, params.data.id))
     .orderBy(desc(appointmentsTable.scheduledAt));
   res.json({ data: rows, total: rows.length });
+});
+
+// ── Account balance (شارژ اکانت) ─────────────────────────────────────────────
+
+router.get("/patients/:id/account-transactions", async (req, res): Promise<void> => {
+  const params = ListPatientAccountTransactionsParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db
+    .select()
+    .from(patientAccountTransactionsTable)
+    .where(eq(patientAccountTransactionsTable.patientId, params.data.id))
+    .orderBy(desc(patientAccountTransactionsTable.createdAt));
+  res.json(rows);
+});
+
+router.post("/patients/:id/account-transactions", async (req, res): Promise<void> => {
+  const params = CreatePatientAccountTransactionParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = CreatePatientAccountTransactionBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
+  if (!patient) {
+    res.status(404).json({ error: "بیمار یافت نشد" });
+    return;
+  }
+
+  // مقدار همیشه به‌صورت قدر مطلق گرفته می‌شود؛ علامت را نوع تراکنش تعیین می‌کند
+  const magnitude = Math.abs(Math.round(parsed.data.amount));
+  const isDeduct = parsed.data.type === "deduct";
+  const signed = isDeduct ? -magnitude : magnitude;
+
+  if (isDeduct && magnitude > patient.accountBalance) {
+    res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+    return;
+  }
+
+  const newBalance = patient.accountBalance + signed;
+  const [tx] = await db.insert(patientAccountTransactionsTable).values({
+    patientId: patient.id,
+    amount: signed,
+    type: parsed.data.type,
+    description: parsed.data.description ?? null,
+    paymentId: parsed.data.paymentId ?? null,
+  }).returning();
+  await db.update(patientsTable).set({ accountBalance: newBalance }).where(eq(patientsTable.id, patient.id));
+
+  const label = isDeduct ? "برداشت از" : "شارژ";
+  await logActivity("update", "patient", patient.id, `${label} اکانت بیمار "${patient.name}" به مبلغ ${magnitude.toLocaleString()} تومان`);
+  res.status(201).json(tx);
 });
 
 export default router;

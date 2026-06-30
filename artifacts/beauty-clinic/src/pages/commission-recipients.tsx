@@ -1,8 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
   useDeleteCommissionRecipient, getListCommissionRecipientsQueryKey,
-  useListCommissions, useListStaff,
+  useListCommissions, useListStaff, useGetCommissionRecipientReferrals,
+  getGetCommissionRecipientReferralsQueryKey, getGetCommissionRecipientReferralsQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -20,6 +22,108 @@ import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+
+function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: number | null; open: boolean; onClose: () => void }) {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const { data, isLoading } = useGetCommissionRecipientReferrals(recipientId ?? 0, {
+    query: {
+      enabled: open && !!recipientId,
+      queryKey: getGetCommissionRecipientReferralsQueryKey(recipientId ?? 0),
+    },
+  });
+
+  function generateMessage() {
+    if (!data) return;
+    const ratePct = data.totalSpent > 0 ? Math.round((data.totalCommission / data.totalSpent) * 100) : 0;
+    const msg = `${data.recipient.name}، شما تاکنون ${toPersianDigits(data.count)} نفر را به مطب معرفی کرده‌اید که مجموع هزینه آن‌ها ${formatCurrency(data.totalSpent)} بوده است. پورسانت شما با درصد ${toPersianDigits(ratePct)}، معادل ${formatCurrency(data.totalCommission)} می‌باشد.`;
+    navigator.clipboard?.writeText(msg).then(
+      () => toast({ title: "پیام در کلیپ‌بورد کپی شد" }),
+      () => toast({ title: "امکان کپی نبود", variant: "destructive" }),
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FolderOpen className="h-5 w-5 text-primary" />
+            پرونده کمیسیون‌گیرنده {data?.recipient?.name ? `— ${data.recipient.name}` : ""}
+          </DialogTitle>
+        </DialogHeader>
+        {isLoading ? (
+          <div className="py-10 text-center text-muted-foreground">در حال بارگذاری...</div>
+        ) : !data ? (
+          <div className="py-10 text-center text-muted-foreground">اطلاعاتی یافت نشد</div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg bg-muted/50 p-3 text-center">
+                <div className="text-xs text-muted-foreground mb-1">افراد معرفی‌شده</div>
+                <div className="font-bold text-lg">{toPersianDigits(data.count)} نفر</div>
+              </div>
+              <div className="rounded-lg bg-blue-50 p-3 text-center">
+                <div className="text-xs text-blue-600 mb-1">مجموع خرید معرفی‌شدگان</div>
+                <div className="font-bold text-lg text-blue-700">{formatCurrency(data.totalSpent)}</div>
+              </div>
+              <div className="rounded-lg bg-green-50 p-3 text-center">
+                <div className="text-xs text-green-600 mb-1">مجموع پورسانت</div>
+                <div className="font-bold text-lg text-green-700">{formatCurrency(data.totalCommission)}</div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" className="gap-2" onClick={generateMessage} disabled={!data.count}>
+                <MessageSquare className="h-4 w-4" />
+                تولید پیام
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>نام مراجع</TableHead>
+                  <TableHead>شماره پرونده</TableHead>
+                  <TableHead>مجموع خرید</TableHead>
+                  <TableHead>درصد</TableHead>
+                  <TableHead>پورسانت</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.referrals.map((r) => (
+                  <TableRow key={r.patientId}>
+                    <TableCell className="font-medium">{r.name}</TableCell>
+                    <TableCell className="font-mono text-sm">{r.fileNumber ?? "—"}</TableCell>
+                    <TableCell className="font-bold">{formatCurrency(r.totalSpent)}</TableCell>
+                    <TableCell>{r.referrerRate != null ? `${toPersianDigits(r.referrerRate)}٪` : "—"}</TableCell>
+                    <TableCell className="text-green-700 font-medium">{formatCurrency(r.commission)}</TableCell>
+                    <TableCell className="text-left">
+                      <Button variant="ghost" size="sm" className="text-primary"
+                        onClick={() => { onClose(); navigate(`/patients/${r.patientId}`); }}>
+                        مشاهده پرونده
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!data.referrals.length && (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                      هنوز کسی توسط این فرد معرفی نشده است
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>بستن</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -59,7 +163,7 @@ type RecipientRow = {
 };
 
 export default function CommissionRecipients() {
-  const { data: recipients, isLoading: loadingExternal } = useListCommissionRecipients();
+  const { data: recipients, isLoading: loadingExternal, isError, refetch } = useListCommissionRecipients();
   const { data: staff, isLoading: loadingStaff } = useListStaff();
   const { data: allCommissions } = useListCommissions({});
   const { toast } = useToast();
@@ -68,6 +172,32 @@ export default function CommissionRecipients() {
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof recipients>[0] | null>(null);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState<number | null>(null);
+  const search = useSearch();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    const p = new URLSearchParams(search).get("profile");
+    if (p) {
+      const id = Number(p);
+      setProfileId(Number.isNaN(id) ? null : id);
+    } else {
+      setProfileId(null);
+    }
+  }, [search]);
+
+  const prefetchReferrals = useCallback((id: number) => {
+    queryClient.prefetchQuery({ ...getGetCommissionRecipientReferralsQueryOptions(id), staleTime: 30_000 });
+  }, [queryClient]);
+
+  function openProfile(id: number) {
+    navigate(`/commission-recipients?profile=${id}`);
+  }
+
+  function closeProfile() {
+    if (new URLSearchParams(search).get("profile")) navigate("/commission-recipients");
+    else setProfileId(null);
+  }
 
   const create = useCreateCommissionRecipient({
     mutation: {
@@ -192,6 +322,8 @@ export default function CommissionRecipients() {
         </Button>
       </div>
 
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
+
       {totalUnpaid > 0 && (
         <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex items-center gap-3 text-orange-800">
           <Clock className="h-4 w-4 shrink-0" />
@@ -280,6 +412,8 @@ export default function CommissionRecipients() {
                         key={key}
                         className={`cursor-pointer transition-colors ${isSelected ? "bg-primary/5" : "hover:bg-muted/50"}`}
                         onClick={() => setSelectedKey(isSelected ? null : key)}
+                        onMouseEnter={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
+                        onFocus={row.type === "external" ? () => prefetchReferrals(row.id) : undefined}
                       >
                         <TableCell>
                           {row.type === "staff" ? (

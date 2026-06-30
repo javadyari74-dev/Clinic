@@ -22,6 +22,9 @@ import {
   CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock
 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { ErrorNotice } from "@/components/error-notice";
+import { TierBadge } from "@/components/tier-badge";
+import { PATIENT_TIERS } from "@/lib/tiers";
 import { useToast } from "@/hooks/use-toast";
 
 const statuses: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
@@ -49,7 +52,7 @@ export default function PatientDetail() {
   const [apptTime, setApptTime] = useState("10:00");
   const [apptNotes, setApptNotes] = useState("");
 
-  const { data: patient, isLoading } = useGetPatient(id);
+  const { data: patient, isLoading, isError, refetch } = useGetPatient(id);
   const { data: appointments } = useListPatientAppointments(id);
   const { data: notes } = useListPatientNotes(id);
   const { data: services } = useListServices();
@@ -111,6 +114,13 @@ export default function PatientDetail() {
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <Clock className="h-5 w-5 ml-2 animate-spin" />
         در حال بارگذاری...
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="max-w-3xl mx-auto py-8">
+        <ErrorNotice onRetry={() => refetch()} />
       </div>
     );
   }

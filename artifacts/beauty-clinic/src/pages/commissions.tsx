@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { Plus, CheckCircle, Trash2, Clock } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -26,7 +27,7 @@ const formSchema = z.object({
 });
 
 export default function Commissions() {
-  const { data: commissions, isLoading } = useListCommissions({});
+  const { data: commissions, isLoading, isError, refetch } = useListCommissions({});
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
@@ -106,6 +107,8 @@ export default function Commissions() {
           ثبت کمیسیون
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

@@ -1,5 +1,9 @@
 import { useState, useMemo } from "react";
-import { useListPatients, useCreatePatient, getListPatientsQueryKey } from "@workspace/api-client-react";
+import {
+  useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients,
+  getGetPatientQueryOptions, getListPatientAppointmentsQueryOptions,
+  getListPatientNotesQueryOptions, getListPatientAccountTransactionsQueryOptions,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,8 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
-import { formatShamsiDate } from "@/lib/format";
+import { ErrorNotice } from "@/components/error-notice";
+import { formatShamsiDate, formatCurrency } from "@/lib/format";
+import { TierBadge } from "@/components/tier-badge";
+import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
 import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -35,9 +43,20 @@ export default function Patients() {
   const [isOpen, setIsOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const { data: patientsList } = useListPatients({ q: search, limit: 200 });
+  const { data: patientsList, isError, refetch } = useListPatients({ q: search, limit: 200 });
+  const { data: staff } = useListStaff();
+  const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  function prefetchPatient(patientId: number) {
+    prefetchPatientDetail();
+    const staleTime = 30_000;
+    queryClient.prefetchQuery({ ...getGetPatientQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientAppointmentsQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientNotesQueryOptions(patientId), staleTime });
+    queryClient.prefetchQuery({ ...getListPatientAccountTransactionsQueryOptions(patientId), staleTime });
+  }
 
   const createPatient = useCreatePatient({
     mutation: {
@@ -46,6 +65,18 @@ export default function Patients() {
         setIsOpen(false);
         toast({ title: "مراجع جدید با موفقیت ثبت شد" });
         form.reset();
+      },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "ثبت مراجع ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "ثبت اطلاعات با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -98,6 +129,8 @@ export default function Patients() {
           مراجع جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-md">
@@ -224,7 +257,12 @@ export default function Patients() {
                 </TableHeader>
                 <TableBody>
                   {sorted.map((patient) => (
-                    <TableRow key={patient.id} className="cursor-pointer hover:bg-muted/50">
+                    <TableRow
+                      key={patient.id}
+                      className="cursor-pointer hover:bg-muted/50"
+                      onMouseEnter={() => prefetchPatient(patient.id)}
+                      onFocus={() => prefetchPatient(patient.id)}
+                    >
                       <TableCell className="font-mono text-sm font-medium">{patient.fileNumber}</TableCell>
                       <TableCell className="font-medium">{patient.name}</TableCell>
                       <TableCell className="font-mono text-sm">{patient.phone}</TableCell>
@@ -296,6 +334,8 @@ export default function Patients() {
                         key={patient.id}
                         className="cursor-pointer hover:bg-primary/5 transition-colors group"
                         onClick={() => navigate(`/patients/${patient.id}`)}
+                        onMouseEnter={() => prefetchPatient(patient.id)}
+                        onFocus={() => prefetchPatient(patient.id)}
                       >
                         <TableCell>
                           <div className="flex items-center gap-1.5">

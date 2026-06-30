@@ -2,5 +2,14 @@
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
 - [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
 - [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
-- [Backup/Restore feature](backup-restore-feature.md) — every table group must be in download+restore; restore wipe must be section-aware; coerce date columns from ISO on restore.
-- [Migrations hand-written → drift](migrations-hand-written-drift.md) — dev uses drizzle push so added schema cols work in dev but crash fresh/desktop/prod DBs; hand-write ALTER + journal entry.
+- [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
+- [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.
+- [Payments balance vs accrual](payments-balance-accrual.md) — staff/external accrual + wallet deduction are server-side/atomic; patient-referrer credit is UI-orchestrated; zero cash amount is valid.
+- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, and discount usage; commissions link by paymentId (legacy rows by appointmentId only when sole payment).
+- [Codegen + project references](codegen-project-references.md) — api-server consumes api-zod via TS project references → stale dist .d.ts after codegen unless the composite is rebuilt (tsc --build).
+- [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
+- [Migration journal drift](migration-journal-drift.md) — lost unit_label migration re-added as 0009; drizzle libsql gates by MAX(created_at) not hashes; runMigrations reconciles drift so already-present columns don't crash on re-apply.
+- [Seeding against the live dev DB](seed-concurrency.md) — a seed script writing clinic.db while api-server runs hits SQLITE_BUSY; set PRAGMA busy_timeout on the seed connection (no stop tool exists).
+- [Frontend smoke tests](frontend-smoke-tests.md) — beauty-clinic vitest/jsdom route smoke test: never-resolving fetch, assert h1 by role (sidebar labels collide), patient-detail asserts loading text.
+- [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
+- [Frontend api types source](frontend-api-types-source.md) — beauty-clinic imports generated hooks/types from @workspace/api-client-react, NOT @workspace/api-zod; orval query overrides need queryKey alongside enabled.
