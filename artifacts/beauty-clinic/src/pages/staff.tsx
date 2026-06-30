@@ -14,6 +14,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -24,7 +25,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export default function Staff() {
-  const { data: staff, isLoading } = useListStaff();
+  const { data: staff, isLoading, isError, refetch } = useListStaff();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
@@ -106,6 +107,8 @@ export default function Staff() {
           کارمند جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent>

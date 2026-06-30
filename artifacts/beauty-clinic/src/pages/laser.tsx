@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { ErrorNotice } from "@/components/error-notice";
 import {
   Plus, Edit2, Trash2, Zap, User, CalendarDays, CreditCard, Scissors,
   CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight, BellRing, Phone,
@@ -343,6 +344,7 @@ function printReceiptHtml(bodyHtml: string) {
 function ClientsTab() {
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   const [search, setSearch] = useState("");
@@ -352,7 +354,7 @@ function ClientsTab() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setClients(await api("/laser/clients")); } catch { /* ignore */ } finally { setLoading(false); }
+    try { setClients(await api("/laser/clients")); setError(false); } catch { setError(true); } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
 
@@ -391,7 +393,7 @@ function ClientsTab() {
         </Button>
       </div>
 
-      {loading ? <p className="text-center text-muted-foreground py-8">در حال بارگذاری...</p> : filtered.length === 0 ? (
+      {error ? <ErrorNotice onRetry={() => load()} /> : loading ? <p className="text-center text-muted-foreground py-8">در حال بارگذاری...</p> : filtered.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <User className="h-12 w-12 mx-auto mb-3 opacity-30" />
           <p>هیچ مراجعی یافت نشد</p>

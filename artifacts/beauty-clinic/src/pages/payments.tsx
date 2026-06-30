@@ -26,6 +26,7 @@ import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet }
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -241,7 +242,7 @@ const formSchema = z.object({
 });
 
 export default function Payments() {
-  const { data: payments, isLoading } = useListPayments();
+  const { data: payments, isLoading, isError, refetch } = useListPayments();
   const { data: scheduledAppts } = useListAppointments({ status: "scheduled", limit: 1000 });
   const { data: confirmedAppts } = useListAppointments({ status: "confirmed", limit: 1000 });
   const allActiveAppointments = useMemo(() => [
@@ -689,6 +690,8 @@ export default function Payments() {
           ثبت پرداخت
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

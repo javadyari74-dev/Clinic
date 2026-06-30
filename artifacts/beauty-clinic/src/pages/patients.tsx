@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { formatShamsiDate, formatCurrency } from "@/lib/format";
 import { TierBadge } from "@/components/tier-badge";
 import { PATIENT_TIERS } from "@/lib/tiers";
@@ -86,7 +87,7 @@ export default function Patients() {
   const [isOpen, setIsOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const { data: patientsList } = useListPatients({ q: search, limit: 200 });
+  const { data: patientsList, isError, refetch } = useListPatients({ q: search, limit: 200 });
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
@@ -175,6 +176,8 @@ export default function Patients() {
           مراجع جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-md">

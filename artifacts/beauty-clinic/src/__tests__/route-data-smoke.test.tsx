@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Component, type ReactNode } from "react";
 import { render, screen, waitFor, act } from "@testing-library/react";
 import App, { queryClient } from "@/App";
+import { ERROR_NOTICE_TITLE } from "@/components/error-notice";
 import {
   mockApiFetch,
   makeMockApiFetch,
@@ -147,31 +148,42 @@ type ResilienceCase = {
   path: string;
   emptyMarker: string | RegExp;
   errorMarker: string | RegExp;
-  // How to locate the marker. "heading" matches the page <h1> by role (sidebar
-  // nav labels collide as plain text); "text" matches any text node.
+  // How to locate the empty-mode marker. "heading" matches the page <h1> by
+  // role (sidebar nav labels collide as plain text); "text" matches any text
+  // node.
   by?: "heading" | "text";
+  // How to locate the error-mode marker. Defaults to "text" because the error
+  // notice renders as a text node, not the page <h1>.
+  errorBy?: "heading" | "text";
 };
 
+// In error mode every endpoint returns 500, so each page's primary query goes
+// to its isError state and renders the shared error notice instead of a blank
+// table. The error notice title is therefore the error-mode marker for every
+// data-loading route. The one exception is `/backup`, which loads no data on
+// mount and so has no failing query — it still asserts its static heading.
 const resilienceRoutes: ResilienceCase[] = [
-  { path: "/", emptyMarker: "داشبورد", errorMarker: "داشبورد", by: "heading" },
-  { path: "/patients", emptyMarker: "مراجعین", errorMarker: "مراجعین", by: "heading" },
+  { path: "/", emptyMarker: "داشبورد", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/patients", emptyMarker: "مراجعین", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   // Detail page: empty = record exists but has no related rows (name still
-  // shows); error = record fetch fails and the page shows its not-found state.
-  { path: "/patients/1", emptyMarker: PATIENT_ONE_NAME, errorMarker: "مراجع یافت نشد", by: "text" },
-  { path: "/appointments", emptyMarker: "نوبت‌ها", errorMarker: "نوبت‌ها", by: "heading" },
-  { path: "/payments", emptyMarker: "صندوق", errorMarker: "صندوق", by: "heading" },
-  { path: "/services", emptyMarker: "خدمات", errorMarker: "خدمات", by: "heading" },
-  { path: "/laser", emptyMarker: "بخش لیزر", errorMarker: "بخش لیزر", by: "heading" },
-  { path: "/staff", emptyMarker: "کارمندان", errorMarker: "کارمندان", by: "heading" },
-  { path: "/commissions", emptyMarker: "کمیسیون", errorMarker: "کمیسیون", by: "heading" },
-  { path: "/commission-recipients", emptyMarker: "گیرندگان کمیسیون", errorMarker: "گیرندگان کمیسیون", by: "heading" },
-  { path: "/discounts", emptyMarker: "تخفیفات", errorMarker: "تخفیفات", by: "heading" },
-  { path: "/inventory", emptyMarker: "انبار", errorMarker: "انبار", by: "heading" },
-  { path: "/reports", emptyMarker: "گزارشات", errorMarker: "گزارشات", by: "heading" },
-  { path: "/reminders", emptyMarker: "یادآوری‌ها", errorMarker: "یادآوری‌ها", by: "heading" },
-  { path: "/accounting", emptyMarker: "حسابداری و سود و زیان", errorMarker: "حسابداری و سود و زیان", by: "heading" },
-  { path: "/users", emptyMarker: "مدیریت کاربران", errorMarker: "مدیریت کاربران", by: "heading" },
-  { path: "/backup", emptyMarker: "پشتیبان‌گیری", errorMarker: "پشتیبان‌گیری", by: "heading" },
+  // shows); error = the record fetch fails and the page shows the error notice.
+  { path: "/patients/1", emptyMarker: PATIENT_ONE_NAME, errorMarker: ERROR_NOTICE_TITLE, by: "text" },
+  { path: "/appointments", emptyMarker: "نوبت‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/payments", emptyMarker: "صندوق", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/services", emptyMarker: "خدمات", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/laser", emptyMarker: "بخش لیزر", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/staff", emptyMarker: "کارمندان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/commissions", emptyMarker: "کمیسیون", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/commission-recipients", emptyMarker: "گیرندگان کمیسیون", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/discounts", emptyMarker: "تخفیفات", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/inventory", emptyMarker: "انبار", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/reports", emptyMarker: "گزارشات", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/reminders", emptyMarker: "یادآوری‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/accounting", emptyMarker: "حسابداری و سود و زیان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/users", emptyMarker: "مدیریت کاربران", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  // backup loads no data on mount, so an all-500 backend produces no error
+  // notice — it still renders its static heading.
+  { path: "/backup", emptyMarker: "پشتیبان‌گیری", errorMarker: "پشتیبان‌گیری", by: "heading", errorBy: "heading" },
 ];
 
 // Drives one render of `path` with `fetch` stubbed for `mode`, waits until the
@@ -245,8 +257,8 @@ describe("authenticated routes render an error state without crashing", () => {
 
   it.each(resilienceRoutes)(
     "renders $path when every endpoint returns 500",
-    async ({ path, errorMarker, by }) => {
-      await assertRouteResilient(path, errorMarker, by ?? "heading");
+    async ({ path, errorMarker, errorBy }) => {
+      await assertRouteResilient(path, errorMarker, errorBy ?? "text");
     },
     15000,
   );

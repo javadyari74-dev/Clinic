@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -163,7 +164,7 @@ type RecipientRow = {
 };
 
 export default function CommissionRecipients() {
-  const { data: recipients, isLoading: loadingExternal } = useListCommissionRecipients();
+  const { data: recipients, isLoading: loadingExternal, isError, refetch } = useListCommissionRecipients();
   const { data: staff, isLoading: loadingStaff } = useListStaff();
   const { data: allCommissions } = useListCommissions({});
   const { toast } = useToast();
@@ -322,6 +323,8 @@ export default function CommissionRecipients() {
           گیرنده خارجی جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {totalUnpaid > 0 && (
         <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 flex items-center gap-3 text-orange-800">

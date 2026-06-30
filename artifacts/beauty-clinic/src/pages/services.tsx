@@ -18,6 +18,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -323,7 +324,7 @@ function ServiceFormBody({ form }: { form: ReturnType<typeof useForm<FormValues>
 }
 
 export default function Services() {
-  const { data: services, isLoading } = useListServices();
+  const { data: services, isLoading, isError, refetch } = useListServices();
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -421,6 +422,8 @@ export default function Services() {
           خدمت جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {/* Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>

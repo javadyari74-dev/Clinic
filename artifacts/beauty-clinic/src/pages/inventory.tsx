@@ -15,6 +15,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -29,7 +30,7 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export default function Inventory() {
-  const { data: items, isLoading } = useListInventory();
+  const { data: items, isLoading, isError, refetch } = useListInventory();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
@@ -113,6 +114,8 @@ export default function Inventory() {
           آیتم جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {lowStock.length > 0 && (
         <Card className="border-orange-200 bg-orange-50">

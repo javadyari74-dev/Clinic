@@ -63,3 +63,25 @@ global `fetch`, so one mock that matches on `URL.pathname` is enough.
 rendered in the page's *default* view, and add its on-mount endpoints to
 `api-fixtures.ts` `routes` (most-specific path regex first). Default fallthrough
 returns `[]`, so a forgotten object endpoint surfaces as an assertion failure.
+
+## Error-state smoke (route-data-smoke.test.tsx error suite)
+
+`api-fixtures.ts` `error` mode returns 500 for **every** endpoint. Each page's
+primary query reaches its `isError` branch and renders the shared `ErrorNotice`
+(`ERROR_NOTICE_TITLE`), so the error-mode marker for every data-loading route is
+that title, asserted by **text** (the notice title is an `<h5>`/AlertTitle, not the
+page `<h1>` — locating by "heading" collides with the page h1). React Query uses
+`retry:1`, so the notice only appears after retries flush — the helper already
+advances ~1.5s inside `act()`.
+
+- **`/backup` is the lone exception:** it loads no data on mount, so an all-500
+  backend produces no failing query and no notice — it still asserts its static
+  heading (`errorBy:"heading"`).
+- **patient-detail error ≠ not-found.** Its `isError` branch shows the notice;
+  the separate `!patient` branch shows "مراجع یافت نشد". Error mode 500s the
+  `/patients/:id` fetch → notice, not the not-found text.
+
+**How to apply:** new data-loading page → wire `{isError && <ErrorNotice
+onRetry={refetch}/>}` after its header, and the existing error-suite row will
+assert the notice automatically (default `errorBy` is "text"). Only set
+`errorBy:"heading"` for pages that fetch nothing on mount.

@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { ErrorNotice } from "@/components/error-notice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -222,7 +223,7 @@ export default function Appointments() {
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const { data: rawList } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
+  const { data: rawList, isError, refetch } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
   const { data: allAppointments } = useListAppointments({ limit: 500 } as any);
 
   const appointmentsList = statusFilter === "active"
@@ -377,6 +378,8 @@ export default function Appointments() {
           نوبت جدید
         </Button>
       </div>
+
+      {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       {/* Admin bulk action bar */}
       {isAdmin && selected.size > 0 && (
