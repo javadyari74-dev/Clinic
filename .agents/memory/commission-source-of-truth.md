@@ -1,9 +1,28 @@
 ---
-name: Commission source of truth
-description: Where earned referral commission must be read from, and why recomputing from the live patient rate is wrong.
+name: Commission recipient profile attribution
+description: The recipient referrals/profile endpoint must be driven by recorded commissions, not only current patient.referrer_id.
 ---
 
-# Commission source of truth
+# Commission recipient profile must include orphaned recorded commissions
+
+The `/commission-recipients/:id/referrals` profile must union (a) patients whose
+CURRENT `referrer_id` = this recipient with (b) every patient that has a recorded
+row in `commissions` for this recipient (recipientType "external"), joined via
+`commissions.appointment_id -> appointments.patient_id`.
+
+**Why:** commissions are accrued at payment time and are the source of truth for
+earnings. If a patient's `referrer_id` is later changed/cleared, their recorded
+commission still belongs to the original recipient. Listing referrals only by
+current `referrer_id` orphans those commissions and the profile shows 0 earnings
+even though real commission rows exist (observed: recipient earned ~91.8M from a
+patient whose referrer was later nulled, but panel showed 0).
+
+**How to apply:** gather commissionByPatient WITHOUT restricting to the current
+referred ids; then fetch any patients present in commissions but missing from the
+referred set and add them to the display list. Keep the recorded-amount-wins /
+current-rate-estimate fallback per row.
+
+## Commission source of truth (per-row amount)
 
 The commission-recipient profile (`/commission-recipients/:id/referrals`) must read each referred
 patient's earned commission and rate from the recorded rows in the `commissions` table

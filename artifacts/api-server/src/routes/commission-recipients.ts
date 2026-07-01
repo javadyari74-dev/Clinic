@@ -72,8 +72,8 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
     return;
   }
 
-  // بیمارانی که این گیرنده (به‌عنوان کمیسیون‌گیرنده یا لیزر) معرفشان است
-  const patients = await db
+  // ۱) بیمارانی که هم‌اکنون معرفِ آن‌ها این گیرنده است (برای نمایشِ معرفی‌های در جریان و برآوردِ نرخِ فعلی)
+  const referredPatients = await db
     .select({ id: patientsTable.id, name: patientsTable.name, fileNumber: patientsTable.fileNumber, referrerRate: patientsTable.referrerRate })
     .from(patientsTable)
     .where(and(
@@ -81,10 +81,50 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
       or(eq(patientsTable.referrerType, "recipient"), eq(patientsTable.referrerType, "laser")),
     ));
 
-  // جمع هزینه‌ی پرداختی هر بیمار (از طریق نوبت‌ها)
-  const spentByPatient = new Map<number, number>();
-  // پورسانتِ واقعیِ ثبت‌شده در جدول کمیسیون‌ها برای هر بیمار (منبعِ درست، نه محاسبه‌ی دوباره از نرخِ فعلی)
+  // ۲) کمیسیون‌های واقعیِ ثبت‌شده‌ی این گیرنده (منبعِ درستِ درآمد). این‌ها را به بیمار نسبت می‌دهیم
+  //    حتی اگر معرفِ فعلیِ بیمار دیگر این گیرنده نباشد (معرف بعداً حذف/تغییر کرده باشد)؛ در غیر این صورت
+  //    پورسانتِ کسب‌شده «گم» شده و صفر نمایش داده می‌شود.
   const commissionByPatient = new Map<number, { amount: number; rate: number | null }>();
+  const latestRateAt = new Map<number, number>();
+  const commRows = await db
+    .select({
+      patientId: appointmentsTable.patientId,
+      amount: commissionsTable.amount,
+      rate: commissionsTable.rate,
+      createdAt: commissionsTable.createdAt,
+    })
+    .from(commissionsTable)
+    .innerJoin(appointmentsTable, eq(commissionsTable.appointmentId, appointmentsTable.id))
+    .where(and(
+      eq(commissionsTable.recipientType, "external"),
+      eq(commissionsTable.recipientId, params.data.id),
+    ));
+  for (const r of commRows) {
+    const acc = commissionByPatient.get(r.patientId) ?? { amount: 0, rate: null };
+    acc.amount += Number(r.amount) || 0;
+    const created = Number(r.createdAt) || 0;
+    if (r.rate != null && created >= (latestRateAt.get(r.patientId) ?? -1)) {
+      acc.rate = Number(r.rate);
+      latestRateAt.set(r.patientId, created);
+    }
+    commissionByPatient.set(r.patientId, acc);
+  }
+
+  // ۳) مجموعهٔ کاملِ بیمارانِ قابل‌نمایش = معرفی‌های فعلی + بیمارانی که کمیسیونِ ثبت‌شده دارند
+  const patientById = new Map<number, { id: number; name: string; fileNumber: string; referrerRate: number | null }>();
+  for (const p of referredPatients) patientById.set(p.id, p);
+  const missingIds = [...commissionByPatient.keys()].filter((id) => !patientById.has(id));
+  if (missingIds.length > 0) {
+    const extra = await db
+      .select({ id: patientsTable.id, name: patientsTable.name, fileNumber: patientsTable.fileNumber, referrerRate: patientsTable.referrerRate })
+      .from(patientsTable)
+      .where(inArray(patientsTable.id, missingIds));
+    for (const p of extra) patientById.set(p.id, p);
+  }
+  const patients = [...patientById.values()];
+
+  // ۴) جمعِ هزینهٔ پرداختیِ هر بیمار (از طریق نوبت‌ها)
+  const spentByPatient = new Map<number, number>();
   if (patients.length > 0) {
     const ids = patients.map((p) => p.id);
     const spentRows = await db
@@ -94,34 +134,6 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
       .where(inArray(appointmentsTable.patientId, ids))
       .groupBy(appointmentsTable.patientId);
     for (const r of spentRows) spentByPatient.set(r.patientId, Number(r.total) || 0);
-
-    // کمیسیون‌های ثبت‌شده‌ی این گیرنده (نوع external) به تفکیک بیمار، از طریق نوبتِ کمیسیون
-    const commRows = await db
-      .select({
-        patientId: appointmentsTable.patientId,
-        amount: commissionsTable.amount,
-        rate: commissionsTable.rate,
-        createdAt: commissionsTable.createdAt,
-      })
-      .from(commissionsTable)
-      .innerJoin(appointmentsTable, eq(commissionsTable.appointmentId, appointmentsTable.id))
-      .where(and(
-        eq(commissionsTable.recipientType, "external"),
-        eq(commissionsTable.recipientId, params.data.id),
-        inArray(appointmentsTable.patientId, ids),
-      ));
-    // جمعِ مبلغ + نرخِ آخرین کمیسیونِ ثبت‌شده (بر اساس createdAt) برای نمایش
-    const latestRateAt = new Map<number, number>();
-    for (const r of commRows) {
-      const acc = commissionByPatient.get(r.patientId) ?? { amount: 0, rate: null };
-      acc.amount += Number(r.amount) || 0;
-      const created = Number(r.createdAt) || 0;
-      if (r.rate != null && created >= (latestRateAt.get(r.patientId) ?? -1)) {
-        acc.rate = Number(r.rate);
-        latestRateAt.set(r.patientId, created);
-      }
-      commissionByPatient.set(r.patientId, acc);
-    }
   }
 
   let totalSpent = 0;
