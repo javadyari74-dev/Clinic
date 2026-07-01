@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import {
-  useListPatients, useCreatePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients,
+  useListPatients, useCreatePatient, useDeletePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients,
   getGetPatientQueryOptions, getListPatientAppointmentsQueryOptions,
   getListPatientNotesQueryOptions, getListPatientAccountTransactionsQueryOptions,
 } from "@workspace/api-client-react";
@@ -20,7 +20,12 @@ import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown } from "lucide-react";
+import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -87,10 +92,13 @@ export default function Patients() {
   const [isOpen, setIsOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [patientToDelete, setPatientToDelete] = useState<{ id: number; name: string } | null>(null);
   const { data: patientsList, isError, refetch } = useListPatients({ q: search, limit: 200 });
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
 
   function prefetchPatient(patientId: number) {
@@ -119,6 +127,28 @@ export default function Patients() {
             typeof serverMessage === "string" && serverMessage.trim()
               ? serverMessage
               : "ثبت اطلاعات با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  const deletePatient = useDeletePatient({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        toast({ title: "مراجع حذف شد" });
+        setPatientToDelete(null);
+      },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "حذف مراجع ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "حذف مراجع با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
           variant: "destructive",
         });
       },
@@ -452,6 +482,7 @@ export default function Patients() {
                     <TableHead className="font-bold text-foreground">جنسیت</TableHead>
                     <TableHead className="font-bold text-foreground">تاریخ ثبت</TableHead>
                     <TableHead className="font-bold text-foreground">هشدار</TableHead>
+                    {isAdmin && <TableHead className="font-bold text-foreground text-center">حذف مراجع</TableHead>}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -502,6 +533,24 @@ export default function Patients() {
                             : <span className="text-muted-foreground text-sm">—</span>
                           }
                         </TableCell>
+                        {isAdmin && (
+                          <TableCell className="text-center">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                              aria-label={`حذف مراجع ${patient.name}`}
+                              title="حذف مراجع"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPatientToDelete({ id: patient.id, name: patient.name });
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        )}
                         <TableCell>
                           <span className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity">مشاهده پرونده ←</span>
                         </TableCell>
@@ -509,7 +558,7 @@ export default function Patients() {
                     ))}
                   {!patientsList?.data.length && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={isAdmin ? 9 : 8} className="text-center py-12 text-muted-foreground">
                         <FolderOpen className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         پرونده‌ای یافت نشد
                       </TableCell>
@@ -521,6 +570,30 @@ export default function Patients() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AlertDialog open={!!patientToDelete} onOpenChange={(open) => { if (!open) setPatientToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>حذف مراجع</AlertDialogTitle>
+            <AlertDialogDescription>
+              آیا از حذف پروندهٔ «{patientToDelete?.name}» مطمئن هستید؟ با این کار تمام نوبت‌ها، پرداخت‌ها، یادداشت‌ها و یادآوری‌های این مراجع نیز برای همیشه حذف می‌شوند. این عملیات قابل بازگشت نیست.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletePatient.isPending}>انصراف</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deletePatient.isPending}
+              onClick={(e) => {
+                e.preventDefault();
+                if (patientToDelete) deletePatient.mutate({ id: patientToDelete.id });
+              }}
+            >
+              {deletePatient.isPending ? "در حال حذف..." : "حذف مراجع"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

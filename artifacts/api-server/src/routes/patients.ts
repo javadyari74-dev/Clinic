@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, or, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, or, and, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -15,6 +15,7 @@ import {
   CreatePatientAccountTransactionBody,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { requireAdmin } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -251,18 +252,43 @@ router.put("/patients/:id", async (req, res): Promise<void> => {
   res.json(patient);
 });
 
-router.delete("/patients/:id", async (req, res): Promise<void> => {
+router.delete("/patients/:id", requireAdmin, async (req, res): Promise<void> => {
   const params = DeletePatientParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [patient] = await db.delete(patientsTable).where(eq(patientsTable.id, params.data.id)).returning();
-  if (!patient) {
+  const patientId = params.data.id;
+  const existing = await db.select().from(patientsTable).where(eq(patientsTable.id, patientId)).get();
+  if (!existing) {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  await logActivity("delete", "patient", patient.id, `بیمار "${patient.name}" حذف شد`);
+  await db.transaction(async (tx) => {
+    const appts = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+    const apptIds = appts.map((a) => a.id);
+    let paymentIds: number[] = [];
+    if (apptIds.length > 0) {
+      const payments = await tx.select({ id: paymentsTable.id }).from(paymentsTable).where(inArray(paymentsTable.appointmentId, apptIds));
+      paymentIds = payments.map((p) => p.id);
+    }
+    // کمیسیون‌های مرتبط با نوبت‌ها/پرداخت‌های این مراجع و کمیسیون‌هایی که این مراجع دریافت‌کننده‌شان بوده
+    const commissionConditions = [
+      and(eq(commissionsTable.recipientType, "patient"), eq(commissionsTable.recipientId, patientId)),
+    ];
+    if (apptIds.length > 0) commissionConditions.push(inArray(commissionsTable.appointmentId, apptIds));
+    if (paymentIds.length > 0) commissionConditions.push(inArray(commissionsTable.paymentId, paymentIds));
+    await tx.delete(commissionsTable).where(or(...commissionConditions));
+    if (paymentIds.length > 0) {
+      await tx.delete(paymentsTable).where(inArray(paymentsTable.id, paymentIds));
+    }
+    await tx.delete(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+    await tx.delete(patientNotesTable).where(eq(patientNotesTable.patientId, patientId));
+    await tx.delete(patientAccountTransactionsTable).where(eq(patientAccountTransactionsTable.patientId, patientId));
+    await tx.delete(remindersTable).where(eq(remindersTable.patientId, patientId));
+    await tx.delete(patientsTable).where(eq(patientsTable.id, patientId));
+  });
+  await logActivity("delete", "patient", existing.id, `بیمار "${existing.name}" حذف شد`);
   res.sendStatus(204);
 });
 
