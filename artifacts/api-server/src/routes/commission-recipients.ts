@@ -129,9 +129,23 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
   const referrals = patients.map((p) => {
     const spent = spentByPatient.get(p.id) ?? 0;
     const recorded = commissionByPatient.get(p.id);
-    const commission = recorded?.amount ?? 0;
-    // نرخِ نمایش‌داده‌شده فقط از کمیسیونِ ثبت‌شده؛ در نبودِ کمیسیون خالی می‌ماند
-    const referrerRate = recorded?.rate ?? null;
+    const currentRate = p.referrerRate && p.referrerRate > 0 ? p.referrerRate : null;
+    let commission: number;
+    let referrerRate: number | null;
+    if (recorded) {
+      // منبعِ درست: پورسانتِ واقعیِ ثبت‌شده در زمانِ پرداخت (نرخِ فعلی ممکن است بعداً تغییر/صفر شده باشد).
+      // وجودِ ردیفِ ثبت‌شده همیشه اولویت دارد؛ حتی اگر جمعش صفر باشد به برآوردِ نرخِ فعلی برنمی‌گردیم تا دوباره‌حساب نشود.
+      commission = recorded.amount;
+      referrerRate = recorded.rate ?? currentRate;
+    } else if (currentRate != null) {
+      // پرداخت‌هایی که پیش از تعیینِ معرف/نرخ ثبت شده‌اند و کمیسیونی برایشان انباشت نشده؛
+      // بر اساسِ نرخِ فعلیِ بیمار برآورد می‌شود تا پورسانت به‌اشتباه صفر نمایش داده نشود
+      commission = Math.round((spent * currentRate) / 100);
+      referrerRate = currentRate;
+    } else {
+      commission = 0;
+      referrerRate = null;
+    }
     totalSpent += spent;
     totalCommission += commission;
     return {
