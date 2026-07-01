@@ -19,5 +19,12 @@ record of what was actually earned.
 
 **How to apply:** For displayed rate on an aggregated per-patient row, use the rate of the LATEST
 commission (by `createdAt`), not `max(rate)` — a patient can have commissions at different rates over
-time. Patients with no recorded commission stay listed but show empty rate + 0 commission (do not fall
-back to the live `referrerRate`).
+time. Precedence per patient: if recorded commission rows exist, they win (amount + latest rate).
+ONLY when a patient has NO recorded commission at all, fall back to estimating `spent * currentRate/100`
+using the live `patientsTable.referrerRate` (and show that rate). This covers payments made BEFORE the
+referrer/rate was assigned (nothing accrued), which otherwise show پورسانت=0 / درصد="—" even though a
+rate is set — the second reported bug. If neither recorded rows nor a live rate>0 exist, show 0 / "—".
+
+**Why the two-way rule:** recorded rows are frozen truth for what was actually accrued; the live-rate
+fallback is only an estimate for un-accrued historical spend. Never mix them (don't add estimate on top
+of recorded) or you risk double-counting.

@@ -1,6 +1,6 @@
 - [Beauty Clinic App Stack](beauty-clinic-stack.md) — Persian RTL full-stack clinic management system architecture decisions.
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
-- [Commission source of truth](commission-source-of-truth.md) — referral commission must be read from recorded commissions table, never recomputed from live patient referrerRate.
+- [Commission source of truth](commission-source-of-truth.md) — referral commission: recorded commissions rows win (frozen truth); only fall back to live referrerRate estimate when NO rows exist. Never mix.
 - [Beauty Clinic Offline Requirement](beauty-clinic-offline.md) — must run 100% offline (Electron+SQLite); bundle fonts locally, never CDN.
 - [GitHub Push Setup](github-push-setup.md) — push to javadyari74-dev/Clinic single main via GH_PUSH_TOKEN; connected account lacks write.
 - [Branch Consolidation Recovery](branch-consolidation.md) — Frankenstein merge fix: align all to subrepl-uiyrwrdf via `git archive|tar`; drop corrupt clinic.db; routes under /api.
