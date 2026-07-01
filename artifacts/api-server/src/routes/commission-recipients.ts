@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, or, inArray, sql } from "drizzle-orm";
-import { db, commissionRecipientsTable, patientsTable, appointmentsTable, paymentsTable } from "@workspace/db";
+import { db, commissionRecipientsTable, commissionsTable, patientsTable, appointmentsTable, paymentsTable } from "@workspace/db";
 import {
   CreateCommissionRecipientBody,
   UpdateCommissionRecipientParams,
@@ -83,6 +83,8 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
 
   // جمع هزینه‌ی پرداختی هر بیمار (از طریق نوبت‌ها)
   const spentByPatient = new Map<number, number>();
+  // پورسانتِ واقعیِ ثبت‌شده در جدول کمیسیون‌ها برای هر بیمار (منبعِ درست، نه محاسبه‌ی دوباره از نرخِ فعلی)
+  const commissionByPatient = new Map<number, { amount: number; rate: number | null }>();
   if (patients.length > 0) {
     const ids = patients.map((p) => p.id);
     const spentRows = await db
@@ -92,13 +94,44 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
       .where(inArray(appointmentsTable.patientId, ids))
       .groupBy(appointmentsTable.patientId);
     for (const r of spentRows) spentByPatient.set(r.patientId, Number(r.total) || 0);
+
+    // کمیسیون‌های ثبت‌شده‌ی این گیرنده (نوع external) به تفکیک بیمار، از طریق نوبتِ کمیسیون
+    const commRows = await db
+      .select({
+        patientId: appointmentsTable.patientId,
+        amount: commissionsTable.amount,
+        rate: commissionsTable.rate,
+        createdAt: commissionsTable.createdAt,
+      })
+      .from(commissionsTable)
+      .innerJoin(appointmentsTable, eq(commissionsTable.appointmentId, appointmentsTable.id))
+      .where(and(
+        eq(commissionsTable.recipientType, "external"),
+        eq(commissionsTable.recipientId, params.data.id),
+        inArray(appointmentsTable.patientId, ids),
+      ));
+    // جمعِ مبلغ + نرخِ آخرین کمیسیونِ ثبت‌شده (بر اساس createdAt) برای نمایش
+    const latestRateAt = new Map<number, number>();
+    for (const r of commRows) {
+      const acc = commissionByPatient.get(r.patientId) ?? { amount: 0, rate: null };
+      acc.amount += Number(r.amount) || 0;
+      const created = Number(r.createdAt) || 0;
+      if (r.rate != null && created >= (latestRateAt.get(r.patientId) ?? -1)) {
+        acc.rate = Number(r.rate);
+        latestRateAt.set(r.patientId, created);
+      }
+      commissionByPatient.set(r.patientId, acc);
+    }
   }
 
   let totalSpent = 0;
   let totalCommission = 0;
   const referrals = patients.map((p) => {
     const spent = spentByPatient.get(p.id) ?? 0;
-    const commission = p.referrerRate && p.referrerRate > 0 ? Math.round((spent * p.referrerRate) / 100) : 0;
+    const recorded = commissionByPatient.get(p.id);
+    const commission = recorded?.amount ?? 0;
+    // نرخِ نمایش‌داده‌شده فقط از کمیسیونِ ثبت‌شده؛ در نبودِ کمیسیون خالی می‌ماند
+    const referrerRate = recorded?.rate ?? null;
     totalSpent += spent;
     totalCommission += commission;
     return {
@@ -106,7 +139,7 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
       name: p.name,
       fileNumber: p.fileNumber,
       totalSpent: spent,
-      referrerRate: p.referrerRate,
+      referrerRate,
       commission,
     };
   });
