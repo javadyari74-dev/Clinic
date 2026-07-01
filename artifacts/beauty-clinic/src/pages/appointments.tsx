@@ -467,7 +467,7 @@ export default function Appointments() {
               <FormField control={form.control} name="serviceId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
+                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
                     <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                   </Select>
@@ -546,7 +546,7 @@ export default function Appointments() {
               <FormField control={editForm.control} name="serviceId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
+                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
                     <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                   </Select>
@@ -573,7 +573,7 @@ export default function Appointments() {
               <FormField control={editForm.control} name="status" render={({ field }) => (
                 <FormItem>
                   <FormLabel>وضعیت</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب وضعیت" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {Object.entries(statuses).map(([key, { label }]) => (

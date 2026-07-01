@@ -17,3 +17,4 @@
 - [Frontend smoke tests](frontend-smoke-tests.md) — beauty-clinic vitest/jsdom route smoke test: never-resolving fetch, assert h1 by role (sidebar labels collide), patient-detail asserts loading text.
 - [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
 - [Frontend api types source](frontend-api-types-source.md) — beauty-clinic imports generated hooks/types from @workspace/api-client-react, NOT @workspace/api-zod; orval query overrides need queryKey alongside enabled.
+- [Radix Select null focus crash](radix-select-controlled.md) — Select value flipping to undefined (controlled↔uncontrolled) crashes on trigger.focus(); always use "" not undefined.

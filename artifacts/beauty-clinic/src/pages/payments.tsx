@@ -986,7 +986,7 @@ export default function Payments() {
                       <Label className="text-sm mb-1 block">انتخاب تخفیف</Label>
                       <Select
                         onValueChange={(v) => setSelectedDiscountId(Number(v))}
-                        value={selectedDiscountId ? String(selectedDiscountId) : undefined}
+                        value={selectedDiscountId ? String(selectedDiscountId) : ""}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="انتخاب کد تخفیف..." />
@@ -1056,7 +1056,7 @@ export default function Payments() {
                     <div>
                       <Label className="text-sm mb-1 block">گیرنده</Label>
                       <Select
-                        value={commRecipientId ? String(commRecipientId) : undefined}
+                        value={commRecipientId ? String(commRecipientId) : ""}
                         onValueChange={(v) => setCommRecipientId(Number(v))}
                       >
                         <SelectTrigger><SelectValue placeholder="انتخاب گیرنده..." /></SelectTrigger>
