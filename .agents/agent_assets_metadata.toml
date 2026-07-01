@@ -12,3 +12,9 @@ id = "gtK1ey7-nC4N4LxmM5wu1"
 uri = "file://attached_assets/desktop-prebuilt.zip"
 type = "unspecified"
 title = "بستهٔ آمادهٔ نصب ویندوز (desktop-prebuilt.zip)"
+
+[[outputs]]
+id = "_dlEsJZXyrgK4Oz_KQd5q"
+uri = "file://DoctorYariClinic-desktop.zip"
+type = "unspecified"
+title = "بستهٔ آمادهٔ ساخت نرم‌افزار ویندوز (با اصلاح پورسانت)"
