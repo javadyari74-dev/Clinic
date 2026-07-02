@@ -85,6 +85,13 @@
       "when": 1783328868716,
       "tag": "0011_add_record_uuids",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783415268716,
+      "tag": "0012_add_backup_settings",
+      "breakpoints": true
     }
   ]
 }

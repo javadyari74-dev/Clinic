@@ -17,7 +17,7 @@ import remindersRouter from "./reminders";
 import dashboardRouter from "./dashboard";
 import activityRouter from "./activity";
 import reportsRouter from "./reports";
-import backupRouter from "./backup";
+import backupRouter, { internalBackupRouter } from "./backup";
 import accountingRouter from "./accounting";
 import laserRouter from "./laser";
 
@@ -26,6 +26,8 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(authRouter);
 router.use(clientErrorsRouter);
+// بکاپ خودکار داخلی — پیش از احراز هویت (فقط از localhost فراخوانی می‌شود)
+router.use(internalBackupRouter);
 
 router.use(requireAuth);
 

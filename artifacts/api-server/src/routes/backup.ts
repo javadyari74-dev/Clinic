@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request } from "express";
 import { eq } from "drizzle-orm";
 import {
   db,
@@ -18,11 +18,23 @@ import {
   usersTable,
 } from "@workspace/db";
 import { seedAdminUser } from "../lib/seed";
+import {
+  getBackupDir,
+  getDefaultBackupDir,
+  getBackupLogs,
+  getSetting,
+  setSetting,
+  validateBackupDir,
+  runAutoBackup,
+  mergeRestore,
+  MergeError,
+} from "../lib/backup-service";
 
 const router: IRouter = Router();
 
-// نسخه فرمت فایل پشتیبان — هنگام افزودن/حذف جدول افزایش یابد
+// نسخه فرمت فایل پشتیبان دستی — هنگام افزودن/حذف جدول افزایش یابد
 const BACKUP_VERSION = 2;
+const BACKUP_DIR_KEY = "backup_dir";
 
 // GET /api/backup/download — پشتیبان کامل از تمام داده‌های مطب (به‌جز بخش لیزر)
 router.get("/backup/download", async (_req, res): Promise<void> => {
@@ -171,4 +183,93 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
   }
 });
 
+// --------------------------------------------------------------------------
+// تنظیمات مسیر ذخیره بکاپ
+// --------------------------------------------------------------------------
+router.get("/backup/settings", async (_req, res): Promise<void> => {
+  const configured = await getSetting(BACKUP_DIR_KEY);
+  const backupDir = await getBackupDir();
+  res.json({
+    backupDir,
+    defaultDir: getDefaultBackupDir(),
+    isDefault: !configured || configured.trim().length === 0,
+  });
+});
+
+router.put("/backup/settings", async (req, res): Promise<void> => {
+  const raw = req.body?.backupDir;
+  // مقدار خالی یعنی بازگشت به مسیر پیش‌فرض
+  if (raw == null || String(raw).trim().length === 0) {
+    await setSetting(BACKUP_DIR_KEY, "");
+    res.json({
+      ok: true,
+      backupDir: getDefaultBackupDir(),
+      defaultDir: getDefaultBackupDir(),
+      isDefault: true,
+      message: "مسیر پیش‌فرض بکاپ فعال شد",
+    });
+    return;
+  }
+  const dir = String(raw).trim();
+  const valid = validateBackupDir(dir);
+  if (!valid.ok) {
+    res.status(400).json({ error: valid.error ?? "مسیر انتخاب‌شده معتبر نیست" });
+    return;
+  }
+  await setSetting(BACKUP_DIR_KEY, dir);
+  res.json({
+    ok: true,
+    backupDir: dir,
+    defaultDir: getDefaultBackupDir(),
+    isDefault: false,
+    message: "مسیر ذخیره بکاپ با موفقیت ذخیره شد",
+  });
+});
+
+// GET /api/backup/logs — گزارش بکاپ‌های خودکار
+router.get("/backup/logs", async (_req, res): Promise<void> => {
+  const logs = await getBackupLogs(50);
+  res.json({ logs });
+});
+
+// POST /api/backup/merge — بازیابی ادغامی بر اساس uuid (بدون از دست دادن داده‌های فعلی)
+router.post("/backup/merge", async (req, res): Promise<void> => {
+  try {
+    const result = await mergeRestore(req.body);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    if (err instanceof MergeError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    res.status(500).json({ error: "خطا در بازیابی ادغامی", detail: String(err) });
+  }
+});
+
 export default router;
+
+// --------------------------------------------------------------------------
+// روتر داخلی (بدون احراز هویت) فقط برای فراخوانی از خود دستگاه (Electron هنگام خروج)
+// --------------------------------------------------------------------------
+function isLoopback(req: Request): boolean {
+  const ip = req.ip || req.socket?.remoteAddress || "";
+  return (
+    ip === "127.0.0.1" ||
+    ip === "::1" ||
+    ip === "::ffff:127.0.0.1" ||
+    ip.endsWith("127.0.0.1")
+  );
+}
+
+export const internalBackupRouter: IRouter = Router();
+
+// POST /api/backup/auto — گرفتن بکاپ خودکار (با رعایت throttle). فقط از localhost.
+internalBackupRouter.post("/backup/auto", async (req, res): Promise<void> => {
+  if (!isLoopback(req)) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  const reason = typeof req.body?.reason === "string" ? req.body.reason : "auto";
+  const result = await runAutoBackup({ reason });
+  res.json(result);
+});
