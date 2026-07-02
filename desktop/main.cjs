@@ -393,8 +393,70 @@ if (!gotLock) {
   });
 }
 
-app.on("before-quit", () => {
+// بکاپ خودکار هنگام خروج از برنامه — تلاش بهترین‌کوشش با مهلت کوتاه، سپس خروج
+function triggerExitBackup(port) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      resolve();
+    };
+    try {
+      const payload = JSON.stringify({ reason: "exit" });
+      const req = http.request(
+        {
+          host: "127.0.0.1",
+          port,
+          path: "/api/backup/auto",
+          method: "POST",
+          timeout: 4000,
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(payload),
+          },
+        },
+        (res) => {
+          res.resume();
+          res.on("end", finish);
+        },
+      );
+      req.on("error", finish);
+      req.on("timeout", () => {
+        req.destroy();
+        finish();
+      });
+      req.write(payload);
+      req.end();
+    } catch {
+      finish();
+    }
+  });
+}
+
+let exitBackupDone = false;
+
+app.on("before-quit", (e) => {
   app.isQuitting = true;
+
+  // یک‌بار پیش از بستن سرور، بکاپ خروج را (بهترین‌کوشش) بگیر
+  if (!exitBackupDone && serverProcess) {
+    exitBackupDone = true;
+    e.preventDefault();
+    triggerExitBackup(activePort).finally(() => {
+      if (serverProcess) {
+        try {
+          serverProcess.kill();
+        } catch {
+          /* ignore */
+        }
+      }
+      closeLogStream();
+      app.quit();
+    });
+    return;
+  }
+
   if (serverProcess) {
     try {
       serverProcess.kill();

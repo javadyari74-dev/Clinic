@@ -17,3 +17,5 @@ export * from "./laser-appointments";
 export * from "./laser-payments";
 export * from "./laser-settings";
 export * from "./client-errors";
+export * from "./app-settings";
+export * from "./backup-log";

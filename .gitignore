@@ -58,3 +58,6 @@ clinic.db
 *.zip
 exports/
 desktop-prebuilt.zip
+
+# runtime & auto backups
+backups/

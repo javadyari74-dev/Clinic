@@ -18,4 +18,5 @@
 - [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
 - [Frontend api types source](frontend-api-types-source.md) — beauty-clinic imports generated hooks/types from @workspace/api-client-react, NOT @workspace/api-zod; orval query overrides need queryKey alongside enabled.
 - [Radix Select null focus crash](radix-select-controlled.md) — Select value flipping to undefined (controlled↔uncontrolled) crashes on trigger.focus(); always use "" not undefined.
+- [Backup builders separation](backup-builders-separation.md) — manual-download backup and internal auto/merge backup use separate builders; never add a table to the manual payload unless legacy restore/wipe also handles it.
 - [UUID additive column](uuid-additive-column.md) — core tables carry uuid v4 beside numeric id; SQLite can't ADD NOT NULL so column is nullable+unique-index; JS backfill+startup assert guarantee presence.
