@@ -18,3 +18,9 @@ id = "_dlEsJZXyrgK4Oz_KQd5q"
 uri = "file://DoctorYariClinic-desktop.zip"
 type = "unspecified"
 title = "بستهٔ آمادهٔ ساخت نرم‌افزار ویندوز (با اصلاح پورسانت)"
+
+[[outputs]]
+id = "K0oyq9d2X9LNq2pBEOQD5"
+uri = "file://DoctorYariClinic-desktop-2026-07-02.zip"
+type = "unspecified"
+title = "بستهٔ به‌روز ویندوز (شامل اصلاح پورسانت و کرش)"
