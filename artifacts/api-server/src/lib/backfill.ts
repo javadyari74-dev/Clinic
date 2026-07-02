@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { eq, or, isNull, like, sql } from "drizzle-orm";
 import {
   db,
@@ -76,24 +77,21 @@ const UUID_TABLES = [
   "patient_account_transactions",
 ] as const;
 
-// عبارت تولید UUID نسخه ۴ در سطح SQLite (رقم نسخه = 4، رقم واریانت = 8/9/a/b).
-const UUID_V4_SQL =
-  "lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))";
-
-// ردیف‌های موجود فاقد uuid را با یک UUID یکتا پر می‌کند و تعداد پرشده هر جدول را برمی‌گرداند.
+// ردیف‌های موجود فاقد uuid را با UUID نسخه ۴ تولیدشده در Node پر می‌کند. از
+// همان منبع مقادیر پیش‌فرض اسکیما استفاده می‌شود (randomUUID از node:crypto) تا
+// تولید uuid یک منبع مشترک واحد داشته باشد. تعداد پرشدهٔ هر جدول بازگردانده می‌شود.
 export async function backfillUuids(): Promise<Record<string, number>> {
   const report: Record<string, number> = {};
   for (const table of UUID_TABLES) {
     const rows = (await db.all(
-      sql.raw(`SELECT count(*) AS c FROM "${table}" WHERE uuid IS NULL`),
-    )) as { c: number }[];
-    const missing = Number(rows?.[0]?.c ?? 0);
-    if (missing > 0) {
+      sql.raw(`SELECT id FROM "${table}" WHERE uuid IS NULL`),
+    )) as { id: number }[];
+    for (const row of rows) {
       await db.run(
-        sql.raw(`UPDATE "${table}" SET uuid = (${UUID_V4_SQL}) WHERE uuid IS NULL`),
+        sql`UPDATE ${sql.identifier(table)} SET uuid = ${randomUUID()} WHERE id = ${row.id}`,
       );
     }
-    report[table] = missing;
+    report[table] = rows.length;
   }
 
   // پس از پرکردن، مطمئن می‌شویم هیچ ردیفی بدون uuid باقی نمانده؛ در غیر این صورت
