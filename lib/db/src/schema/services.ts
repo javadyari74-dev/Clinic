@@ -1,9 +1,11 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { randomUUID } from "node:crypto";
 
 export const servicesTable = sqliteTable("services", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  uuid: text("uuid").notNull().unique().$defaultFn(() => randomUUID()),
   serviceCode: text("service_code").unique(),
   name: text("name").notNull(),
   category: text("category"),
@@ -22,6 +24,6 @@ export const servicesTable = sqliteTable("services", {
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(true),
 });
 
-export const insertServiceSchema = createInsertSchema(servicesTable).omit({ id: true });
+export const insertServiceSchema = createInsertSchema(servicesTable).omit({ id: true, uuid: true });
 export type InsertService = z.infer<typeof insertServiceSchema>;
 export type Service = typeof servicesTable.$inferSelect;

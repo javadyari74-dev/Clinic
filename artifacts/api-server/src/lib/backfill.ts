@@ -1,4 +1,4 @@
-import { eq, or, isNull, like } from "drizzle-orm";
+import { eq, or, isNull, like, sql } from "drizzle-orm";
 import {
   db,
   appointmentsTable,
@@ -55,4 +55,61 @@ export async function backfillPaymentSnapshots(): Promise<void> {
       })
       .where(eq(paymentsTable.id, row.paymentId));
   }
+}
+
+// جداول اصلی که باید شناسه یکتای سراسری (uuid) داشته باشند.
+const UUID_TABLES = [
+  "patients",
+  "appointments",
+  "payments",
+  "services",
+  "staff",
+  "discounts",
+  "inventory",
+  "commissions",
+  "commission_recipients",
+  "reminders",
+  "patient_notes",
+  "activity_log",
+  "expenses",
+  "users",
+  "patient_account_transactions",
+] as const;
+
+// عبارت تولید UUID نسخه ۴ در سطح SQLite (رقم نسخه = 4، رقم واریانت = 8/9/a/b).
+const UUID_V4_SQL =
+  "lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))";
+
+// ردیف‌های موجود فاقد uuid را با یک UUID یکتا پر می‌کند و تعداد پرشده هر جدول را برمی‌گرداند.
+export async function backfillUuids(): Promise<Record<string, number>> {
+  const report: Record<string, number> = {};
+  for (const table of UUID_TABLES) {
+    const rows = (await db.all(
+      sql.raw(`SELECT count(*) AS c FROM "${table}" WHERE uuid IS NULL`),
+    )) as { c: number }[];
+    const missing = Number(rows?.[0]?.c ?? 0);
+    if (missing > 0) {
+      await db.run(
+        sql.raw(`UPDATE "${table}" SET uuid = (${UUID_V4_SQL}) WHERE uuid IS NULL`),
+      );
+    }
+    report[table] = missing;
+  }
+
+  // پس از پرکردن، مطمئن می‌شویم هیچ ردیفی بدون uuid باقی نمانده؛ در غیر این صورت
+  // مانند سایر بخش‌های راه‌اندازی، با خطای صریح متوقف می‌شویم تا مشکل پنهان نماند.
+  const leftover: string[] = [];
+  for (const table of UUID_TABLES) {
+    const rows = (await db.all(
+      sql.raw(`SELECT count(*) AS c FROM "${table}" WHERE uuid IS NULL`),
+    )) as { c: number }[];
+    if (Number(rows?.[0]?.c ?? 0) > 0) leftover.push(table);
+  }
+  if (leftover.length > 0) {
+    throw new Error(
+      `UUID backfill incomplete: tables still have NULL uuid: ${leftover.join(", ")}`,
+    );
+  }
+
+  return report;
 }
