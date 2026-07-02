@@ -78,6 +78,13 @@
       "when": 1783242468716,
       "tag": "0010_add_client_errors",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783328868716,
+      "tag": "0011_add_record_uuids",
+      "breakpoints": true
     }
   ]
 }
