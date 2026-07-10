@@ -30,3 +30,9 @@ id = "UL8oDRVIhPxdKKLEGKmFW"
 uri = "file://DoctorYariClinic-desktop-2026-07-10.zip"
 type = "unspecified"
 title = "بسته دسکتاپ ویندوز - مطب زیبایی دکتر یاری (۱۰ جولای)"
+
+[[outputs]]
+id = "BbO8N4k97LdFaSJEUlNrq"
+uri = "file://dist-desktop/clinic-desktop-windows.zip"
+type = "unspecified"
+title = "بستهٔ ساخت ویندوز — با پنل پیامکی ملی‌پیامک"
