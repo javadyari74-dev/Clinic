@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, sql, and, ne, isNull } from "drizzle-orm";
-import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable, patientAccountTransactionsTable } from "@workspace/db";
+import { db, paymentsTable, discountsTable, appointmentsTable, patientsTable, commissionsTable, commissionRecipientsTable, staffTable, patientAccountTransactionsTable } from "@workspace/db";
 import {
   ListPaymentsQueryParams,
   CreatePaymentBody,
@@ -8,6 +8,8 @@ import {
   DeletePaymentParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { logger } from "../lib/logger";
+import { firePaymentSms, fireCommissionSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -133,31 +135,72 @@ router.post("/payments", async (req, res): Promise<void> => {
   // نکته: حالتِ «معرف از نوع مراجع» اینجا انجام نمی‌شود؛ این حالت در صندوق (بخش
   // تخصیص کمیسیون) به‌صورت دستی و با درصدِ قابل‌ویرایش انجام می‌شود تا اعتبار روی
   // حساب بیمارِ معرف شارژ شود و از دوباره‌حساب‌شدن جلوگیری شود.
+  // بیمارِ مرتبط با پرداخت (برای پیامک اطلاع‌رسانی و محاسبه پورسانت معرف)
+  let paymentPatient: typeof patientsTable.$inferSelect | null = null;
   if (payment.appointmentId && payment.appointmentId > 0) {
     const [appt] = await db.select({ patientId: appointmentsTable.patientId }).from(appointmentsTable).where(eq(appointmentsTable.id, payment.appointmentId));
     if (appt) {
       const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, appt.patientId));
-      if (
-        patient && patient.referrerType && patient.referrerType !== "patient" &&
-        patient.referrerId && patient.referrerRate && patient.referrerRate > 0 && payment.amount > 0
-      ) {
-        const accrual = Math.round((payment.amount * patient.referrerRate) / 100);
-        if (accrual > 0) {
-          // کمیسیون برای کارمند (staff) یا کمیسیون‌گیرنده/لیزر (external)
-          const recipientType = patient.referrerType === "staff" ? "staff" : "external";
-          await db.insert(commissionsTable).values({
-            recipientType,
-            recipientId: patient.referrerId,
-            appointmentId: payment.appointmentId,
-            paymentId: payment.id,
-            amount: accrual,
-            rate: patient.referrerRate,
-            description: `پورسانت معرفی بیمار «${patient.name}»`,
-          });
-        }
+      paymentPatient = patient ?? null;
+    }
+  }
+
+  if (paymentPatient) {
+    const patient = paymentPatient;
+    if (
+      patient.referrerType && patient.referrerType !== "patient" &&
+      patient.referrerId && patient.referrerRate && patient.referrerRate > 0 && payment.amount > 0
+    ) {
+      const accrual = Math.round((payment.amount * patient.referrerRate) / 100);
+      if (accrual > 0) {
+        // کمیسیون برای کارمند (staff) یا کمیسیون‌گیرنده/لیزر (external)
+        const recipientType = patient.referrerType === "staff" ? "staff" : "external";
+        await db.insert(commissionsTable).values({
+          recipientType,
+          recipientId: patient.referrerId,
+          appointmentId: payment.appointmentId,
+          paymentId: payment.id,
+          amount: accrual,
+          rate: patient.referrerRate,
+          description: `پورسانت معرفی بیمار «${patient.name}»`,
+        });
+
+        // پیامک اطلاع پورسانت برای معرف (کارمند/کمیسیون‌گیرنده) — آتش و فراموش؛
+        // جستجوی گیرنده هم خارج از مسیر اصلی درخواست انجام می‌شود تا هیچ خطایی
+        // ثبت پرداخت را مختل نکند.
+        const referrerId = patient.referrerId;
+        const referrerRate = patient.referrerRate;
+        void (async () => {
+          try {
+            const [recipient] =
+              recipientType === "staff"
+                ? await db.select({ name: staffTable.name, phone: staffTable.phone }).from(staffTable).where(eq(staffTable.id, referrerId))
+                : await db.select({ name: commissionRecipientsTable.name, phone: commissionRecipientsTable.phone }).from(commissionRecipientsTable).where(eq(commissionRecipientsTable.id, referrerId));
+            if (recipient) {
+              fireCommissionSms({
+                referrerName: recipient.name,
+                phone: recipient.phone,
+                commissionAmount: accrual,
+                baseAmount: payment.amount,
+                rate: referrerRate,
+              });
+            }
+          } catch (err) {
+            logger.warn({ err }, "commission SMS recipient lookup failed");
+          }
+        })();
       }
     }
   }
+
+  // پیامک اطلاع پرداخت برای بیمار — آتش و فراموش؛ خطای پیامک ثبت پرداخت را مختل نمی‌کند
+  firePaymentSms({
+    patientId: paymentPatient?.id ?? null,
+    patientName: payment.patientName ?? paymentPatient?.name ?? null,
+    phone: paymentPatient?.phone ?? null,
+    amount: payment.amount,
+    serviceName: payment.serviceName ?? null,
+  });
 
   await logActivity("create", "payment", payment.id, `پرداخت ${payment.amount.toLocaleString()} تومان ثبت شد`);
   res.status(201).json(payment);

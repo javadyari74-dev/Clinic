@@ -20,6 +20,7 @@ import reportsRouter from "./reports";
 import backupRouter, { internalBackupRouter } from "./backup";
 import accountingRouter from "./accounting";
 import laserRouter from "./laser";
+import smsRouter from "./sms";
 
 const router: IRouter = Router();
 
@@ -48,5 +49,6 @@ router.use(reportsRouter);
 router.use(backupRouter);
 router.use(accountingRouter);
 router.use(laserRouter);
+router.use(smsRouter);
 
 export default router;
