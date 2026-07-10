@@ -114,15 +114,18 @@ function SettingsTab() {
             <Input id="sms-username" dir="ltr" value={usernameValue} onChange={(e) => setUsername(e.target.value)} placeholder="09xxxxxxxxx" />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="sms-password">رمز عبور پنل</Label>
+            <Label htmlFor="sms-password">کلید وب‌سرویس (API Key)</Label>
             <Input
               id="sms-password"
               dir="ltr"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={settings.hasPassword ? "•••••••• (برای تغییر، رمز جدید وارد کنید)" : "رمز عبور"}
+              placeholder={settings.hasPassword ? "•••••••• (برای تغییر، کلید جدید وارد کنید)" : "کلید وب‌سرویس"}
             />
+            <p className="text-xs text-muted-foreground">
+              رمز عبور معمولی پنل کار نمی‌کند — کلید وب‌سرویس را از پنل ملی‌پیامک، بخش «تنظیمات ← وب‌سرویس» کپی کنید.
+            </p>
           </div>
           <div className="space-y-2">
             <Label htmlFor="sms-from">شماره فرستنده (خط اختصاصی)</Label>

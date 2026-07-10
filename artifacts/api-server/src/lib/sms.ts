@@ -225,6 +225,7 @@ async function callMelipayamak(
 function describeSendFailure(resp: MelipayamakResponse): string {
   const code = String(resp.Value ?? "");
   const known: Record<string, string> = {
+    "-110": "به‌جای رمز عبور پنل باید «کلید وب‌سرویس (API Key)» را وارد کنید — از پنل ملی‌پیامک، بخش تنظیمات ← وب‌سرویس",
     "0": "نام کاربری یا رمز عبور پنل اشتباه است",
     "2": "اعتبار پنل پیامکی کافی نیست",
     "6": "سامانه پنل در حال به‌روزرسانی است",
