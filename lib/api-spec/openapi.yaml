@@ -23,6 +23,7 @@ tags:
   - name: reports
   - name: backup
   - name: activity
+  - name: sms
 
 paths:
   /healthz:
@@ -1047,6 +1048,112 @@ paths:
                 type: string
                 format: binary
 
+  # ── SMS Panel (ملی‌پیامک) ──────────────────────────────────────────────────
+  /sms/settings:
+    get:
+      operationId: getSmsSettings
+      tags: [sms]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsSettings"
+    put:
+      operationId: updateSmsSettings
+      tags: [sms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmsSettingsUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsSettings"
+
+  /sms/templates:
+    get:
+      operationId: getSmsTemplates
+      tags: [sms]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsTemplates"
+    put:
+      operationId: updateSmsTemplates
+      tags: [sms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmsTemplatesUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsTemplates"
+
+  /sms/credit:
+    get:
+      operationId: getSmsCredit
+      tags: [sms]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsCredit"
+
+  /sms/send:
+    post:
+      operationId: sendManualSms
+      tags: [sms]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SmsSendInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsSendResult"
+
+  /sms/logs:
+    get:
+      operationId: listSmsLogs
+      tags: [sms]
+      parameters:
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SmsLogList"
+
 components:
   schemas:
     HealthStatus:
@@ -1673,3 +1780,104 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InventoryItem"
+
+    # ── SMS Panel ─────────────────────────────────────────────────────────────
+    SmsSettings:
+      type: object
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission]
+      properties:
+        username: { type: string }
+        from: { type: string }
+        hasPassword: { type: boolean }
+        enabledAppointment: { type: boolean }
+        enabledPayment: { type: boolean }
+        enabledCommission: { type: boolean }
+
+    SmsSettingsUpdate:
+      type: object
+      properties:
+        username: { type: string }
+        password: { type: string }
+        from: { type: string }
+        enabledAppointment: { type: boolean }
+        enabledPayment: { type: boolean }
+        enabledCommission: { type: boolean }
+
+    SmsTemplates:
+      type: object
+      required: [appointment, payment, commission, birthday, defaults]
+      properties:
+        appointment: { type: string }
+        payment: { type: string }
+        commission: { type: string }
+        birthday: { type: string }
+        defaults:
+          type: object
+          required: [appointment, payment, commission, birthday]
+          properties:
+            appointment: { type: string }
+            payment: { type: string }
+            commission: { type: string }
+            birthday: { type: string }
+
+    SmsTemplatesUpdate:
+      type: object
+      properties:
+        appointment: { type: string }
+        payment: { type: string }
+        commission: { type: string }
+        birthday: { type: string }
+
+    SmsCredit:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        credit: { type: number }
+        error: { type: string }
+
+    SmsSendInput:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+        patientIds:
+          type: array
+          items: { type: integer }
+        birthdayDays: { type: integer }
+        eventType: { type: string }
+
+    SmsSendResult:
+      type: object
+      required: [total, sent, failed]
+      properties:
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        errors:
+          type: array
+          items: { type: string }
+
+    SmsLogEntry:
+      type: object
+      required: [id, recipientPhone, eventType, message, status, createdAt]
+      properties:
+        id: { type: integer }
+        recipientPhone: { type: string }
+        recipientName: { type: ["string", "null"] }
+        patientId: { type: ["integer", "null"] }
+        eventType: { type: string }
+        message: { type: string }
+        status: { type: string }
+        error: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    SmsLogList:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SmsLogEntry"
+        total: { type: integer }

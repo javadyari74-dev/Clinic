@@ -652,6 +652,86 @@ export interface ReportsSummary {
   lowStockItems: InventoryItem[];
 }
 
+export interface SmsSettings {
+  username: string;
+  from: string;
+  hasPassword: boolean;
+  enabledAppointment: boolean;
+  enabledPayment: boolean;
+  enabledCommission: boolean;
+}
+
+export interface SmsSettingsUpdate {
+  username?: string;
+  password?: string;
+  from?: string;
+  enabledAppointment?: boolean;
+  enabledPayment?: boolean;
+  enabledCommission?: boolean;
+}
+
+export type SmsTemplatesDefaults = {
+  appointment: string;
+  payment: string;
+  commission: string;
+  birthday: string;
+};
+
+export interface SmsTemplates {
+  appointment: string;
+  payment: string;
+  commission: string;
+  birthday: string;
+  defaults: SmsTemplatesDefaults;
+}
+
+export interface SmsTemplatesUpdate {
+  appointment?: string;
+  payment?: string;
+  commission?: string;
+  birthday?: string;
+}
+
+export interface SmsCredit {
+  ok: boolean;
+  credit?: number;
+  error?: string;
+}
+
+export interface SmsSendInput {
+  message: string;
+  patientIds?: number[];
+  birthdayDays?: number;
+  eventType?: string;
+}
+
+export interface SmsSendResult {
+  total: number;
+  sent: number;
+  failed: number;
+  errors?: string[];
+}
+
+export interface SmsLogEntry {
+  id: number;
+  recipientPhone: string;
+  /** @nullable */
+  recipientName?: string | null;
+  /** @nullable */
+  patientId?: number | null;
+  eventType: string;
+  message: string;
+  status: string;
+  /** @nullable */
+  error?: string | null;
+  createdAt: number;
+}
+
+export interface SmsLogList {
+  data: SmsLogEntry[];
+  total: number;
+}
+
 export type ListPatientsParams = {
 q?: string;
 page?: number;
@@ -684,6 +764,11 @@ type?: string;
 };
 
 export type ListActivityParams = {
+limit?: number;
+};
+
+export type ListSmsLogsParams = {
+page?: number;
 limit?: number;
 };
 

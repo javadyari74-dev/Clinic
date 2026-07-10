@@ -92,6 +92,20 @@
       "when": 1783415268716,
       "tag": "0012_add_backup_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1783501668716,
+      "tag": "0013_add_sms_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1783588068716,
+      "tag": "0014_commissions_unique_payment_recipient",
+      "breakpoints": true
     }
   ]
 }

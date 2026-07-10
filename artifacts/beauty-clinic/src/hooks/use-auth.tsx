@@ -4,7 +4,7 @@ import { toast } from "@/hooks/use-toast";
 export type Permission =
   | "dashboard" | "patients" | "appointments" | "payments"
   | "services" | "laser" | "staff" | "commissions" | "discounts"
-  | "inventory" | "accounting" | "reports" | "reminders" | "backup";
+  | "inventory" | "accounting" | "reports" | "reminders" | "backup" | "sms";
 
 export interface AuthUser {
   id: number;

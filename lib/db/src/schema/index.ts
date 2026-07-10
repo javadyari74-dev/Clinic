@@ -19,3 +19,4 @@ export * from "./laser-settings";
 export * from "./client-errors";
 export * from "./app-settings";
 export * from "./backup-log";
+export * from "./sms-log";

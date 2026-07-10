@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { isNotNull } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { randomUUID } from "node:crypto";
@@ -31,7 +32,12 @@ export const commissionsTable = sqliteTable("commissions", {
   paidAt: integer("paid_at"),
   notes: text("notes"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
-});
+}, (table) => [
+  // یک کمیسیون برای هر (پرداخت، نوع گیرنده، گیرنده) — جلوگیری از ثبت تکراری در سطح دیتابیس
+  uniqueIndex("commissions_payment_recipient_unique")
+    .on(table.paymentId, table.recipientType, table.recipientId)
+    .where(isNotNull(table.paymentId)),
+]);
 
 export const insertCommissionSchema = createInsertSchema(commissionsTable).omit({ id: true, uuid: true, createdAt: true, isPaid: true, paidAt: true });
 export type InsertCommission = z.infer<typeof insertCommissionSchema>;

@@ -1009,3 +1009,110 @@ export const GetReportsSummaryResponse = zod.object({
 })
 
 
+export const GetSmsSettingsResponse = zod.object({
+  "username": zod.string(),
+  "from": zod.string(),
+  "hasPassword": zod.boolean(),
+  "enabledAppointment": zod.boolean(),
+  "enabledPayment": zod.boolean(),
+  "enabledCommission": zod.boolean()
+})
+
+
+export const UpdateSmsSettingsBody = zod.object({
+  "username": zod.string().optional(),
+  "password": zod.string().optional(),
+  "from": zod.string().optional(),
+  "enabledAppointment": zod.boolean().optional(),
+  "enabledPayment": zod.boolean().optional(),
+  "enabledCommission": zod.boolean().optional()
+})
+
+export const UpdateSmsSettingsResponse = zod.object({
+  "username": zod.string(),
+  "from": zod.string(),
+  "hasPassword": zod.boolean(),
+  "enabledAppointment": zod.boolean(),
+  "enabledPayment": zod.boolean(),
+  "enabledCommission": zod.boolean()
+})
+
+
+export const GetSmsTemplatesResponse = zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "defaults": zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string()
+})
+})
+
+
+export const UpdateSmsTemplatesBody = zod.object({
+  "appointment": zod.string().optional(),
+  "payment": zod.string().optional(),
+  "commission": zod.string().optional(),
+  "birthday": zod.string().optional()
+})
+
+export const UpdateSmsTemplatesResponse = zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "defaults": zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string()
+})
+})
+
+
+export const GetSmsCreditResponse = zod.object({
+  "ok": zod.boolean(),
+  "credit": zod.number().optional(),
+  "error": zod.string().optional()
+})
+
+
+export const SendManualSmsBody = zod.object({
+  "message": zod.string(),
+  "patientIds": zod.array(zod.number()).optional(),
+  "birthdayDays": zod.number().optional(),
+  "eventType": zod.string().optional()
+})
+
+export const SendManualSmsResponse = zod.object({
+  "total": zod.number(),
+  "sent": zod.number(),
+  "failed": zod.number(),
+  "errors": zod.array(zod.string()).optional()
+})
+
+
+export const ListSmsLogsQueryParams = zod.object({
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListSmsLogsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "recipientPhone": zod.string(),
+  "recipientName": zod.string().nullish(),
+  "patientId": zod.number().nullish(),
+  "eventType": zod.string(),
+  "message": zod.string(),
+  "status": zod.string(),
+  "error": zod.string().nullish(),
+  "createdAt": zod.number()
+})),
+  "total": zod.number()
+})
+
+

@@ -11,6 +11,7 @@ import {
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
+import { fireAppointmentSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -155,6 +156,16 @@ router.post("/appointments", async (req, res): Promise<void> => {
   }
 
   await logActivity("create", "appointment", appt.id, `نوبت جدید ${appointmentCode} برای "${detail?.patientName ?? ''}" ثبت شد`);
+
+  // پیامک تأیید نوبت برای بیمار — آتش و فراموش؛ در نبود اینترنت، ثبت نوبت مختل نمی‌شود
+  fireAppointmentSms({
+    patientId: appt.patientId,
+    patientName: detail?.patientName ?? null,
+    phone: detail?.patientPhone ?? null,
+    scheduledAt: appt.scheduledAt,
+    serviceName: detail?.serviceName ?? null,
+  });
+
   res.status(201).json(detail);
 });
 
