@@ -75,6 +75,26 @@ function SettingsTab() {
     });
   }
 
+  // ذخیره خودکار فرم قبل از تست اتصال — تا کاربر مجبور نباشد اول «ذخیره» را بزند
+  async function testConnection() {
+    const dirty = username !== null || from !== null || password !== "";
+    try {
+      if (dirty) {
+        await update.mutateAsync({
+          data: {
+            username: usernameValue,
+            from: fromValue,
+            ...(password ? { password } : {}),
+          },
+        });
+      }
+      setCheckCredit(true);
+      await queryClient.invalidateQueries({ queryKey: getGetSmsCreditQueryKey() });
+    } catch {
+      // خطای ذخیره قبلاً با toast نمایش داده می‌شود
+    }
+  }
+
   function toggle(key: "enabledAppointment" | "enabledPayment" | "enabledCommission", value: boolean) {
     update.mutate({ data: { [key]: value } });
   }
@@ -115,15 +135,12 @@ function SettingsTab() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                setCheckCredit(true);
-                queryClient.invalidateQueries({ queryKey: getGetSmsCreditQueryKey() });
-              }}
-              disabled={creditLoading}
+              onClick={testConnection}
+              disabled={creditLoading || update.isPending}
               data-testid="button-check-credit"
             >
               <Wallet className="size-4" />
-              {creditLoading ? "در حال بررسی..." : "تست اتصال و اعتبار"}
+              {creditLoading || update.isPending ? "در حال بررسی..." : "تست اتصال و اعتبار"}
             </Button>
           </div>
           {checkCredit && credit && !creditLoading && (
