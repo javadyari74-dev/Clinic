@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth, Permission } from "@/hooks/use-auth";
+import { useAuth, guardSession, Permission } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -62,7 +62,7 @@ function authFetch(url: string, options?: RequestInit) {
       Authorization: `Bearer ${getToken()}`,
       ...(options?.headers ?? {}),
     },
-  });
+  }).then(guardSession);
 }
 
 function UserFormDialog({

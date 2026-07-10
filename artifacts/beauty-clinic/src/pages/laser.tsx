@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { PriceInput } from "@/components/price-input";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, guardSession } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -25,11 +25,13 @@ function authHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 async function api(path: string, method = "GET", body?: unknown) {
-  const res = await fetch(`${API}/api${path}`, {
-    method,
-    headers: { "Content-Type": "application/json", ...authHeader() },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const res = guardSession(
+    await fetch(`${API}/api${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      body: body ? JSON.stringify(body) : undefined,
+    }),
+  );
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: "خطای سرور" }));
     throw new Error(err.message || "خطا");

@@ -30,7 +30,7 @@ import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, guardSession } from "@/hooks/use-auth";
 
 const ACTIVE_STATUSES = ["scheduled", "confirmed"];
 
@@ -87,11 +87,13 @@ function tsToTimeStr(ts: number): string {
 
 async function bulkDeleteAppointments(ids: number[]): Promise<void> {
   const token = localStorage.getItem("clinic_auth_token");
-  const res = await fetch("/api/appointments/bulk", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ids }),
-  });
+  const res = guardSession(
+    await fetch("/api/appointments/bulk", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    }),
+  );
   if (!res.ok) throw new Error("خطا در حذف دسته‌جمعی");
 }
 

@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Download, Database, Shield, Trash2, AlertTriangle, ShieldAlert, Upload, RotateCcw, FolderCog, GitMerge, FileClock, Save, CheckCircle2, XCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, guardSession } from "@/hooks/use-auth";
 
 const BASE_URL = import.meta.env.BASE_URL.replace(/\/$/, "");
 const CONFIRM_WORD = "حذف";
@@ -51,11 +51,11 @@ export default function Backup() {
       if (!parsed?.data || typeof parsed.data !== "object") {
         throw new Error("invalid");
       }
-      const res = await fetch(`${BASE_URL}/api/backup/restore`, {
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ data: parsed.data }),
-      });
+      }));
       if (!res.ok) throw new Error("failed");
       queryClient.clear();
       toast({ title: "اطلاعات با موفقیت بازیابی شد", description: "تمام داده‌ها از فایل پشتیبان جایگزین شد." });
@@ -72,9 +72,9 @@ export default function Backup() {
 
   async function downloadBackup() {
     try {
-      const res = await fetch(`${BASE_URL}/api/backup/download`, {
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/download`, {
         headers: { "Authorization": `Bearer ${token}` },
-      });
+      }));
       if (!res.ok) throw new Error();
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
@@ -116,7 +116,7 @@ export default function Backup() {
     if (confirmInput !== CONFIRM_WORD) return;
     setResetting(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/reset`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
+      const res = guardSession(await fetch(`${BASE_URL}/api/reset`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } }));
       if (!res.ok) throw new Error();
       queryClient.clear();
       toast({ title: "تمام اطلاعات پاک شدند", description: "سیستم به حالت اولیه برگشت." });
@@ -150,7 +150,7 @@ export default function Backup() {
 
   async function loadSettings() {
     try {
-      const res = await fetch(`${BASE_URL}/api/backup/settings`, { headers: { "Authorization": `Bearer ${token}` } });
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/settings`, { headers: { "Authorization": `Bearer ${token}` } }));
       if (!res.ok) return;
       const j = await res.json();
       setDefaultDir(j.defaultDir ?? "");
@@ -161,7 +161,7 @@ export default function Backup() {
 
   async function loadLogs() {
     try {
-      const res = await fetch(`${BASE_URL}/api/backup/logs`, { headers: { "Authorization": `Bearer ${token}` } });
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/logs`, { headers: { "Authorization": `Bearer ${token}` } }));
       if (!res.ok) return;
       const j = await res.json();
       setLogs(Array.isArray(j.logs) ? j.logs : []);
@@ -177,11 +177,11 @@ export default function Backup() {
   async function saveBackupPath() {
     setSavingPath(true);
     try {
-      const res = await fetch(`${BASE_URL}/api/backup/settings`, {
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/settings`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ backupDir: pathInput }),
-      });
+      }));
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error || "خطا در ذخیره مسیر");
       setIsDefaultDir(!!j.isDefault);
@@ -215,11 +215,11 @@ export default function Backup() {
       const text = await mergeFile.text();
       const parsed = JSON.parse(text);
       if (!parsed?.data || typeof parsed.data !== "object") throw new Error("invalid");
-      const res = await fetch(`${BASE_URL}/api/backup/merge`, {
+      const res = guardSession(await fetch(`${BASE_URL}/api/backup/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ data: parsed.data }),
-      });
+      }));
       const j = await res.json();
       if (!res.ok) throw new Error(j?.error || "failed");
       queryClient.clear();
