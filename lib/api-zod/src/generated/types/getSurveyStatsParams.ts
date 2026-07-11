@@ -6,10 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type SmsTemplatesDefaults = {
-  appointment: string;
-  payment: string;
-  commission: string;
-  birthday: string;
-  survey: string;
+export type GetSurveyStatsParams = {
+from?: number;
+to?: number;
 };

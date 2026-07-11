@@ -313,6 +313,47 @@ const reportsSummary = {
   lowStockItems: inventory,
 };
 
+const surveysList = {
+  data: [
+    {
+      id: 1,
+      patientId: 1,
+      appointmentId: 1,
+      paymentId: 1,
+      serviceId: 1,
+      staffId: 1,
+      sentAt: 1_782_000_000,
+      smsStatus: "sent",
+      score: 4,
+      comment: "برخورد عالی بود",
+      scoredAt: 1_782_050_000,
+      createdAt: 1_782_000_000,
+      patientName: PATIENT_ONE_NAME,
+      patientPhone: "09121234567",
+      patientFileNumber: "100",
+      serviceName: SERVICE_NAME,
+      staffName: STAFF_NAME,
+    },
+  ],
+  total: 1,
+};
+
+const surveyStats = {
+  total: 1,
+  scoredCount: 1,
+  avgScore: 4,
+  byService: [{ id: 1, name: SERVICE_NAME, count: 1, avgScore: 4 }],
+  byStaff: [{ id: 1, name: STAFF_NAME, count: 1, avgScore: 4 }],
+};
+
+const emptySurveyStats = {
+  total: 0,
+  scoredCount: 0,
+  avgScore: null,
+  byService: [] as unknown[],
+  byStaff: [] as unknown[],
+};
+
 const accountingSummary = {
   revenue: 1_200_000,
   expenses: 300_000,
@@ -517,6 +558,8 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/laser\/payments$/, () => laserPayments, emptyArr],
   [/\/api\/laser\/reminders$/, () => laserReminders, emptyArr],
   [/\/api\/laser\/settings$/, () => laserSettings, () => laserSettings],
+  [/\/api\/surveys\/stats$/, () => surveyStats, () => emptySurveyStats],
+  [/\/api\/surveys$/, () => surveysList, () => ({ data: [] as unknown[], total: 0 })],
   [/\/api\/users$/, () => users, emptyArr],
   [/\/api\/health$/, () => ({ status: "ok" }), () => ({ status: "ok" })],
 ];

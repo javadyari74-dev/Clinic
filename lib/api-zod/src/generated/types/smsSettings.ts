@@ -14,9 +14,12 @@ export interface SmsSettings {
   enabledAppointment: boolean;
   enabledPayment: boolean;
   enabledCommission: boolean;
+  enabledSurvey: boolean;
+  surveyThrottleDays: number;
   sendMode: SmsSettingsSendMode;
   bodyIdAppointment: string;
   bodyIdPayment: string;
   bodyIdCommission: string;
   bodyIdBirthday: string;
+  bodyIdSurvey: string;
 }

@@ -375,6 +375,71 @@ export interface WaitingNotifyResult {
   error?: string | null;
 }
 
+export interface Survey {
+  id: number;
+  patientId: number;
+  /** @nullable */
+  appointmentId?: number | null;
+  /** @nullable */
+  paymentId?: number | null;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  staffId?: number | null;
+  sentAt: number;
+  smsStatus: string;
+  /** @nullable */
+  score?: number | null;
+  /** @nullable */
+  comment?: string | null;
+  /** @nullable */
+  scoredAt?: number | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+  /** @nullable */
+  patientPhone?: string | null;
+  /** @nullable */
+  patientFileNumber?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+  /** @nullable */
+  staffName?: string | null;
+}
+
+export interface SurveyList {
+  data: Survey[];
+  total: number;
+}
+
+export interface SurveyScoreInput {
+  /**
+     * @minimum 1
+     * @maximum 5
+     */
+  score: number;
+  /** @nullable */
+  comment?: string | null;
+}
+
+export interface SurveyStatsGroup {
+  /** @nullable */
+  id?: number | null;
+  /** @nullable */
+  name?: string | null;
+  count: number;
+  avgScore: number;
+}
+
+export interface SurveyStats {
+  total: number;
+  scoredCount: number;
+  /** @nullable */
+  avgScore: number | null;
+  byService: SurveyStatsGroup[];
+  byStaff: SurveyStatsGroup[];
+}
+
 export interface Payment {
   id: number;
   appointmentId: number;
@@ -739,11 +804,14 @@ export interface SmsSettings {
   enabledAppointment: boolean;
   enabledPayment: boolean;
   enabledCommission: boolean;
+  enabledSurvey: boolean;
+  surveyThrottleDays: number;
   sendMode: SmsSettingsSendMode;
   bodyIdAppointment: string;
   bodyIdPayment: string;
   bodyIdCommission: string;
   bodyIdBirthday: string;
+  bodyIdSurvey: string;
 }
 
 export type SmsSettingsUpdateSendMode = typeof SmsSettingsUpdateSendMode[keyof typeof SmsSettingsUpdateSendMode];
@@ -761,11 +829,14 @@ export interface SmsSettingsUpdate {
   enabledAppointment?: boolean;
   enabledPayment?: boolean;
   enabledCommission?: boolean;
+  enabledSurvey?: boolean;
+  surveyThrottleDays?: number;
   sendMode?: SmsSettingsUpdateSendMode;
   bodyIdAppointment?: string;
   bodyIdPayment?: string;
   bodyIdCommission?: string;
   bodyIdBirthday?: string;
+  bodyIdSurvey?: string;
 }
 
 export type SmsTemplatesDefaults = {
@@ -773,6 +844,7 @@ export type SmsTemplatesDefaults = {
   payment: string;
   commission: string;
   birthday: string;
+  survey: string;
 };
 
 export interface SmsTemplates {
@@ -780,6 +852,7 @@ export interface SmsTemplates {
   payment: string;
   commission: string;
   birthday: string;
+  survey: string;
   defaults: SmsTemplatesDefaults;
 }
 
@@ -788,6 +861,7 @@ export interface SmsTemplatesUpdate {
   payment?: string;
   commission?: string;
   birthday?: string;
+  survey?: string;
 }
 
 export interface SmsCredit {
@@ -847,6 +921,27 @@ limit?: number;
 
 export type ListWaitingListParams = {
 status?: string;
+};
+
+export type ListSurveysParams = {
+status?: ListSurveysStatus;
+from?: number;
+to?: number;
+page?: number;
+limit?: number;
+};
+
+export type ListSurveysStatus = typeof ListSurveysStatus[keyof typeof ListSurveysStatus];
+
+
+export const ListSurveysStatus = {
+  pending: 'pending',
+  scored: 'scored',
+} as const;
+
+export type GetSurveyStatsParams = {
+from?: number;
+to?: number;
 };
 
 export type ListPaymentsParams = {

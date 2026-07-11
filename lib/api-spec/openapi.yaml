@@ -25,6 +25,7 @@ tags:
   - name: activity
   - name: sms
   - name: waiting-list
+  - name: surveys
 
 paths:
   /healthz:
@@ -571,6 +572,94 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WaitingNotifyResult"
+        "404":
+          description: Not found
+
+  # ── Surveys (نظرسنجی رضایت مراجعین) ─────────────────────────────────────
+  /surveys:
+    get:
+      operationId: listSurveys
+      tags: [surveys]
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, scored]
+        - name: from
+          in: query
+          schema: { type: integer }
+        - name: to
+          in: query
+          schema: { type: integer }
+        - name: page
+          in: query
+          schema: { type: integer }
+        - name: limit
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SurveyList"
+
+  /surveys/stats:
+    get:
+      operationId: getSurveyStats
+      tags: [surveys]
+      parameters:
+        - name: from
+          in: query
+          schema: { type: integer }
+        - name: to
+          in: query
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SurveyStats"
+
+  /surveys/{id}:
+    put:
+      operationId: scoreSurvey
+      tags: [surveys]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SurveyScoreInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Survey"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteSurvey
+      tags: [surveys]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
         "404":
           description: Not found
 
@@ -1621,6 +1710,74 @@ components:
         ok: { type: boolean }
         error: { type: ["string", "null"] }
 
+    # ── Surveys ──────────────────────────────────────────────────────────────
+    Survey:
+      type: object
+      required: [id, patientId, sentAt, smsStatus, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        appointmentId: { type: ["integer", "null"] }
+        paymentId: { type: ["integer", "null"] }
+        serviceId: { type: ["integer", "null"] }
+        staffId: { type: ["integer", "null"] }
+        sentAt: { type: integer }
+        smsStatus: { type: string }
+        score: { type: ["integer", "null"] }
+        comment: { type: ["string", "null"] }
+        scoredAt: { type: ["integer", "null"] }
+        createdAt: { type: integer }
+        patientName: { type: ["string", "null"] }
+        patientPhone: { type: ["string", "null"] }
+        patientFileNumber: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+        staffName: { type: ["string", "null"] }
+
+    SurveyList:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Survey"
+        total: { type: integer }
+
+    SurveyScoreInput:
+      type: object
+      required: [score]
+      properties:
+        score:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment: { type: ["string", "null"] }
+
+    SurveyStatsGroup:
+      type: object
+      required: [count, avgScore]
+      properties:
+        id: { type: ["integer", "null"] }
+        name: { type: ["string", "null"] }
+        count: { type: integer }
+        avgScore: { type: number }
+
+    SurveyStats:
+      type: object
+      required: [total, scoredCount, avgScore, byService, byStaff]
+      properties:
+        total: { type: integer }
+        scoredCount: { type: integer }
+        avgScore: { type: ["number", "null"] }
+        byService:
+          type: array
+          items:
+            $ref: "#/components/schemas/SurveyStatsGroup"
+        byStaff:
+          type: array
+          items:
+            $ref: "#/components/schemas/SurveyStatsGroup"
+
     # ── Payment ───────────────────────────────────────────────────────────────
     Payment:
       type: object
@@ -1978,7 +2135,7 @@ components:
     # ── SMS Panel ─────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledSurvey, surveyThrottleDays, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey]
       properties:
         username: { type: string }
         from: { type: string }
@@ -1986,6 +2143,8 @@ components:
         enabledAppointment: { type: boolean }
         enabledPayment: { type: boolean }
         enabledCommission: { type: boolean }
+        enabledSurvey: { type: boolean }
+        surveyThrottleDays: { type: integer }
         sendMode:
           type: string
           enum: [normal, pattern]
@@ -1993,6 +2152,7 @@ components:
         bodyIdPayment: { type: string }
         bodyIdCommission: { type: string }
         bodyIdBirthday: { type: string }
+        bodyIdSurvey: { type: string }
 
     SmsSettingsUpdate:
       type: object
@@ -2003,6 +2163,8 @@ components:
         enabledAppointment: { type: boolean }
         enabledPayment: { type: boolean }
         enabledCommission: { type: boolean }
+        enabledSurvey: { type: boolean }
+        surveyThrottleDays: { type: integer }
         sendMode:
           type: string
           enum: [normal, pattern]
@@ -2010,23 +2172,26 @@ components:
         bodyIdPayment: { type: string }
         bodyIdCommission: { type: string }
         bodyIdBirthday: { type: string }
+        bodyIdSurvey: { type: string }
 
     SmsTemplates:
       type: object
-      required: [appointment, payment, commission, birthday, defaults]
+      required: [appointment, payment, commission, birthday, survey, defaults]
       properties:
         appointment: { type: string }
         payment: { type: string }
         commission: { type: string }
         birthday: { type: string }
+        survey: { type: string }
         defaults:
           type: object
-          required: [appointment, payment, commission, birthday]
+          required: [appointment, payment, commission, birthday, survey]
           properties:
             appointment: { type: string }
             payment: { type: string }
             commission: { type: string }
             birthday: { type: string }
+            survey: { type: string }
 
     SmsTemplatesUpdate:
       type: object
@@ -2035,6 +2200,7 @@ components:
         payment: { type: string }
         commission: { type: string }
         birthday: { type: string }
+        survey: { type: string }
 
     SmsCredit:
       type: object

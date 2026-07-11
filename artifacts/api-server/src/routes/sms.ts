@@ -16,6 +16,7 @@ import {
   getSmsSettings,
   getSmsTemplates,
   setAppSetting,
+  clampSurveyThrottleDays,
   getPanelCredit,
   sendSms,
   renderTemplate,
@@ -35,11 +36,14 @@ function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
     enabledAppointment: s.enabledAppointment,
     enabledPayment: s.enabledPayment,
     enabledCommission: s.enabledCommission,
+    enabledSurvey: s.enabledSurvey,
+    surveyThrottleDays: s.surveyThrottleDays,
     sendMode: s.sendMode,
     bodyIdAppointment: s.bodyIdAppointment,
     bodyIdPayment: s.bodyIdPayment,
     bodyIdCommission: s.bodyIdCommission,
     bodyIdBirthday: s.bodyIdBirthday,
+    bodyIdSurvey: s.bodyIdSurvey,
   };
 }
 
@@ -62,12 +66,18 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
   if (b.enabledAppointment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointment, String(b.enabledAppointment));
   if (b.enabledPayment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledPayment, String(b.enabledPayment));
   if (b.enabledCommission !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledCommission, String(b.enabledCommission));
+  if (b.enabledSurvey !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledSurvey, String(b.enabledSurvey));
+  // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
+  if (b.surveyThrottleDays !== undefined) {
+    await setAppSetting(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
+  }
   // کد پترن باید فقط رقم باشد (یا خالی برای پاک کردن)
   const bodyIdFields = [
     ["bodyIdAppointment", SMS_SETTING_KEYS.bodyIdAppointment],
     ["bodyIdPayment", SMS_SETTING_KEYS.bodyIdPayment],
     ["bodyIdCommission", SMS_SETTING_KEYS.bodyIdCommission],
     ["bodyIdBirthday", SMS_SETTING_KEYS.bodyIdBirthday],
+    ["bodyIdSurvey", SMS_SETTING_KEYS.bodyIdSurvey],
   ] as const;
   for (const [field] of bodyIdFields) {
     const value = b[field];

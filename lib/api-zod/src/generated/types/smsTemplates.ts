@@ -12,5 +12,6 @@ export interface SmsTemplates {
   payment: string;
   commission: string;
   birthday: string;
+  survey: string;
   defaults: SmsTemplatesDefaults;
 }
