@@ -65,3 +65,13 @@ export function formatBirthdate(value: string | null | undefined): string {
 export function toISODateString(date: Date): string {
   return date.toISOString().split('T')[0];
 }
+
+// تبدیل تاریخ میلادی "YYYY-MM-DD" (خروجی PersianDatePicker) به یونیکس ثانیه.
+// مرز شروع/پایان روز به وقت محلی — برای فیلترهای بازه تاریخ (from/to).
+export function dateToUnixSeconds(value: string, endOfDay: boolean): number | undefined {
+  if (!value) return undefined;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return undefined;
+  const date = endOfDay ? new Date(y, m - 1, d, 23, 59, 59) : new Date(y, m - 1, d, 0, 0, 0);
+  return Math.floor(date.getTime() / 1000);
+}
