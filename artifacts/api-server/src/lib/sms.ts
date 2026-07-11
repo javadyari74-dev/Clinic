@@ -1,4 +1,5 @@
-import { eq, and, gte, desc, inArray } from "drizzle-orm";
+import { eq, and, gte, inArray, sql } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { db, appSettingsTable, smsLogTable, surveysTable, appointmentsTable } from "@workspace/db";
 import { logger } from "./logger";
 
@@ -575,11 +576,57 @@ export function isSurveyThrottled(
   return lastSentAt >= nowSeconds - throttleDays * 86_400;
 }
 
+// رزرو اتمی سهمیه نظرسنجی: بررسی محدودیت تکرار و درج ردیف در «یک» دستور
+// INSERT ... SELECT ... WHERE NOT EXISTS انجام می‌شود تا دو پرداخت هم‌زمان
+// برای یک بیمار نتوانند هر دو از بررسی عبور کنند (هر دستور منفرد SQLite
+// اتمی است و درج دوم، ردیف درج‌شدهٔ اول را می‌بیند). خروجی: شناسه ردیف
+// درج‌شده، یا null اگر داخل بازه محدودیت بود.
+// توجه: چون SQL خام از $defaultFn های drizzle عبور نمی‌کند، uuid و
+// created_at صریحاً مقداردهی می‌شوند (همان معناشناسی schema).
+export async function reserveSurveySlot(args: {
+  patientId: number;
+  appointmentId: number | null;
+  paymentId: number | null;
+  serviceId: number | null;
+  staffId: number | null;
+  now: number;
+  throttleDays: number;
+}): Promise<number | null> {
+  // بدون محدودیت (۰ روز): درج ساده — همان رفتار isSurveyThrottled برای <=0
+  if (args.throttleDays <= 0) {
+    const [row] = await db
+      .insert(surveysTable)
+      .values({
+        patientId: args.patientId,
+        appointmentId: args.appointmentId,
+        paymentId: args.paymentId,
+        serviceId: args.serviceId,
+        staffId: args.staffId,
+        sentAt: args.now,
+        smsStatus: "pending",
+      })
+      .returning({ id: surveysTable.id });
+    return row?.id ?? null;
+  }
+
+  // نکته: db.get درزیزل روی نتیجه خالی (حالت محدودشده) خطا می‌دهد؛ از all استفاده می‌کنیم
+  const cutoff = args.now - args.throttleDays * 86_400;
+  const rows = await db.all<{ id: number }>(sql`
+    INSERT INTO surveys (uuid, patient_id, appointment_id, payment_id, service_id, staff_id, sent_at, sms_status, created_at)
+    SELECT ${randomUUID()}, ${args.patientId}, ${args.appointmentId}, ${args.paymentId}, ${args.serviceId}, ${args.staffId}, ${args.now}, 'pending', ${args.now}
+    WHERE NOT EXISTS (
+      SELECT 1 FROM surveys WHERE patient_id = ${args.patientId} AND sent_at >= ${cutoff}
+    )
+    RETURNING id
+  `);
+  return rows[0]?.id ?? null;
+}
+
 // پس از ثبت پرداخت (پایان مراجعه) صدا زده می‌شود. ردیف نظرسنجی «قبل از» ارسال
 // درج می‌شود تا سهمیه محدودیت تکرار همان لحظه گرفته شود (دو پرداخت پشت‌سرهم
-// برای یک بیمار باعث دو پیامک نمی‌شود)؛ سپس نتیجه ارسال روی همان ردیف
-// به‌روزرسانی می‌شود. ردیف حتی با ارسال ناموفق هم می‌ماند تا منشی بتواند در
-// تماس بعدی امتیاز را دستی ثبت کند.
+// یا هم‌زمان برای یک بیمار باعث دو پیامک نمی‌شود)؛ سپس نتیجه ارسال روی همان
+// ردیف به‌روزرسانی می‌شود. ردیف حتی با ارسال ناموفق هم می‌ماند تا منشی بتواند
+// در تماس بعدی امتیاز را دستی ثبت کند.
 export function fireSurveySms(args: {
   patientId: number;
   patientName: string | null;
@@ -594,15 +641,6 @@ export function fireSurveySms(args: {
       if (!settings.enabledSurvey) return;
 
       const now = Math.floor(Date.now() / 1000);
-
-      // محدودیت تکرار: آخرین نظرسنجی این بیمار (موفق یا ناموفق) را بررسی کن
-      const [last] = await db
-        .select({ sentAt: surveysTable.sentAt })
-        .from(surveysTable)
-        .where(eq(surveysTable.patientId, args.patientId))
-        .orderBy(desc(surveysTable.sentAt))
-        .limit(1);
-      if (isSurveyThrottled(last?.sentAt, now, settings.surveyThrottleDays)) return;
 
       // خدمت/کارمند از روی نوبتِ همان پرداخت در لحظه ارسال ذخیره می‌شود
       let serviceId: number | null = null;
@@ -619,18 +657,17 @@ export function fireSurveySms(args: {
         }
       }
 
-      const [row] = await db
-        .insert(surveysTable)
-        .values({
-          patientId: args.patientId,
-          appointmentId: args.appointmentId ?? null,
-          paymentId: args.paymentId ?? null,
-          serviceId,
-          staffId,
-          sentAt: now,
-          smsStatus: "pending",
-        })
-        .returning({ id: surveysTable.id });
+      // محدودیت تکرار + درج ردیف به‌صورت اتمی (رزرو سهمیه) — null یعنی داخل بازه
+      const rowId = await reserveSurveySlot({
+        patientId: args.patientId,
+        appointmentId: args.appointmentId ?? null,
+        paymentId: args.paymentId ?? null,
+        serviceId,
+        staffId,
+        now,
+        throttleDays: settings.surveyThrottleDays,
+      });
+      if (rowId == null) return;
 
       const templates = await getSmsTemplates();
       const name = args.patientName ?? "";
@@ -655,7 +692,7 @@ export function fireSurveySms(args: {
       await db
         .update(surveysTable)
         .set({ smsStatus: result.ok ? "sent" : "failed" })
-        .where(eq(surveysTable.id, row.id));
+        .where(eq(surveysTable.id, rowId));
     } catch (err) {
       logger.warn({ err }, "fireSurveySms failed");
     }
