@@ -61,3 +61,5 @@ desktop-prebuilt.zip
 
 # runtime & auto backups
 backups/
+*.db-wal
+*.db-shm
