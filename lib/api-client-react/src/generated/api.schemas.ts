@@ -303,6 +303,65 @@ export interface AppointmentUpdate {
   unitsUsed?: number | null;
 }
 
+export interface WaitingEntry {
+  id: number;
+  patientId: number;
+  serviceId: number;
+  /** @nullable */
+  preferredFrom?: number | null;
+  /** @nullable */
+  preferredTo?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status: string;
+  /** @nullable */
+  appointmentId?: number | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+  /** @nullable */
+  patientPhone?: string | null;
+  /** @nullable */
+  patientFileNumber?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+}
+
+export interface WaitingEntryList {
+  data: WaitingEntry[];
+  total: number;
+}
+
+export interface WaitingEntryInput {
+  patientId: number;
+  serviceId: number;
+  preferredFrom?: number;
+  preferredTo?: number;
+  note?: string;
+}
+
+export interface WaitingEntryUpdate {
+  patientId?: number;
+  serviceId?: number;
+  /** @nullable */
+  preferredFrom?: number | null;
+  /** @nullable */
+  preferredTo?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status?: string;
+  /** @nullable */
+  appointmentId?: number | null;
+}
+
+export interface WaitingNotifyResult {
+  ok: boolean;
+  /** @nullable */
+  error?: string | null;
+}
+
 export interface Payment {
   id: number;
   appointmentId: number;
@@ -771,6 +830,10 @@ patientId?: number;
 staffId?: number;
 page?: number;
 limit?: number;
+};
+
+export type ListWaitingListParams = {
+status?: string;
 };
 
 export type ListPaymentsParams = {

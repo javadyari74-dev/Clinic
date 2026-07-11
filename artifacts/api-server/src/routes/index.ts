@@ -21,6 +21,7 @@ import backupRouter, { internalBackupRouter } from "./backup";
 import accountingRouter from "./accounting";
 import laserRouter from "./laser";
 import smsRouter from "./sms";
+import waitingListRouter from "./waiting-list";
 
 const router: IRouter = Router();
 
@@ -50,5 +51,6 @@ router.use(backupRouter);
 router.use(accountingRouter);
 router.use(laserRouter);
 router.use(smsRouter);
+router.use(waitingListRouter);
 
 export default router;

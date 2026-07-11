@@ -48,6 +48,7 @@ import type {
   ListPaymentsParams,
   ListRemindersParams,
   ListSmsLogsParams,
+  ListWaitingListParams,
   Patient,
   PatientAccountTransaction,
   PatientAccountTransactionInput,
@@ -76,7 +77,12 @@ import type {
   SmsTemplatesUpdate,
   StaffInput,
   StaffMember,
-  StaffUpdate
+  StaffUpdate,
+  WaitingEntry,
+  WaitingEntryInput,
+  WaitingEntryList,
+  WaitingEntryUpdate,
+  WaitingNotifyResult
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1737,6 +1743,343 @@ export function useGetTodayWaitingList<TData = Awaited<ReturnType<typeof getToda
 
 
 
+
+export const getListWaitingListUrl = (params?: ListWaitingListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/waiting-list?${stringifiedParams}` : `/api/waiting-list`
+}
+
+export const listWaitingList = async (params?: ListWaitingListParams, options?: RequestInit): Promise<WaitingEntryList> => {
+
+  return customFetch<WaitingEntryList>(getListWaitingListUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListWaitingListQueryKey = (params?: ListWaitingListParams,) => {
+    return [
+    `/api/waiting-list`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListWaitingListQueryOptions = <TData = Awaited<ReturnType<typeof listWaitingList>>, TError = ErrorType<unknown>>(params?: ListWaitingListParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWaitingList>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListWaitingListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listWaitingList>>> = ({ signal }) => listWaitingList(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listWaitingList>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListWaitingListQueryResult = NonNullable<Awaited<ReturnType<typeof listWaitingList>>>
+export type ListWaitingListQueryError = ErrorType<unknown>
+
+
+
+export function useListWaitingList<TData = Awaited<ReturnType<typeof listWaitingList>>, TError = ErrorType<unknown>>(
+ params?: ListWaitingListParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listWaitingList>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListWaitingListQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getCreateWaitingEntryUrl = () => {
+
+
+
+
+  return `/api/waiting-list`
+}
+
+export const createWaitingEntry = async (waitingEntryInput: WaitingEntryInput, options?: RequestInit): Promise<WaitingEntry> => {
+
+  return customFetch<WaitingEntry>(getCreateWaitingEntryUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      waitingEntryInput,)
+  }
+);}
+
+
+
+
+export const getCreateWaitingEntryMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWaitingEntry>>, TError,{data: BodyType<WaitingEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createWaitingEntry>>, TError,{data: BodyType<WaitingEntryInput>}, TContext> => {
+
+const mutationKey = ['createWaitingEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createWaitingEntry>>, {data: BodyType<WaitingEntryInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createWaitingEntry(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateWaitingEntryMutationResult = NonNullable<Awaited<ReturnType<typeof createWaitingEntry>>>
+    export type CreateWaitingEntryMutationBody = BodyType<WaitingEntryInput>
+    export type CreateWaitingEntryMutationError = ErrorType<unknown>
+
+    export const useCreateWaitingEntry = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createWaitingEntry>>, TError,{data: BodyType<WaitingEntryInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createWaitingEntry>>,
+        TError,
+        {data: BodyType<WaitingEntryInput>},
+        TContext
+      > => {
+      return useMutation(getCreateWaitingEntryMutationOptions(options));
+    }
+
+export const getUpdateWaitingEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/waiting-list/${id}`
+}
+
+export const updateWaitingEntry = async (id: number,
+    waitingEntryUpdate: WaitingEntryUpdate, options?: RequestInit): Promise<WaitingEntry> => {
+
+  return customFetch<WaitingEntry>(getUpdateWaitingEntryUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      waitingEntryUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateWaitingEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWaitingEntry>>, TError,{id: number;data: BodyType<WaitingEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateWaitingEntry>>, TError,{id: number;data: BodyType<WaitingEntryUpdate>}, TContext> => {
+
+const mutationKey = ['updateWaitingEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateWaitingEntry>>, {id: number;data: BodyType<WaitingEntryUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateWaitingEntry(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateWaitingEntryMutationResult = NonNullable<Awaited<ReturnType<typeof updateWaitingEntry>>>
+    export type UpdateWaitingEntryMutationBody = BodyType<WaitingEntryUpdate>
+    export type UpdateWaitingEntryMutationError = ErrorType<void>
+
+    export const useUpdateWaitingEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateWaitingEntry>>, TError,{id: number;data: BodyType<WaitingEntryUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateWaitingEntry>>,
+        TError,
+        {id: number;data: BodyType<WaitingEntryUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateWaitingEntryMutationOptions(options));
+    }
+
+export const getDeleteWaitingEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/waiting-list/${id}`
+}
+
+export const deleteWaitingEntry = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteWaitingEntryUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteWaitingEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWaitingEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteWaitingEntry>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteWaitingEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteWaitingEntry>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteWaitingEntry(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteWaitingEntryMutationResult = NonNullable<Awaited<ReturnType<typeof deleteWaitingEntry>>>
+
+    export type DeleteWaitingEntryMutationError = ErrorType<void>
+
+    export const useDeleteWaitingEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteWaitingEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteWaitingEntry>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteWaitingEntryMutationOptions(options));
+    }
+
+export const getNotifyWaitingEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/waiting-list/${id}/notify`
+}
+
+export const notifyWaitingEntry = async (id: number, options?: RequestInit): Promise<WaitingNotifyResult> => {
+
+  return customFetch<WaitingNotifyResult>(getNotifyWaitingEntryUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getNotifyWaitingEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof notifyWaitingEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof notifyWaitingEntry>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['notifyWaitingEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof notifyWaitingEntry>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  notifyWaitingEntry(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type NotifyWaitingEntryMutationResult = NonNullable<Awaited<ReturnType<typeof notifyWaitingEntry>>>
+
+    export type NotifyWaitingEntryMutationError = ErrorType<void>
+
+    export const useNotifyWaitingEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof notifyWaitingEntry>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof notifyWaitingEntry>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getNotifyWaitingEntryMutationOptions(options));
+    }
 
 export const getGetAppointmentUrl = (id: number,) => {
 
