@@ -24,6 +24,7 @@ tags:
   - name: backup
   - name: activity
   - name: sms
+  - name: waiting-list
 
 paths:
   /healthz:
@@ -455,6 +456,96 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AppointmentWithDetailsList"
+
+  # ── Waiting list (لیست انتظار نوبت) ────────────────────────────────────────
+  /waiting-list:
+    get:
+      operationId: listWaitingList
+      tags: [waiting-list]
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitingEntryList"
+    post:
+      operationId: createWaitingEntry
+      tags: [waiting-list]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitingEntryInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitingEntry"
+
+  /waiting-list/{id}:
+    put:
+      operationId: updateWaitingEntry
+      tags: [waiting-list]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitingEntryUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitingEntry"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteWaitingEntry
+      tags: [waiting-list]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /waiting-list/{id}/notify:
+    post:
+      operationId: notifyWaitingEntry
+      tags: [waiting-list]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Send attempted (result in body)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitingNotifyResult"
+        "404":
+          description: Not found
 
   /appointments/{id}:
     get:
@@ -1426,6 +1517,64 @@ components:
         discountId: { type: ["integer", "null"] }
         originalPrice: { type: ["integer", "null"] }
         unitsUsed: { type: ["integer", "null"] }
+
+    # ── Waiting list ─────────────────────────────────────────────────────────
+    WaitingEntry:
+      type: object
+      required: [id, patientId, serviceId, status, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        preferredFrom: { type: ["integer", "null"] }
+        preferredTo: { type: ["integer", "null"] }
+        note: { type: ["string", "null"] }
+        status: { type: string }
+        appointmentId: { type: ["integer", "null"] }
+        createdAt: { type: integer }
+        patientName: { type: ["string", "null"] }
+        patientPhone: { type: ["string", "null"] }
+        patientFileNumber: { type: ["string", "null"] }
+        patientTier: { type: ["string", "null"] }
+        serviceName: { type: ["string", "null"] }
+
+    WaitingEntryList:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/WaitingEntry"
+        total: { type: integer }
+
+    WaitingEntryInput:
+      type: object
+      required: [patientId, serviceId]
+      properties:
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        preferredFrom: { type: integer }
+        preferredTo: { type: integer }
+        note: { type: string }
+
+    WaitingEntryUpdate:
+      type: object
+      properties:
+        patientId: { type: integer }
+        serviceId: { type: integer }
+        preferredFrom: { type: ["integer", "null"] }
+        preferredTo: { type: ["integer", "null"] }
+        note: { type: ["string", "null"] }
+        status: { type: string }
+        appointmentId: { type: ["integer", "null"] }
+
+    WaitingNotifyResult:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean }
+        error: { type: ["string", "null"] }
 
     # ── Payment ───────────────────────────────────────────────────────────────
     Payment:

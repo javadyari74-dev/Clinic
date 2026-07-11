@@ -439,6 +439,87 @@ export const GetTodayWaitingListResponse = zod.object({
 })
 
 
+export const ListWaitingListQueryParams = zod.object({
+  "status": zod.coerce.string().optional()
+})
+
+export const ListWaitingListResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string(),
+  "appointmentId": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
+  "serviceName": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+export const CreateWaitingEntryBody = zod.object({
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().optional(),
+  "preferredTo": zod.number().optional(),
+  "note": zod.string().optional()
+})
+
+
+export const UpdateWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateWaitingEntryBody = zod.object({
+  "patientId": zod.number().optional(),
+  "serviceId": zod.number().optional(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string().optional(),
+  "appointmentId": zod.number().nullish()
+})
+
+export const UpdateWaitingEntryResponse = zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string(),
+  "appointmentId": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
+  "serviceName": zod.string().nullish()
+})
+
+
+export const DeleteWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const NotifyWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const NotifyWaitingEntryResponse = zod.object({
+  "ok": zod.boolean(),
+  "error": zod.string().nullish()
+})
+
+
 export const GetAppointmentParams = zod.object({
   "id": zod.coerce.number()
 })

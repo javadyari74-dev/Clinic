@@ -1,8 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
   getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
   getGetAppointmentQueryOptions,
+  useListWaitingList, useUpdateWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
+  type WaitingEntry,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -25,6 +27,7 @@ import { Check, ChevronsUpDown, Plus, Pencil, Trash2 } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { AppointmentCalendar } from "@/components/appointment-calendar";
+import { WaitingListPanel, formatPreferredRange, secToDateStr } from "@/components/waiting-list-panel";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -226,6 +229,12 @@ export default function Appointments() {
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [moveTarget, setMoveTarget] = useState<{ app: AppRow; date: string; time: string } | null>(null);
+  // مورد لیست انتظاری که در حال تبدیل به نوبت است؛ پس از ثبت نوبت، «برآورده‌شده» می‌شود.
+  // ref است (نه state) تا بستن دیالوگ در حین ارسال، پیوند تبدیل را از دست ندهد.
+  const convertEntryRef = useRef<WaitingEntry | null>(null);
+  // نامزدهای لیست انتظار پس از لغو یک نوبت (برای پیشنهاد جای خالی)
+  const [cancelCandidates, setCancelCandidates] = useState<{ dateLabel: string; dateStr: string; entries: WaitingEntry[] } | null>(null);
+  const [notifyingCandidateId, setNotifyingCandidateId] = useState<number | null>(null);
 
   const { data: rawList, isError, refetch } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
   const { data: allAppointments } = useListAppointments({ limit: 500 } as any);
@@ -241,6 +250,7 @@ export default function Appointments() {
   const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
+  const { data: waitingList } = useListWaitingList({ status: "waiting" });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -248,16 +258,65 @@ export default function Appointments() {
     queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
   }, [queryClient]);
 
+  const invalidateWaiting = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getListWaitingListQueryKey() });
+  }, [queryClient]);
+
+  // پس از ثبت نوبتِ حاصل از تبدیل، مورد لیست انتظار «برآورده‌شده» علامت می‌خورد
+  const fulfillWaitingEntry = useUpdateWaitingEntry({
+    mutation: {
+      onSuccess: () => {
+        invalidateWaiting();
+        toast({ title: "مورد لیست انتظار به نوبت تبدیل شد" });
+      },
+    },
+  });
+
+  const notifyCandidate = useNotifyWaitingEntry({
+    mutation: {
+      onSuccess: (result) => {
+        if (result.ok) toast({ title: "پیامک اطلاع‌رسانی جای خالی ارسال شد" });
+        else toast({ title: "ارسال پیامک ناموفق بود", description: result.error ?? undefined, variant: "destructive" });
+      },
+      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onSettled: () => setNotifyingCandidateId(null),
+    },
+  });
+
+  // نامزدهای لیست انتظار برای یک روز مشخص: بازه دلخواهشان آن روز را پوشش دهد
+  // (موارد بدون بازه، هر روزی را می‌پذیرند)
+  const findCandidatesForDay = useCallback((scheduledAtMs: number): WaitingEntry[] => {
+    const d = new Date(scheduledAtMs);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const dayEnd = dayStart + 86_400_000;
+    return (waitingList?.data ?? []).filter((e) => {
+      if (e.status !== "waiting") return false;
+      const fromMs = e.preferredFrom ? toMs(e.preferredFrom) : null;
+      const toMsV = e.preferredTo ? toMs(e.preferredTo) : fromMs;
+      if (fromMs === null) return true;
+      return fromMs < dayEnd && (toMsV ?? fromMs) >= dayStart;
+    });
+  }, [waitingList]);
+
   const prefetchAppointment = useCallback((id: number) => {
     queryClient.prefetchQuery({ ...getGetAppointmentQueryOptions(id), staleTime: 30_000 });
   }, [queryClient]);
 
   const createAppointment = useCreateAppointment({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (created) => {
         invalidate();
         setIsOpen(false);
         toast({ title: "نوبت با موفقیت ثبت شد" });
+        // اگر این نوبت از لیست انتظار تبدیل شده، مورد مربوطه «برآورده‌شده» می‌شود
+        const convertEntry = convertEntryRef.current;
+        if (convertEntry && created?.id) {
+          fulfillWaitingEntry.mutate({
+            id: convertEntry.id,
+            data: { status: "fulfilled", appointmentId: created.id },
+          });
+        }
+        convertEntryRef.current = null;
         form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
       },
       onError: (error) => {
@@ -286,6 +345,21 @@ export default function Appointments() {
         } else {
           const newStatus = (vars.data as any).status;
           toast({ title: `وضعیت نوبت به «${statuses[newStatus]?.label ?? newStatus}» تغییر کرد` });
+          // پس از لغو نوبت، نامزدهای لیست انتظار برای همان روز پیشنهاد می‌شوند
+          if (newStatus === "cancelled") {
+            const app = (allAppointments?.data ?? []).find(a => a.id === vars.id);
+            if (app?.scheduledAt) {
+              const ms = toMs(app.scheduledAt);
+              const candidates = findCandidatesForDay(ms);
+              if (candidates.length > 0) {
+                setCancelCandidates({
+                  dateLabel: formatShamsiDate(app.scheduledAt),
+                  dateStr: secToDateStr(ms),
+                  entries: candidates,
+                });
+              }
+            }
+          }
         }
       },
     },
@@ -350,6 +424,21 @@ export default function Appointments() {
     updateAppointment.mutate({ id, data: { status } });
   }
 
+  // تبدیل مورد لیست انتظار به نوبت: دیالوگ ثبت نوبت با اطلاعات پیش‌پرشده باز می‌شود
+  function handleConvert(entry: WaitingEntry, presetDate?: string) {
+    convertEntryRef.current = entry;
+    setCancelCandidates(null);
+    form.reset({
+      patientId: entry.patientId,
+      serviceId: entry.serviceId,
+      date: presetDate ?? (entry.preferredFrom ? secToDateStr(entry.preferredFrom * 1000) : todayString()),
+      time: "09:00",
+      hasDeposit: false,
+      depositAmount: 0,
+    });
+    setIsOpen(true);
+  }
+
   const toggleSelect = useCallback((id: number) => {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }, []);
@@ -389,6 +478,7 @@ export default function Appointments() {
   }));
 
   function handleCalendarCreate(date: string, time: string) {
+    convertEntryRef.current = null;
     form.reset({ patientId: 0, serviceId: 0, date, time, hasDeposit: false, depositAmount: 0 });
     setIsOpen(true);
   }
@@ -427,7 +517,7 @@ export default function Appointments() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">نوبت‌ها</h1>
           <p className="text-muted-foreground mt-1">مدیریت نوبت‌های مطب</p>
         </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+        <Button className="gap-2" onClick={() => { convertEntryRef.current = null; setIsOpen(true); }}>
           <Plus className="h-4 w-4" />
           نوبت جدید
         </Button>
@@ -449,7 +539,11 @@ export default function Appointments() {
       )}
 
       {/* New appointment dialog */}
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <Dialog open={isOpen} onOpenChange={(open) => {
+        setIsOpen(open);
+        // پیوند تبدیل فقط وقتی پاک می‌شود که ثبت در جریان نباشد؛ وگرنه موفقیتِ در راه، آن را برآورده می‌کند
+        if (!open && !createAppointment.isPending) convertEntryRef.current = null;
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>ثبت نوبت جدید</DialogTitle></DialogHeader>
           <Form {...form}>
@@ -696,6 +790,14 @@ export default function Appointments() {
           <TabsTrigger value="active">نوبت‌های فعال</TabsTrigger>
           <TabsTrigger value="calendar">تقویم</TabsTrigger>
           <TabsTrigger value="history">تاریخچه نوبت‌ها</TabsTrigger>
+          <TabsTrigger value="waiting" data-testid="waiting-list-tab">
+            لیست انتظار
+            {(waitingList?.data?.length ?? 0) > 0 && (
+              <span className="mr-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1 text-xs text-amber-700">
+                {toPersianDigits(waitingList?.data?.length ?? 0)}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendar">
@@ -756,7 +858,50 @@ export default function Appointments() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="waiting">
+          <WaitingListPanel onConvert={handleConvert} />
+        </TabsContent>
       </Tabs>
+
+      {/* پیشنهاد نامزدهای لیست انتظار پس از لغو نوبت */}
+      <Dialog open={!!cancelCandidates} onOpenChange={(open) => { if (!open) setCancelCandidates(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>جای خالی در {cancelCandidates?.dateLabel}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            نوبت لغو شد. این مراجعین در لیست انتظار هستند و تاریخ موردنظرشان با این روز هم‌خوانی دارد:
+          </p>
+          <div className="space-y-2 max-h-[320px] overflow-y-auto">
+            {cancelCandidates?.entries.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{entry.patientName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {entry.serviceName}
+                    {" · "}
+                    {formatPreferredRange(entry)}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    disabled={notifyingCandidateId === entry.id}
+                    onClick={() => { setNotifyingCandidateId(entry.id); notifyCandidate.mutate({ id: entry.id }); }}
+                    data-testid={`candidate-notify-${entry.id}`}>
+                    {notifyingCandidateId === entry.id ? "در حال ارسال..." : "اطلاع‌رسانی پیامکی"}
+                  </Button>
+                  <Button size="sm" className="h-7 text-xs"
+                    onClick={() => handleConvert(entry, cancelCandidates?.dateStr)}
+                    data-testid={`candidate-convert-${entry.id}`}>
+                    ثبت نوبت
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

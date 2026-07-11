@@ -300,7 +300,7 @@ export function buildPatternText(args: string[]): string {
 export interface SendSmsInput {
   to: string;
   text: string;
-  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual";
+  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list";
   recipientName?: string | null;
   patientId?: number | null;
   // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.
