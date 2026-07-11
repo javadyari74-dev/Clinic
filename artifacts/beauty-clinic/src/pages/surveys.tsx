@@ -13,8 +13,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ErrorNotice } from "@/components/error-notice";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { PersianDatePicker } from "@/components/persian-date-picker";
 import { Spinner } from "@/components/ui/spinner";
-import { formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { formatShamsiDate, toPersianDigits, dateToUnixSeconds } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Star, Trash2, Phone, ChevronRight, ChevronLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -140,12 +141,21 @@ export default function Surveys() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<"all" | "pending" | "scored">("all");
+  // فیلتر بازه تاریخ ارسال — مقدار میلادی "YYYY-MM-DD" از PersianDatePicker
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const [scoring, setScoring] = useState<Survey | null>(null);
   const [deleting, setDeleting] = useState<Survey | null>(null);
 
+  const from = dateToUnixSeconds(fromDate, false);
+  const to = dateToUnixSeconds(toDate, true);
+  const hasDateFilter = fromDate !== "" || toDate !== "";
+
   const params = {
     ...(status !== "all" ? { status } : {}),
+    ...(from !== undefined ? { from } : {}),
+    ...(to !== undefined ? { to } : {}),
     page,
     limit: PAGE_SIZE,
   };
@@ -175,13 +185,33 @@ export default function Surveys() {
         </p>
       </div>
 
-      <Tabs value={status} onValueChange={(v) => { setStatus(v as typeof status); setPage(1); }}>
-        <TabsList>
-          <TabsTrigger value="all" data-testid="tab-surveys-all">همه</TabsTrigger>
-          <TabsTrigger value="pending" data-testid="tab-surveys-pending">در انتظار امتیاز</TabsTrigger>
-          <TabsTrigger value="scored" data-testid="tab-surveys-scored">امتیاز داده‌شده</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      <div className="flex flex-wrap items-center gap-3">
+        <Tabs value={status} onValueChange={(v) => { setStatus(v as typeof status); setPage(1); }}>
+          <TabsList>
+            <TabsTrigger value="all" data-testid="tab-surveys-all">همه</TabsTrigger>
+            <TabsTrigger value="pending" data-testid="tab-surveys-pending">در انتظار امتیاز</TabsTrigger>
+            <TabsTrigger value="scored" data-testid="tab-surveys-scored">امتیاز داده‌شده</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">از تاریخ</span>
+          <PersianDatePicker value={fromDate} onChange={(v) => { setFromDate(v); setPage(1); }} placeholder="ابتدای بازه" />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">تا تاریخ</span>
+          <PersianDatePicker value={toDate} onChange={(v) => { setToDate(v); setPage(1); }} placeholder="انتهای بازه" />
+        </div>
+        {hasDateFilter && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setFromDate(""); setToDate(""); setPage(1); }}
+            data-testid="button-clear-surveys-range"
+          >
+            حذف فیلتر
+          </Button>
+        )}
+      </div>
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
@@ -190,11 +220,13 @@ export default function Surveys() {
       ) : surveys.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            {status === "pending"
-              ? "نظرسنجی در انتظار امتیازی وجود ندارد"
-              : status === "scored"
-                ? "هنوز امتیازی ثبت نشده است"
-                : "هنوز نظرسنجی‌ای ارسال نشده است — با فعال‌بودن پیامک نظرسنجی، پس از هر ثبت پرداخت یک ردیف اینجا اضافه می‌شود"}
+            {hasDateFilter
+              ? "در این بازه تاریخ نظرسنجی‌ای یافت نشد"
+              : status === "pending"
+                ? "نظرسنجی در انتظار امتیازی وجود ندارد"
+                : status === "scored"
+                  ? "هنوز امتیازی ثبت نشده است"
+                  : "هنوز نظرسنجی‌ای ارسال نشده است — با فعال‌بودن پیامک نظرسنجی، پس از هر ثبت پرداخت یک ردیف اینجا اضافه می‌شود"}
           </CardContent>
         </Card>
       ) : (

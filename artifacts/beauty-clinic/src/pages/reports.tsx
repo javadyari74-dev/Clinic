@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useGetReportsSummary, useGetRevenueChart, useGetSurveyStats } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, toPersianDigits } from "@/lib/format";
+import { formatCurrency, toPersianDigits, dateToUnixSeconds } from "@/lib/format";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { TrendingUp, Users, Calendar, AlertTriangle, Star } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -9,16 +9,6 @@ import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/error-notice";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { cn } from "@/lib/utils";
-
-// تبدیل تاریخ میلادی "YYYY-MM-DD" (خروجی PersianDatePicker) به یونیکس ثانیه
-// مرز شروع/پایان روز به وقت محلی
-function dateToUnixSeconds(value: string, endOfDay: boolean): number | undefined {
-  if (!value) return undefined;
-  const [y, m, d] = value.split("-").map(Number);
-  if (!y || !m || !d) return undefined;
-  const date = endOfDay ? new Date(y, m - 1, d, 23, 59, 59) : new Date(y, m - 1, d, 0, 0, 0);
-  return Math.floor(date.getTime() / 1000);
-}
 
 function StatGroupList({ title, groups }: { title: string; groups: { id?: number | null; name?: string | null; count: number; avgScore: number }[] }) {
   return (
