@@ -528,6 +528,33 @@ paths:
         "404":
           description: Not found
 
+  /waiting-list/{id}/convert:
+    post:
+      operationId: convertWaitingEntry
+      tags: [waiting-list]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitingConvertInput"
+      responses:
+        "201":
+          description: Appointment created and waiting entry fulfilled atomically
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WaitingConvertResult"
+        "404":
+          description: Not found
+        "409":
+          description: Entry is not in waiting status
+
   /waiting-list/{id}/notify:
     post:
       operationId: notifyWaitingEntry
@@ -1568,6 +1595,24 @@ components:
         note: { type: ["string", "null"] }
         status: { type: string }
         appointmentId: { type: ["integer", "null"] }
+
+    WaitingConvertInput:
+      type: object
+      required: [scheduledAt]
+      properties:
+        scheduledAt: { type: integer }
+        serviceId: { type: integer }
+        staffId: { type: ["integer", "null"] }
+        deposit: { type: integer }
+
+    WaitingConvertResult:
+      type: object
+      required: [appointment, entry]
+      properties:
+        appointment:
+          $ref: "#/components/schemas/AppointmentWithDetails"
+        entry:
+          $ref: "#/components/schemas/WaitingEntry"
 
     WaitingNotifyResult:
       type: object

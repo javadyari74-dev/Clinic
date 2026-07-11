@@ -78,6 +78,8 @@ import type {
   StaffInput,
   StaffMember,
   StaffUpdate,
+  WaitingConvertInput,
+  WaitingConvertResult,
   WaitingEntry,
   WaitingEntryInput,
   WaitingEntryList,
@@ -2015,6 +2017,72 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getDeleteWaitingEntryMutationOptions(options));
+    }
+
+export const getConvertWaitingEntryUrl = (id: number,) => {
+
+
+
+
+  return `/api/waiting-list/${id}/convert`
+}
+
+export const convertWaitingEntry = async (id: number,
+    waitingConvertInput: WaitingConvertInput, options?: RequestInit): Promise<WaitingConvertResult> => {
+
+  return customFetch<WaitingConvertResult>(getConvertWaitingEntryUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      waitingConvertInput,)
+  }
+);}
+
+
+
+
+export const getConvertWaitingEntryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertWaitingEntry>>, TError,{id: number;data: BodyType<WaitingConvertInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof convertWaitingEntry>>, TError,{id: number;data: BodyType<WaitingConvertInput>}, TContext> => {
+
+const mutationKey = ['convertWaitingEntry'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof convertWaitingEntry>>, {id: number;data: BodyType<WaitingConvertInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  convertWaitingEntry(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConvertWaitingEntryMutationResult = NonNullable<Awaited<ReturnType<typeof convertWaitingEntry>>>
+    export type ConvertWaitingEntryMutationBody = BodyType<WaitingConvertInput>
+    export type ConvertWaitingEntryMutationError = ErrorType<void>
+
+    export const useConvertWaitingEntry = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof convertWaitingEntry>>, TError,{id: number;data: BodyType<WaitingConvertInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof convertWaitingEntry>>,
+        TError,
+        {id: number;data: BodyType<WaitingConvertInput>},
+        TContext
+      > => {
+      return useMutation(getConvertWaitingEntryMutationOptions(options));
     }
 
 export const getNotifyWaitingEntryUrl = (id: number,) => {

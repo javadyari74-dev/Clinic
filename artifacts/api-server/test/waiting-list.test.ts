@@ -12,6 +12,9 @@ const { state, chain } = vi.hoisted(() => {
     insertResult: [] as unknown[],
     updateResult: [] as unknown[],
     deleteResult: [] as unknown[],
+    txInsertResult: [] as unknown[],
+    txUpdateCalls: 0,
+    txError: null as Error | null,
   };
   function chain(result: () => unknown) {
     const c: Record<string, unknown> = {};
@@ -33,29 +36,50 @@ vi.mock("@workspace/db", () => ({
     insert: () => chain(() => state.insertResult),
     update: () => chain(() => state.updateResult),
     delete: () => chain(() => state.deleteResult),
+    // آینه‌ی db.transaction درایزل: هر خطا در بدنه، کل تراکنش را برمی‌گرداند
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        insert: () => chain(() => state.txInsertResult),
+        update: () => chain(() => {
+          state.txUpdateCalls += 1;
+          if (state.txError) throw state.txError;
+          return [];
+        }),
+      };
+      return fn(tx);
+    },
   },
   waitingListTable: {},
   patientsTable: {},
   servicesTable: {},
+  appointmentsTable: {},
+  staffTable: {},
+  paymentsTable: {},
 }));
 
 // eq/desc/sql would otherwise choke on the empty mock tables above.
 vi.mock("drizzle-orm", () => ({
   eq: () => ({}),
   desc: () => ({}),
+  and: () => ({}),
   sql: () => ({}),
 }));
 
-const { sendSmsMock, logActivityMock } = vi.hoisted(() => ({
+const { sendSmsMock, fireAppointmentSmsMock, logActivityMock } = vi.hoisted(() => ({
   sendSmsMock: vi.fn(),
+  fireAppointmentSmsMock: vi.fn(),
   logActivityMock: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock("../src/lib/sms", () => ({
   sendSms: sendSmsMock,
+  fireAppointmentSms: fireAppointmentSmsMock,
   formatShamsiDateForSms: (ts: number) => `shamsi(${ts})`,
 }));
 vi.mock("../src/lib/activity", () => ({ logActivity: logActivityMock }));
+vi.mock("../src/lib/appointment-code", () => ({
+  generateUniqueAppointmentCode: vi.fn(() => Promise.resolve("AP-7777")),
+}));
 
 const sampleEntry = {
   id: 7,
@@ -82,7 +106,11 @@ beforeEach(async () => {
   state.insertResult = [];
   state.updateResult = [];
   state.deleteResult = [];
+  state.txInsertResult = [];
+  state.txUpdateCalls = 0;
+  state.txError = null;
   sendSmsMock.mockReset();
+  fireAppointmentSmsMock.mockClear();
   logActivityMock.mockClear();
 
   const { default: waitingListRouter } = await import("../src/routes/waiting-list");
@@ -111,7 +139,9 @@ async function request(method: string, path: string, body?: unknown) {
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  return { status: res.status, json: text ? JSON.parse(text) : undefined };
+  let json: any;
+  try { json = text ? JSON.parse(text) : undefined; } catch { json = undefined; }
+  return { status: res.status, json };
 }
 
 describe("GET /waiting-list", () => {
@@ -172,6 +202,77 @@ describe("DELETE /waiting-list/:id", () => {
     expect((await request("DELETE", "/waiting-list/7")).status).toBe(204);
     state.deleteResult = [];
     expect((await request("DELETE", "/waiting-list/7")).status).toBe(404);
+  });
+});
+
+describe("POST /waiting-list/:id/convert", () => {
+  const rawEntry = {
+    id: 7,
+    patientId: 3,
+    serviceId: 5,
+    preferredFrom: 1_783_900_000,
+    preferredTo: null,
+    note: null,
+    status: "waiting",
+    appointmentId: null,
+    createdAt: 1_783_800_000,
+  };
+  const createdAppt = {
+    id: 42, patientId: 3, serviceId: 5, staffId: null,
+    scheduledAt: 1_783_950_000_000, deposit: 0, sessionNumber: 1, appointmentCode: "AP-7777",
+  };
+  const apptDetail = { ...createdAppt, patientName: "مریم رضایی", patientPhone: "09121112233", serviceName: "لیزر", unitLabel: null, staffName: null };
+
+  it("rejects a body without scheduledAt", async () => {
+    const res = await request("POST", "/waiting-list/7/convert", {});
+    expect(res.status).toBe(400);
+  });
+
+  it("404s when the entry does not exist", async () => {
+    state.selectResults = [[]];
+    const res = await request("POST", "/waiting-list/999/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(404);
+  });
+
+  it("409s when the entry is no longer waiting", async () => {
+    state.selectResults = [[{ ...rawEntry, status: "fulfilled" }]];
+    const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(409);
+    expect(state.txUpdateCalls).toBe(0);
+  });
+
+  it("creates the appointment and fulfills the entry in one transaction", async () => {
+    state.selectResults = [
+      [rawEntry],
+      [{ count: 0 }],
+      [apptDetail],
+      [{ ...sampleEntry, status: "fulfilled", appointmentId: 42 }],
+    ];
+    state.txInsertResult = [createdAppt];
+    const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(201);
+    expect(res.json.appointment.id).toBe(42);
+    expect(res.json.entry.status).toBe("fulfilled");
+    expect(res.json.entry.appointmentId).toBe(42);
+    expect(state.txUpdateCalls).toBe(1);
+    expect(fireAppointmentSmsMock).toHaveBeenCalledTimes(1);
+    expect(logActivityMock).toHaveBeenCalledWith(
+      "create",
+      "appointment",
+      42,
+      expect.stringContaining("AP-7777"),
+    );
+  });
+
+  it("fails the whole request when fulfilling the entry fails (no half-converted state)", async () => {
+    state.selectResults = [[rawEntry], [{ count: 0 }]];
+    state.txInsertResult = [createdAppt];
+    state.txError = new Error("disk I/O error");
+    const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(500);
+    // هیچ اثر جانبی پس از تراکنش نباید اجرا شده باشد
+    expect(fireAppointmentSmsMock).not.toHaveBeenCalled();
+    expect(logActivityMock).not.toHaveBeenCalled();
   });
 });
 
