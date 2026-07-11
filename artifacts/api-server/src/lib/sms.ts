@@ -22,7 +22,15 @@ export const SMS_SETTING_KEYS = {
   enabledAppointment: "sms_enabled_appointment",
   enabledPayment: "sms_enabled_payment",
   enabledCommission: "sms_enabled_commission",
+  // حالت ارسال: "normal" (متن آزاد) یا "pattern" (خدماتی با متن پیش‌فرض)
+  sendMode: "sms_send_mode",
+  bodyIdAppointment: "sms_bodyid_appointment",
+  bodyIdPayment: "sms_bodyid_payment",
+  bodyIdCommission: "sms_bodyid_commission",
+  bodyIdBirthday: "sms_bodyid_birthday",
 } as const;
+
+export type SmsSendMode = "normal" | "pattern";
 
 export const SMS_TEMPLATE_KEYS = {
   appointment: "sms_template_appointment",
@@ -146,6 +154,11 @@ export interface SmsSettings {
   enabledAppointment: boolean;
   enabledPayment: boolean;
   enabledCommission: boolean;
+  sendMode: SmsSendMode;
+  bodyIdAppointment: string;
+  bodyIdPayment: string;
+  bodyIdCommission: string;
+  bodyIdBirthday: string;
 }
 
 async function readSettingsMap(keys: string[]): Promise<Map<string, string | null>> {
@@ -168,6 +181,11 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     enabledAppointment: flag(SMS_SETTING_KEYS.enabledAppointment),
     enabledPayment: flag(SMS_SETTING_KEYS.enabledPayment),
     enabledCommission: flag(SMS_SETTING_KEYS.enabledCommission),
+    sendMode: map.get(SMS_SETTING_KEYS.sendMode) === "pattern" ? "pattern" : "normal",
+    bodyIdAppointment: (map.get(SMS_SETTING_KEYS.bodyIdAppointment) ?? "").trim(),
+    bodyIdPayment: (map.get(SMS_SETTING_KEYS.bodyIdPayment) ?? "").trim(),
+    bodyIdCommission: (map.get(SMS_SETTING_KEYS.bodyIdCommission) ?? "").trim(),
+    bodyIdBirthday: (map.get(SMS_SETTING_KEYS.bodyIdBirthday) ?? "").trim(),
   };
 }
 
@@ -200,7 +218,7 @@ interface MelipayamakResponse {
 }
 
 async function callMelipayamak(
-  endpoint: "SendSMS" | "GetCredit",
+  endpoint: "SendSMS" | "GetCredit" | "BaseServiceNumber",
   body: Record<string, unknown>,
 ): Promise<MelipayamakResponse> {
   const controller = new AbortController();
@@ -237,6 +255,46 @@ function describeSendFailure(resp: MelipayamakResponse): string {
   return known[code] ?? `ارسال ناموفق (کد ${code || resp.StrRetStatus || "نامشخص"})`;
 }
 
+// پیام خطای قابل‌فهم برای ارسال خدماتی (پترن) — کدهای متد BaseServiceNumber
+function describePatternFailure(resp: MelipayamakResponse): string {
+  const code = String(resp.Value ?? "");
+  const known: Record<string, string> = {
+    "-110": "به‌جای رمز عبور پنل باید «کلید وب‌سرویس (API Key)» را وارد کنید — از پنل ملی‌پیامک، بخش تنظیمات ← وب‌سرویس",
+    "-1": "نام کاربری یا کلید وب‌سرویس اشتباه است، یا دسترسی وب‌سرویس خدماتی فعال نیست",
+    "-2": "تعداد گیرندگان یا متغیرهای پترن بیش از حد مجاز است",
+    "-3": "خط خدماتی اشتراکی در دسترس نیست — با پشتیبانی ملی‌پیامک تماس بگیرید",
+    "-4": "اعتبار پنل پیامکی کافی نیست",
+    "-5": "کد پترن (bodyId) اشتباه است یا هنوز تأیید نشده است",
+    "-6": "خطای داخلی سامانه ملی‌پیامک — بعداً دوباره تلاش کنید",
+    "-7": "تعداد متغیرهای ارسالی با پترن ثبت‌شده همخوانی ندارد",
+    "0": "ارسال پترن ناموفق بود — کد پترن و متغیرها را بررسی کنید",
+  };
+  return known[code] ?? `ارسال خدماتی ناموفق (کد ${code || resp.StrRetStatus || "نامشخص"})`;
+}
+
+// ── ارسال خدماتی (پترن) ──────────────────────────────────────────────────────
+// ترتیب ثابت متغیرهای هر رویداد برای پترن — همین ترتیب باید هنگام ثبت پترن در
+// پنل ملی‌پیامک ({0}، {1}، ...) رعایت شود:
+//   appointment: {0}=نام  {1}=تاریخ  {2}=ساعت
+//   payment:     {0}=نام  {1}=مبلغ   {2}=خدمت
+//   commission:  {0}=نام  {1}=پورسانت {2}=درصد  {3}=مبلغ
+//   birthday:    {0}=نام
+export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
+  appointment: ["نام", "تاریخ", "ساعت"],
+  payment: ["نام", "مبلغ", "خدمت"],
+  commission: ["نام", "پورسانت", "درصد", "مبلغ"],
+  birthday: ["نام"],
+};
+
+// متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
+export function sanitizePatternArg(value: string): string {
+  return value.replace(/;/g, "،").replace(/[\r\n]+/g, " ").trim();
+}
+
+export function buildPatternText(args: string[]): string {
+  return args.map(sanitizePatternArg).join(";");
+}
+
 // ── ارسال پیامک (هرگز خطا پرتاب نمی‌کند) ─────────────────────────────────────
 
 export interface SendSmsInput {
@@ -245,6 +303,9 @@ export interface SendSmsInput {
   eventType: "appointment" | "payment" | "commission" | "birthday" | "manual";
   recipientName?: string | null;
   patientId?: number | null;
+  // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.
+  // اگر bodyId خالی باشد، ارسال «ناموفق» با پیام راهنما ثبت می‌شود.
+  pattern?: { bodyId: string; args: string[] };
 }
 
 export interface SendSmsResult {
@@ -262,7 +323,29 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       error = "شماره موبایل معتبر نیست";
     } else {
       const settings = await getSmsSettings();
-      if (!settings.username || !settings.password || !settings.from) {
+      if (input.pattern) {
+        // ── ارسال خدماتی با پترن ──
+        if (!settings.username || !settings.password) {
+          error = "تنظیمات پنل پیامکی کامل نیست";
+        } else if (!input.pattern.bodyId) {
+          error = "کد پترن این رویداد تنظیم نشده است — در تنظیمات پنل پیامکی، بخش ارسال خدماتی، کد پترن را وارد کنید";
+        } else {
+          const resp = await callMelipayamak("BaseServiceNumber", {
+            username: settings.username,
+            password: settings.password,
+            text: buildPatternText(input.pattern.args),
+            to: phone,
+            bodyId: Number(input.pattern.bodyId),
+          });
+          // موفقیت: Value یک شناسه بلند مثبت (recId) است؛ اعداد کوچک/منفی خطا هستند
+          const value = String(resp.Value ?? "");
+          if (resp.RetStatus === 1 && /^\d+$/.test(value) && value.length > 6) {
+            status = "sent";
+          } else {
+            error = describePatternFailure(resp);
+          }
+        }
+      } else if (!settings.username || !settings.password || !settings.from) {
         error = "تنظیمات پنل پیامکی کامل نیست";
       } else {
         const resp = await callMelipayamak("SendSMS", {
@@ -343,10 +426,13 @@ export function fireAppointmentSms(args: {
       const settings = await getSmsSettings();
       if (!settings.enabledAppointment) return;
       const templates = await getSmsTemplates();
+      const name = args.patientName ?? "";
+      const date = formatShamsiDateForSms(args.scheduledAt);
+      const time = formatTimeForSms(args.scheduledAt);
       const text = renderTemplate(templates.appointment, {
-        "نام": args.patientName ?? "",
-        "تاریخ": formatShamsiDateForSms(args.scheduledAt),
-        "ساعت": formatTimeForSms(args.scheduledAt),
+        "نام": name,
+        "تاریخ": date,
+        "ساعت": time,
         "خدمت": args.serviceName ?? "",
       });
       // شماره خالی/نامعتبر هم به sendSms می‌رود تا در تاریخچه «ناموفق» ثبت شود
@@ -356,6 +442,11 @@ export function fireAppointmentSms(args: {
         eventType: "appointment",
         recipientName: args.patientName,
         patientId: args.patientId,
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.appointment
+        pattern:
+          settings.sendMode === "pattern"
+            ? { bodyId: settings.bodyIdAppointment, args: [name, date, time] }
+            : undefined,
       });
     } catch (err) {
       logger.warn({ err }, "fireAppointmentSms failed");
@@ -376,10 +467,13 @@ export function firePaymentSms(args: {
       if (!settings.enabledPayment) return;
       if (args.amount <= 0) return;
       const templates = await getSmsTemplates();
+      const name = args.patientName ?? "";
+      const amount = formatToman(args.amount);
+      const service = args.serviceName || "خدمات";
       const text = renderTemplate(templates.payment, {
-        "نام": args.patientName ?? "",
-        "مبلغ": formatToman(args.amount),
-        "خدمت": args.serviceName || "خدمات",
+        "نام": name,
+        "مبلغ": amount,
+        "خدمت": service,
       });
       await sendSms({
         to: args.phone ?? "",
@@ -387,6 +481,11 @@ export function firePaymentSms(args: {
         eventType: "payment",
         recipientName: args.patientName,
         patientId: args.patientId ?? null,
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment
+        pattern:
+          settings.sendMode === "pattern"
+            ? { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
+            : undefined,
       });
     } catch (err) {
       logger.warn({ err }, "firePaymentSms failed");
@@ -408,11 +507,15 @@ export function fireCommissionSms(args: {
       if (!settings.enabledCommission) return;
       if (args.commissionAmount <= 0) return;
       const templates = await getSmsTemplates();
+      const name = args.referrerName ?? "";
+      const commission = formatToman(args.commissionAmount);
+      const rate = args.rate != null && args.rate > 0 ? toPersianDigits(args.rate) : "—";
+      const base = args.baseAmount != null && args.baseAmount > 0 ? formatToman(args.baseAmount) : "—";
       const text = renderTemplate(templates.commission, {
-        "نام": args.referrerName ?? "",
-        "پورسانت": formatToman(args.commissionAmount),
-        "درصد": args.rate != null && args.rate > 0 ? toPersianDigits(args.rate) : "—",
-        "مبلغ": args.baseAmount != null && args.baseAmount > 0 ? formatToman(args.baseAmount) : "—",
+        "نام": name,
+        "پورسانت": commission,
+        "درصد": rate,
+        "مبلغ": base,
       });
       await sendSms({
         to: args.phone ?? "",
@@ -420,6 +523,11 @@ export function fireCommissionSms(args: {
         eventType: "commission",
         recipientName: args.referrerName,
         patientId: args.referrerPatientId ?? null,
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.commission
+        pattern:
+          settings.sendMode === "pattern"
+            ? { bodyId: settings.bodyIdCommission, args: [name, commission, rate, base] }
+            : undefined,
       });
     } catch (err) {
       logger.warn({ err }, "fireCommissionSms failed");

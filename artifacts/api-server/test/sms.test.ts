@@ -20,6 +20,9 @@ import {
   formatShamsiDateForSms,
   formatTimeForSms,
   DEFAULT_TEMPLATES,
+  sanitizePatternArg,
+  buildPatternText,
+  PATTERN_VAR_ORDER,
 } from "../src/lib/sms";
 
 describe("renderTemplate", () => {
@@ -77,6 +80,29 @@ describe("number formatting", () => {
 
   it("formats toman amounts with thousands separators", () => {
     expect(formatToman(2500000)).toBe("۲,۵۰۰,۰۰۰");
+  });
+});
+
+describe("pattern (BaseServiceNumber) helpers", () => {
+  it("sanitizes semicolons and newlines out of pattern args", () => {
+    expect(sanitizePatternArg("لیزر؛ ناحیه; صورت")).toBe("لیزر؛ ناحیه، صورت");
+    expect(sanitizePatternArg("خط\r\nجدید")).toBe("خط جدید");
+    expect(sanitizePatternArg("  فاصله  ")).toBe("فاصله");
+  });
+
+  it("joins args with semicolons in order", () => {
+    expect(buildPatternText(["مریم", "۱۲ تیر", "۱۰:۳۰"])).toBe("مریم;۱۲ تیر;۱۰:۳۰");
+  });
+
+  it("keeps a semicolon-containing arg as a single variable", () => {
+    expect(buildPatternText(["الف;ب", "ج"]).split(";")).toHaveLength(2);
+  });
+
+  it("documents a fixed variable order per event", () => {
+    expect(PATTERN_VAR_ORDER.appointment).toEqual(["نام", "تاریخ", "ساعت"]);
+    expect(PATTERN_VAR_ORDER.payment).toEqual(["نام", "مبلغ", "خدمت"]);
+    expect(PATTERN_VAR_ORDER.commission).toEqual(["نام", "پورسانت", "درصد", "مبلغ"]);
+    expect(PATTERN_VAR_ORDER.birthday).toEqual(["نام"]);
   });
 });
 

@@ -1784,7 +1784,7 @@ components:
     # ── SMS Panel ─────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday]
       properties:
         username: { type: string }
         from: { type: string }
@@ -1792,6 +1792,13 @@ components:
         enabledAppointment: { type: boolean }
         enabledPayment: { type: boolean }
         enabledCommission: { type: boolean }
+        sendMode:
+          type: string
+          enum: [normal, pattern]
+        bodyIdAppointment: { type: string }
+        bodyIdPayment: { type: string }
+        bodyIdCommission: { type: string }
+        bodyIdBirthday: { type: string }
 
     SmsSettingsUpdate:
       type: object
@@ -1802,6 +1809,13 @@ components:
         enabledAppointment: { type: boolean }
         enabledPayment: { type: boolean }
         enabledCommission: { type: boolean }
+        sendMode:
+          type: string
+          enum: [normal, pattern]
+        bodyIdAppointment: { type: string }
+        bodyIdPayment: { type: string }
+        bodyIdCommission: { type: string }
+        bodyIdBirthday: { type: string }
 
     SmsTemplates:
       type: object

@@ -1015,7 +1015,12 @@ export const GetSmsSettingsResponse = zod.object({
   "hasPassword": zod.boolean(),
   "enabledAppointment": zod.boolean(),
   "enabledPayment": zod.boolean(),
-  "enabledCommission": zod.boolean()
+  "enabledCommission": zod.boolean(),
+  "sendMode": zod.enum(['normal', 'pattern']),
+  "bodyIdAppointment": zod.string(),
+  "bodyIdPayment": zod.string(),
+  "bodyIdCommission": zod.string(),
+  "bodyIdBirthday": zod.string()
 })
 
 
@@ -1025,7 +1030,12 @@ export const UpdateSmsSettingsBody = zod.object({
   "from": zod.string().optional(),
   "enabledAppointment": zod.boolean().optional(),
   "enabledPayment": zod.boolean().optional(),
-  "enabledCommission": zod.boolean().optional()
+  "enabledCommission": zod.boolean().optional(),
+  "sendMode": zod.enum(['normal', 'pattern']).optional(),
+  "bodyIdAppointment": zod.string().optional(),
+  "bodyIdPayment": zod.string().optional(),
+  "bodyIdCommission": zod.string().optional(),
+  "bodyIdBirthday": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1034,7 +1044,12 @@ export const UpdateSmsSettingsResponse = zod.object({
   "hasPassword": zod.boolean(),
   "enabledAppointment": zod.boolean(),
   "enabledPayment": zod.boolean(),
-  "enabledCommission": zod.boolean()
+  "enabledCommission": zod.boolean(),
+  "sendMode": zod.enum(['normal', 'pattern']),
+  "bodyIdAppointment": zod.string(),
+  "bodyIdPayment": zod.string(),
+  "bodyIdCommission": zod.string(),
+  "bodyIdBirthday": zod.string()
 })
 
 

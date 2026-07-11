@@ -42,6 +42,7 @@ function SettingsTab() {
   const [password, setPassword] = useState("");
   const [from, setFrom] = useState<string | null>(null);
   const [checkCredit, setCheckCredit] = useState(false);
+  const [bodyIds, setBodyIds] = useState<Record<string, string>>({});
 
   const { data: credit, isFetching: creditLoading } = useGetSmsCredit({
     query: { enabled: checkCredit, queryKey: getGetSmsCreditQueryKey() },
@@ -97,6 +98,17 @@ function SettingsTab() {
 
   function toggle(key: "enabledAppointment" | "enabledPayment" | "enabledCommission", value: boolean) {
     update.mutate({ data: { [key]: value } });
+  }
+
+  function savePatternSettings() {
+    update.mutate({
+      data: {
+        bodyIdAppointment: bodyIds.bodyIdAppointment ?? settings?.bodyIdAppointment ?? "",
+        bodyIdPayment: bodyIds.bodyIdPayment ?? settings?.bodyIdPayment ?? "",
+        bodyIdCommission: bodyIds.bodyIdCommission ?? settings?.bodyIdCommission ?? "",
+        bodyIdBirthday: bodyIds.bodyIdBirthday ?? settings?.bodyIdBirthday ?? "",
+      },
+    });
   }
 
   return (
@@ -192,6 +204,67 @@ function SettingsTab() {
             <Switch checked={settings.enabledCommission} onCheckedChange={(v) => toggle("enabledCommission", v)} data-testid="switch-sms-commission" />
           </div>
         </CardContent>
+      </Card>
+
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <CardTitle>ارسال خدماتی (پترن)</CardTitle>
+              <CardDescription>
+                برای ارسال به شماره‌هایی که پیامک تبلیغاتی‌شان مسدود است، از خط خدماتی اشتراکی ملی‌پیامک با «متن پیش‌فرض (پترن)» استفاده کنید.
+                ابتدا متن هر رویداد را در پنل ملی‌پیامک (بخش ارسال ← متن پیش‌فرض) ثبت کنید و پس از تأیید، «کد متن» هر کدام را اینجا وارد کنید.
+              </CardDescription>
+            </div>
+            <Switch
+              checked={settings.sendMode === "pattern"}
+              onCheckedChange={(v) => update.mutate({ data: { sendMode: v ? "pattern" : "normal" } })}
+              data-testid="switch-sms-pattern-mode"
+            />
+          </div>
+        </CardHeader>
+        {settings.sendMode === "pattern" && (
+          <CardContent className="space-y-5">
+            <div className="rounded-md border bg-muted/40 p-3 text-xs leading-6 text-muted-foreground space-y-1">
+              <div>در متن پترن، متغیرها را دقیقاً با همین ترتیب و به شکل {"{0}"}، {"{1}"}، ... ثبت کنید:</div>
+              <div>• نوبت: {"{0}"} نام — {"{1}"} تاریخ — {"{2}"} ساعت</div>
+              <div>• پرداخت: {"{0}"} نام — {"{1}"} مبلغ — {"{2}"} خدمت</div>
+              <div>• پورسانت: {"{0}"} نام — {"{1}"} پورسانت — {"{2}"} درصد — {"{3}"} مبلغ</div>
+              <div>• تولد: {"{0}"} نام</div>
+              <div className="pt-1">
+                نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم.»
+              </div>
+              <div>
+                توجه: در این حالت، پیامک‌های خودکار و تبریک تولد با پترن ارسال می‌شوند؛ ولی «ارسال متن آزاد به مراجعین» همچنان با خط عادی (تبلیغاتی) می‌رود و به شماره‌های مسدود نمی‌رسد.
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {([
+                { key: "bodyIdAppointment", label: "کد متن نوبت" },
+                { key: "bodyIdPayment", label: "کد متن پرداخت" },
+                { key: "bodyIdCommission", label: "کد متن پورسانت" },
+                { key: "bodyIdBirthday", label: "کد متن تولد" },
+              ] as const).map((f) => (
+                <div key={f.key} className="space-y-2">
+                  <Label htmlFor={`sms-${f.key}`}>{f.label}</Label>
+                  <Input
+                    id={`sms-${f.key}`}
+                    dir="ltr"
+                    inputMode="numeric"
+                    value={bodyIds[f.key] ?? settings[f.key]}
+                    onChange={(e) => setBodyIds((prev) => ({ ...prev, [f.key]: e.target.value.replace(/[^0-9]/g, "") }))}
+                    placeholder="مثلاً 123456"
+                    data-testid={`input-${f.key}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <Button onClick={savePatternSettings} disabled={update.isPending} data-testid="button-save-pattern-settings">
+              {update.isPending ? <Spinner className="size-4" /> : null}
+              ذخیره کدهای پترن
+            </Button>
+          </CardContent>
+        )}
       </Card>
     </div>
   );
@@ -293,6 +366,7 @@ function SendTab() {
   const patients = patientsData?.data ?? [];
 
   const { data: templates } = useGetSmsTemplates();
+  const { data: smsSettings } = useGetSmsSettings();
 
   const send = useSendManualSms({
     mutation: {
@@ -392,6 +466,14 @@ function SendTab() {
               {toPersianDigits(message.length)} حرف
             </div>
           </div>
+
+          {smsSettings?.sendMode === "pattern" && (
+            <div className="rounded-md border bg-muted/40 p-3 text-xs leading-6 text-muted-foreground">
+              {mode === "birthday"
+                ? "حالت خدماتی (پترن) فعال است: تبریک تولد با پترن تولد ارسال می‌شود و متن بالا فقط برای ثبت در تاریخچه استفاده خواهد شد — متن واقعی همان پترن ثبت‌شده در پنل ملی‌پیامک است."
+                : "حالت خدماتی (پترن) فعال است، اما ارسال متن آزاد همیشه با خط عادی (تبلیغاتی) انجام می‌شود و به شماره‌های مسدودشده نمی‌رسد."}
+            </div>
+          )}
 
           <Button onClick={submit} disabled={send.isPending} data-testid="button-send-sms">
             {send.isPending ? <Spinner className="size-4" /> : <Send className="size-4" />}
