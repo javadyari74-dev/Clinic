@@ -135,10 +135,11 @@ describe("POST /client-errors de-duplication", () => {
 
     expect(recordedCount()).toBe(3);
 
-    // Every response is a 204 ack so the client never retries, whether the
-    // report was recorded or dropped.
+    // Duplicates are acked (not retried) — but this is the 4th identical
+    // report, which crosses PERSISTENT_CRASH_THRESHOLD, so the server answers
+    // 200 with a persistent-crash escalation instead of a silent 204.
     const res = await postReport({ message: "Boom", url: "/patients" });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(200);
   });
 
   it("emits a single coalesced summary of suppressed duplicates once the window rolls over", async () => {
