@@ -20,6 +20,7 @@
 - [Radix Select null focus crash](radix-select-controlled.md) — Select value flipping to undefined (controlled↔uncontrolled) crashes on trigger.focus(); always use "" not undefined.
 - [Commission dedupe constraint](commissions-dedupe.md) — one commission per (payment, recipient); partial unique index + 409 pre-check + constraint-catch; migration dedupes before indexing.
 - [SMS fire-and-forget](sms-fire-and-forget.md) — all SMS prep (even recipient lookups) must live in void-async try/catch off the request path; non-sends log a failed sms_log row.
+- [Melipayamak pattern send](melipayamak-pattern.md) — BaseServiceNumber arg order is a contract with panel pattern text; sanitize ";" from args; host unreachable from Replit.
 - [Session expiry 401 handling](session-expiry-401.md) — all 401s converge on notifySessionExpired(); manual fetch must use guardSession; never wrap the login fetch.
 - [Backup builders separation](backup-builders-separation.md) — manual-download backup and internal auto/merge backup use separate builders; never add a table to the manual payload unless legacy restore/wipe also handles it.
 - [UUID additive column](uuid-additive-column.md) — core tables carry uuid v4 beside numeric id; SQLite can't ADD NOT NULL so column is nullable+unique-index; JS backfill+startup assert guarantee presence.

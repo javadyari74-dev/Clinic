@@ -652,6 +652,14 @@ export interface ReportsSummary {
   lowStockItems: InventoryItem[];
 }
 
+export type SmsSettingsSendMode = typeof SmsSettingsSendMode[keyof typeof SmsSettingsSendMode];
+
+
+export const SmsSettingsSendMode = {
+  normal: 'normal',
+  pattern: 'pattern',
+} as const;
+
 export interface SmsSettings {
   username: string;
   from: string;
@@ -659,7 +667,20 @@ export interface SmsSettings {
   enabledAppointment: boolean;
   enabledPayment: boolean;
   enabledCommission: boolean;
+  sendMode: SmsSettingsSendMode;
+  bodyIdAppointment: string;
+  bodyIdPayment: string;
+  bodyIdCommission: string;
+  bodyIdBirthday: string;
 }
+
+export type SmsSettingsUpdateSendMode = typeof SmsSettingsUpdateSendMode[keyof typeof SmsSettingsUpdateSendMode];
+
+
+export const SmsSettingsUpdateSendMode = {
+  normal: 'normal',
+  pattern: 'pattern',
+} as const;
 
 export interface SmsSettingsUpdate {
   username?: string;
@@ -668,6 +689,11 @@ export interface SmsSettingsUpdate {
   enabledAppointment?: boolean;
   enabledPayment?: boolean;
   enabledCommission?: boolean;
+  sendMode?: SmsSettingsUpdateSendMode;
+  bodyIdAppointment?: string;
+  bodyIdPayment?: string;
+  bodyIdCommission?: string;
+  bodyIdBirthday?: string;
 }
 
 export type SmsTemplatesDefaults = {

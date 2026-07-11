@@ -26,17 +26,26 @@ const router: IRouter = Router();
 
 // ── تنظیمات پنل ──────────────────────────────────────────────────────────────
 
-router.get("/sms/settings", async (_req, res): Promise<void> => {
-  const s = await getSmsSettings();
+function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
   // رمز عبور هرگز به کلاینت برنمی‌گردد؛ فقط وضعیت «تنظیم شده یا نه»
-  res.json({
+  return {
     username: s.username,
     from: s.from,
     hasPassword: s.password.length > 0,
     enabledAppointment: s.enabledAppointment,
     enabledPayment: s.enabledPayment,
     enabledCommission: s.enabledCommission,
-  });
+    sendMode: s.sendMode,
+    bodyIdAppointment: s.bodyIdAppointment,
+    bodyIdPayment: s.bodyIdPayment,
+    bodyIdCommission: s.bodyIdCommission,
+    bodyIdBirthday: s.bodyIdBirthday,
+  };
+}
+
+router.get("/sms/settings", async (_req, res): Promise<void> => {
+  const s = await getSmsSettings();
+  res.json(settingsResponse(s));
 });
 
 router.put("/sms/settings", async (req, res): Promise<void> => {
@@ -53,18 +62,31 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
   if (b.enabledAppointment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointment, String(b.enabledAppointment));
   if (b.enabledPayment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledPayment, String(b.enabledPayment));
   if (b.enabledCommission !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledCommission, String(b.enabledCommission));
+  // کد پترن باید فقط رقم باشد (یا خالی برای پاک کردن)
+  const bodyIdFields = [
+    ["bodyIdAppointment", SMS_SETTING_KEYS.bodyIdAppointment],
+    ["bodyIdPayment", SMS_SETTING_KEYS.bodyIdPayment],
+    ["bodyIdCommission", SMS_SETTING_KEYS.bodyIdCommission],
+    ["bodyIdBirthday", SMS_SETTING_KEYS.bodyIdBirthday],
+  ] as const;
+  for (const [field] of bodyIdFields) {
+    const value = b[field];
+    if (value !== undefined && value.trim() !== "" && !/^\d+$/.test(value.trim())) {
+      res.status(400).json({ error: "کد پترن باید فقط شامل رقم باشد" });
+      return;
+    }
+  }
+
+  if (b.sendMode !== undefined) await setAppSetting(SMS_SETTING_KEYS.sendMode, b.sendMode);
+  for (const [field, key] of bodyIdFields) {
+    const value = b[field];
+    if (value !== undefined) await setAppSetting(key, value.trim());
+  }
 
   await logActivity("update", "settings", 0, "تنظیمات پنل پیامکی به‌روزرسانی شد");
 
   const s = await getSmsSettings();
-  res.json({
-    username: s.username,
-    from: s.from,
-    hasPassword: s.password.length > 0,
-    enabledAppointment: s.enabledAppointment,
-    enabledPayment: s.enabledPayment,
-    enabledCommission: s.enabledCommission,
-  });
+  res.json(settingsResponse(s));
 });
 
 // ── قالب‌های پیامک ────────────────────────────────────────────────────────────
@@ -132,6 +154,11 @@ router.post("/sms/send", async (req, res): Promise<void> => {
     return;
   }
 
+  // در حالت خدماتی (پترن)، پیامک تولد با پترن تولد ارسال می‌شود ({0}=نام).
+  // ارسال دستی متن آزاد همیشه با متد عادی می‌رود (پترن از متن آزاد پشتیبانی نمی‌کند).
+  const settings = await getSmsSettings();
+  const usePattern = settings.sendMode === "pattern" && eventType === "birthday";
+
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -143,6 +170,7 @@ router.post("/sms/send", async (req, res): Promise<void> => {
       eventType,
       recipientName: r.name,
       patientId: r.id,
+      pattern: usePattern ? { bodyId: settings.bodyIdBirthday, args: [r.name] } : undefined,
     });
     if (result.ok) sent++;
     else {

@@ -5,6 +5,7 @@
  * Beauty Clinic Management API
  * OpenAPI spec version: 0.1.0
  */
+import type { SmsSettingsUpdateSendMode } from './smsSettingsUpdateSendMode';
 
 export interface SmsSettingsUpdate {
   username?: string;
@@ -13,4 +14,9 @@ export interface SmsSettingsUpdate {
   enabledAppointment?: boolean;
   enabledPayment?: boolean;
   enabledCommission?: boolean;
+  sendMode?: SmsSettingsUpdateSendMode;
+  bodyIdAppointment?: string;
+  bodyIdPayment?: string;
+  bodyIdCommission?: string;
+  bodyIdBirthday?: string;
 }
