@@ -24,6 +24,7 @@ import { formatShamsiDate, formatCurrency, toPersianDigits } from "@/lib/format"
 import { Check, ChevronsUpDown, Plus, Pencil, Trash2 } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { AppointmentCalendar } from "@/components/appointment-calendar";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -224,6 +225,7 @@ export default function Appointments() {
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<number[] | null>(null);
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<{ app: AppRow; date: string; time: string } | null>(null);
 
   const { data: rawList, isError, refetch } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
   const { data: allAppointments } = useListAppointments({ limit: 500 } as any);
@@ -374,6 +376,44 @@ export default function Appointments() {
       setIsBulkDeleting(false);
       setConfirmDeleteIds(null);
     }
+  }
+
+  // ── تقویم گرافیکی ──
+  const calendarAppointments = (allAppointments?.data ?? []).map(a => ({
+    id: a.id,
+    scheduledAt: toMs(a.scheduledAt ?? 0),
+    patientName: a.patientName,
+    serviceName: a.serviceName,
+    status: a.status,
+    staffName: a.staffName,
+  }));
+
+  function handleCalendarCreate(date: string, time: string) {
+    form.reset({ patientId: 0, serviceId: 0, date, time, hasDeposit: false, depositAmount: 0 });
+    setIsOpen(true);
+  }
+
+  function handleCalendarEdit(id: number) {
+    if (!isAdmin) return;
+    const app = (allAppointments?.data ?? []).find(a => a.id === id);
+    if (app) openEdit(app as AppRow);
+  }
+
+  function handleCalendarMove(id: number, date: string, time: string) {
+    if (!isAdmin) return;
+    const app = (allAppointments?.data ?? []).find(a => a.id === id);
+    if (!app) return;
+    const newMs = dateTimeToMs(date, time);
+    if (newMs === toMs(app.scheduledAt ?? 0)) return; // بدون تغییر
+    setMoveTarget({ app: app as AppRow, date, time });
+  }
+
+  function confirmMove() {
+    if (!moveTarget) return;
+    updateAppointment.mutate(
+      { id: moveTarget.app.id, data: { scheduledAt: dateTimeToMs(moveTarget.date, moveTarget.time) } },
+      { onSettled: () => setMoveTarget(null) },
+    );
   }
 
   const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
@@ -626,12 +666,52 @@ export default function Appointments() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Move confirm (calendar drag & drop) */}
+      <AlertDialog open={!!moveTarget} onOpenChange={(open) => { if (!open) setMoveTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>جابه‌جایی نوبت</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-1">
+              {moveTarget && (
+                <>
+                  <span className="block">نوبت «{moveTarget.app.patientName}» — {moveTarget.app.serviceName}</span>
+                  <span className="block">از: {formatShamsiDate(moveTarget.app.scheduledAt, true)}</span>
+                  <span className="block font-medium text-foreground">به: {formatShamsiDate(dateTimeToMs(moveTarget.date, moveTarget.time), true)}</span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogAction disabled={updateAppointment.isPending} onClick={confirmMove} data-testid="confirm-move">
+              {updateAppointment.isPending ? "در حال جابه‌جایی..." : "جابه‌جا شود"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Tabs */}
       <Tabs defaultValue="active">
         <TabsList className="mb-4">
           <TabsTrigger value="active">نوبت‌های فعال</TabsTrigger>
+          <TabsTrigger value="calendar">تقویم</TabsTrigger>
           <TabsTrigger value="history">تاریخچه نوبت‌ها</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="calendar">
+          <Card>
+            <CardContent className="pt-6">
+              <AppointmentCalendar
+                appointments={calendarAppointments}
+                statusMeta={statuses}
+                isAdmin={isAdmin}
+                onCreateSlot={handleCalendarCreate}
+                onEditAppointment={handleCalendarEdit}
+                onMoveAppointment={handleCalendarMove}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="active">
           <Card>
