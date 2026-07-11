@@ -22,6 +22,7 @@ import {
   Zap,
   Bug,
   MessageSquare,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,6 +66,7 @@ export const navItems: NavItem[] = [
   { href: "/reports", label: "گزارشات", icon: BarChart3, permission: "reports" },
   { href: "/reminders", label: "یادآوری‌ها", icon: BellRing, permission: "reminders" },
   { href: "/sms", label: "پنل پیامکی", icon: MessageSquare, permission: "sms" },
+  { href: "/surveys", label: "نظرسنجی‌ها", icon: Star, permission: "surveys" },
   { href: "/backup", label: "پشتیبان‌گیری", icon: Database, permission: "backup" },
   { href: "/users", label: "مدیریت کاربران", icon: UserCog, adminOnly: true },
   { href: "/client-errors", label: "گزارش‌های خطا", icon: Bug, adminOnly: true },

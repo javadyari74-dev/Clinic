@@ -31,6 +31,7 @@ const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
   { key: "reports", label: "گزارشات" },
   { key: "reminders", label: "یادآوری‌ها" },
   { key: "sms", label: "پنل پیامکی" },
+  { key: "surveys", label: "نظرسنجی‌ها" },
   { key: "backup", label: "پشتیبان‌گیری" },
 ];
 

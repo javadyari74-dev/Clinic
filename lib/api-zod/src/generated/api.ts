@@ -532,6 +532,101 @@ export const NotifyWaitingEntryResponse = zod.object({
 })
 
 
+export const ListSurveysQueryParams = zod.object({
+  "status": zod.enum(['pending', 'scored']).optional(),
+  "from": zod.coerce.number().optional(),
+  "to": zod.coerce.number().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListSurveysResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
+  "serviceId": zod.number().nullish(),
+  "staffId": zod.number().nullish(),
+  "sentAt": zod.number(),
+  "smsStatus": zod.string(),
+  "score": zod.number().nullish(),
+  "comment": zod.string().nullish(),
+  "scoredAt": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "staffName": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+export const GetSurveyStatsQueryParams = zod.object({
+  "from": zod.coerce.number().optional(),
+  "to": zod.coerce.number().optional()
+})
+
+export const GetSurveyStatsResponse = zod.object({
+  "total": zod.number(),
+  "scoredCount": zod.number(),
+  "avgScore": zod.number().nullable(),
+  "byService": zod.array(zod.object({
+  "id": zod.number().nullish(),
+  "name": zod.string().nullish(),
+  "count": zod.number(),
+  "avgScore": zod.number()
+})),
+  "byStaff": zod.array(zod.object({
+  "id": zod.number().nullish(),
+  "name": zod.string().nullish(),
+  "count": zod.number(),
+  "avgScore": zod.number()
+}))
+})
+
+
+export const ScoreSurveyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const scoreSurveyBodyScoreMax = 5;
+
+
+
+export const ScoreSurveyBody = zod.object({
+  "score": zod.number().min(1).max(scoreSurveyBodyScoreMax),
+  "comment": zod.string().nullish()
+})
+
+export const ScoreSurveyResponse = zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
+  "serviceId": zod.number().nullish(),
+  "staffId": zod.number().nullish(),
+  "sentAt": zod.number(),
+  "smsStatus": zod.string(),
+  "score": zod.number().nullish(),
+  "comment": zod.string().nullish(),
+  "scoredAt": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "staffName": zod.string().nullish()
+})
+
+
+export const DeleteSurveyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
 export const GetAppointmentParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -1109,11 +1204,14 @@ export const GetSmsSettingsResponse = zod.object({
   "enabledAppointment": zod.boolean(),
   "enabledPayment": zod.boolean(),
   "enabledCommission": zod.boolean(),
+  "enabledSurvey": zod.boolean(),
+  "surveyThrottleDays": zod.number(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
   "bodyIdCommission": zod.string(),
-  "bodyIdBirthday": zod.string()
+  "bodyIdBirthday": zod.string(),
+  "bodyIdSurvey": zod.string()
 })
 
 
@@ -1124,11 +1222,14 @@ export const UpdateSmsSettingsBody = zod.object({
   "enabledAppointment": zod.boolean().optional(),
   "enabledPayment": zod.boolean().optional(),
   "enabledCommission": zod.boolean().optional(),
+  "enabledSurvey": zod.boolean().optional(),
+  "surveyThrottleDays": zod.number().optional(),
   "sendMode": zod.enum(['normal', 'pattern']).optional(),
   "bodyIdAppointment": zod.string().optional(),
   "bodyIdPayment": zod.string().optional(),
   "bodyIdCommission": zod.string().optional(),
-  "bodyIdBirthday": zod.string().optional()
+  "bodyIdBirthday": zod.string().optional(),
+  "bodyIdSurvey": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1138,11 +1239,14 @@ export const UpdateSmsSettingsResponse = zod.object({
   "enabledAppointment": zod.boolean(),
   "enabledPayment": zod.boolean(),
   "enabledCommission": zod.boolean(),
+  "enabledSurvey": zod.boolean(),
+  "surveyThrottleDays": zod.number(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
   "bodyIdCommission": zod.string(),
-  "bodyIdBirthday": zod.string()
+  "bodyIdBirthday": zod.string(),
+  "bodyIdSurvey": zod.string()
 })
 
 
@@ -1151,11 +1255,13 @@ export const GetSmsTemplatesResponse = zod.object({
   "payment": zod.string(),
   "commission": zod.string(),
   "birthday": zod.string(),
+  "survey": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
   "commission": zod.string(),
-  "birthday": zod.string()
+  "birthday": zod.string(),
+  "survey": zod.string()
 })
 })
 
@@ -1164,7 +1270,8 @@ export const UpdateSmsTemplatesBody = zod.object({
   "appointment": zod.string().optional(),
   "payment": zod.string().optional(),
   "commission": zod.string().optional(),
-  "birthday": zod.string().optional()
+  "birthday": zod.string().optional(),
+  "survey": zod.string().optional()
 })
 
 export const UpdateSmsTemplatesResponse = zod.object({
@@ -1172,11 +1279,13 @@ export const UpdateSmsTemplatesResponse = zod.object({
   "payment": zod.string(),
   "commission": zod.string(),
   "birthday": zod.string(),
+  "survey": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
   "commission": zod.string(),
-  "birthday": zod.string()
+  "birthday": zod.string(),
+  "survey": zod.string()
 })
 })
 

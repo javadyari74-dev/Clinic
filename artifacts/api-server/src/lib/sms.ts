@@ -1,5 +1,5 @@
-import { eq, inArray } from "drizzle-orm";
-import { db, appSettingsTable, smsLogTable } from "@workspace/db";
+import { eq, and, gte, desc, inArray } from "drizzle-orm";
+import { db, appSettingsTable, smsLogTable, surveysTable, appointmentsTable } from "@workspace/db";
 import { logger } from "./logger";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,12 +22,17 @@ export const SMS_SETTING_KEYS = {
   enabledAppointment: "sms_enabled_appointment",
   enabledPayment: "sms_enabled_payment",
   enabledCommission: "sms_enabled_commission",
+  // نظرسنجی پس از مراجعه — برخلاف بقیه رویدادها پیش‌فرض «خاموش» است
+  enabledSurvey: "sms_enabled_survey",
+  // حداقل فاصله (روز) بین دو پیامک نظرسنجی برای یک بیمار
+  surveyThrottleDays: "sms_survey_throttle_days",
   // حالت ارسال: "normal" (متن آزاد) یا "pattern" (خدماتی با متن پیش‌فرض)
   sendMode: "sms_send_mode",
   bodyIdAppointment: "sms_bodyid_appointment",
   bodyIdPayment: "sms_bodyid_payment",
   bodyIdCommission: "sms_bodyid_commission",
   bodyIdBirthday: "sms_bodyid_birthday",
+  bodyIdSurvey: "sms_bodyid_survey",
 } as const;
 
 export type SmsSendMode = "normal" | "pattern";
@@ -37,6 +42,7 @@ export const SMS_TEMPLATE_KEYS = {
   payment: "sms_template_payment",
   commission: "sms_template_commission",
   birthday: "sms_template_birthday",
+  survey: "sms_template_survey",
 } as const;
 
 export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
@@ -51,6 +57,8 @@ export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
     "{نام} عزیز، بابت معرفی، مبلغ {پورسانت} تومان ({درصد}٪ از {مبلغ} تومان) به حساب شما در مطب زیبایی دکتر یاری منظور شد.\nwww.drjavadyari.ir",
   birthday:
     "{نام} عزیز، تولدتان مبارک! 🎉 به همین مناسبت از طرف مطب زیبایی دکتر یاری تخفیف ویژه‌ای برای شما در نظر گرفته شده است.\nwww.drjavadyari.ir",
+  survey:
+    "{نام} عزیز، از مراجعه شما به مطب زیبایی دکتر یاری سپاسگزاریم. خوشحال می‌شویم میزان رضایت خود از {خدمت} را با عددی از ۱ تا ۵ در پاسخ به تماس همکاران ما اعلام کنید.\nwww.drjavadyari.ir",
 };
 
 // ── ابزارهای قالب و قالب‌بندی ─────────────────────────────────────────────────
@@ -154,11 +162,24 @@ export interface SmsSettings {
   enabledAppointment: boolean;
   enabledPayment: boolean;
   enabledCommission: boolean;
+  enabledSurvey: boolean;
+  surveyThrottleDays: number;
   sendMode: SmsSendMode;
   bodyIdAppointment: string;
   bodyIdPayment: string;
   bodyIdCommission: string;
   bodyIdBirthday: string;
+  bodyIdSurvey: string;
+}
+
+// حداقل فاصله نظرسنجی: عدد صحیح بین ۰ تا ۳۶۵ روز (پیش‌فرض ۳۰)
+export const SURVEY_THROTTLE_DEFAULT_DAYS = 30;
+export const SURVEY_THROTTLE_MAX_DAYS = 365;
+
+export function clampSurveyThrottleDays(raw: string | number | null | undefined): number {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return SURVEY_THROTTLE_DEFAULT_DAYS;
+  return Math.min(Math.max(Math.trunc(n), 0), SURVEY_THROTTLE_MAX_DAYS);
 }
 
 async function readSettingsMap(keys: string[]): Promise<Map<string, string | null>> {
@@ -181,11 +202,15 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     enabledAppointment: flag(SMS_SETTING_KEYS.enabledAppointment),
     enabledPayment: flag(SMS_SETTING_KEYS.enabledPayment),
     enabledCommission: flag(SMS_SETTING_KEYS.enabledCommission),
+    // نظرسنجی باید صریحاً روشن شود (پیش‌فرض خاموش — برخلاف flag که پیش‌فرض روشن است)
+    enabledSurvey: map.get(SMS_SETTING_KEYS.enabledSurvey) === "true",
+    surveyThrottleDays: clampSurveyThrottleDays(map.get(SMS_SETTING_KEYS.surveyThrottleDays)),
     sendMode: map.get(SMS_SETTING_KEYS.sendMode) === "pattern" ? "pattern" : "normal",
     bodyIdAppointment: (map.get(SMS_SETTING_KEYS.bodyIdAppointment) ?? "").trim(),
     bodyIdPayment: (map.get(SMS_SETTING_KEYS.bodyIdPayment) ?? "").trim(),
     bodyIdCommission: (map.get(SMS_SETTING_KEYS.bodyIdCommission) ?? "").trim(),
     bodyIdBirthday: (map.get(SMS_SETTING_KEYS.bodyIdBirthday) ?? "").trim(),
+    bodyIdSurvey: (map.get(SMS_SETTING_KEYS.bodyIdSurvey) ?? "").trim(),
   };
 }
 
@@ -279,11 +304,13 @@ function describePatternFailure(resp: MelipayamakResponse): string {
 //   payment:     {0}=نام  {1}=مبلغ   {2}=خدمت
 //   commission:  {0}=نام  {1}=پورسانت {2}=درصد  {3}=مبلغ
 //   birthday:    {0}=نام
+//   survey:      {0}=نام  {1}=خدمت
 export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   appointment: ["نام", "تاریخ", "ساعت"],
   payment: ["نام", "مبلغ", "خدمت"],
   commission: ["نام", "پورسانت", "درصد", "مبلغ"],
   birthday: ["نام"],
+  survey: ["نام", "خدمت"],
 };
 
 // متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
@@ -300,7 +327,7 @@ export function buildPatternText(args: string[]): string {
 export interface SendSmsInput {
   to: string;
   text: string;
-  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list";
+  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey";
   recipientName?: string | null;
   patientId?: number | null;
   // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.
@@ -531,6 +558,106 @@ export function fireCommissionSms(args: {
       });
     } catch (err) {
       logger.warn({ err }, "fireCommissionSms failed");
+    }
+  })();
+}
+
+// ── نظرسنجی پس از مراجعه ──────────────────────────────────────────────────────
+
+// آیا از آخرین نظرسنجی این بیمار کمتر از N روز گذشته است؟ (تابع خالص برای تست)
+export function isSurveyThrottled(
+  lastSentAt: number | null | undefined,
+  nowSeconds: number,
+  throttleDays: number,
+): boolean {
+  if (lastSentAt == null) return false;
+  if (throttleDays <= 0) return false;
+  return lastSentAt >= nowSeconds - throttleDays * 86_400;
+}
+
+// پس از ثبت پرداخت (پایان مراجعه) صدا زده می‌شود. ردیف نظرسنجی «قبل از» ارسال
+// درج می‌شود تا سهمیه محدودیت تکرار همان لحظه گرفته شود (دو پرداخت پشت‌سرهم
+// برای یک بیمار باعث دو پیامک نمی‌شود)؛ سپس نتیجه ارسال روی همان ردیف
+// به‌روزرسانی می‌شود. ردیف حتی با ارسال ناموفق هم می‌ماند تا منشی بتواند در
+// تماس بعدی امتیاز را دستی ثبت کند.
+export function fireSurveySms(args: {
+  patientId: number;
+  patientName: string | null;
+  phone: string | null;
+  paymentId?: number | null;
+  appointmentId?: number | null;
+  serviceName?: string | null;
+}): void {
+  void (async () => {
+    try {
+      const settings = await getSmsSettings();
+      if (!settings.enabledSurvey) return;
+
+      const now = Math.floor(Date.now() / 1000);
+
+      // محدودیت تکرار: آخرین نظرسنجی این بیمار (موفق یا ناموفق) را بررسی کن
+      const [last] = await db
+        .select({ sentAt: surveysTable.sentAt })
+        .from(surveysTable)
+        .where(eq(surveysTable.patientId, args.patientId))
+        .orderBy(desc(surveysTable.sentAt))
+        .limit(1);
+      if (isSurveyThrottled(last?.sentAt, now, settings.surveyThrottleDays)) return;
+
+      // خدمت/کارمند از روی نوبتِ همان پرداخت در لحظه ارسال ذخیره می‌شود
+      let serviceId: number | null = null;
+      let staffId: number | null = null;
+      if (args.appointmentId != null && args.appointmentId > 0) {
+        const [appt] = await db
+          .select({ serviceId: appointmentsTable.serviceId, staffId: appointmentsTable.staffId })
+          .from(appointmentsTable)
+          .where(eq(appointmentsTable.id, args.appointmentId))
+          .limit(1);
+        if (appt) {
+          serviceId = appt.serviceId ?? null;
+          staffId = appt.staffId ?? null;
+        }
+      }
+
+      const [row] = await db
+        .insert(surveysTable)
+        .values({
+          patientId: args.patientId,
+          appointmentId: args.appointmentId ?? null,
+          paymentId: args.paymentId ?? null,
+          serviceId,
+          staffId,
+          sentAt: now,
+          smsStatus: "pending",
+        })
+        .returning({ id: surveysTable.id });
+
+      const templates = await getSmsTemplates();
+      const name = args.patientName ?? "";
+      const service = args.serviceName || "خدمات";
+      const text = renderTemplate(templates.survey, {
+        "نام": name,
+        "خدمت": service,
+      });
+      const result = await sendSms({
+        to: args.phone ?? "",
+        text,
+        eventType: "survey",
+        recipientName: args.patientName,
+        patientId: args.patientId,
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.survey
+        pattern:
+          settings.sendMode === "pattern"
+            ? { bodyId: settings.bodyIdSurvey, args: [name, service] }
+            : undefined,
+      });
+
+      await db
+        .update(surveysTable)
+        .set({ smsStatus: result.ok ? "sent" : "failed" })
+        .where(eq(surveysTable.id, row.id));
+    } catch (err) {
+      logger.warn({ err }, "fireSurveySms failed");
     }
   })();
 }

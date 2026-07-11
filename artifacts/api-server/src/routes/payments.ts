@@ -9,7 +9,7 @@ import {
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 import { logger } from "../lib/logger";
-import { firePaymentSms, fireCommissionSms } from "../lib/sms";
+import { firePaymentSms, fireCommissionSms, fireSurveySms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -201,6 +201,19 @@ router.post("/payments", async (req, res): Promise<void> => {
     amount: payment.amount,
     serviceName: payment.serviceName ?? null,
   });
+
+  // پیامک نظرسنجی پس از مراجعه — فقط وقتی بیمارِ پرداخت مشخص است؛ محدودیت تکرار
+  // و روشن‌بودن قابلیت داخل خود تابع بررسی می‌شود (آتش و فراموش)
+  if (paymentPatient) {
+    fireSurveySms({
+      patientId: paymentPatient.id,
+      patientName: paymentPatient.name,
+      phone: paymentPatient.phone,
+      paymentId: payment.id,
+      appointmentId: payment.appointmentId ?? null,
+      serviceName: payment.serviceName ?? null,
+    });
+  }
 
   await logActivity("create", "payment", payment.id, `پرداخت ${payment.amount.toLocaleString()} تومان ثبت شد`);
   res.status(201).json(payment);

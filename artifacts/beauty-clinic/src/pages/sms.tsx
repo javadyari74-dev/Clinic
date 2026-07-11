@@ -43,6 +43,7 @@ function SettingsTab() {
   const [from, setFrom] = useState<string | null>(null);
   const [checkCredit, setCheckCredit] = useState(false);
   const [bodyIds, setBodyIds] = useState<Record<string, string>>({});
+  const [throttleDraft, setThrottleDraft] = useState<string | null>(null);
 
   const { data: credit, isFetching: creditLoading } = useGetSmsCredit({
     query: { enabled: checkCredit, queryKey: getGetSmsCreditQueryKey() },
@@ -96,8 +97,17 @@ function SettingsTab() {
     }
   }
 
-  function toggle(key: "enabledAppointment" | "enabledPayment" | "enabledCommission", value: boolean) {
+  function toggle(key: "enabledAppointment" | "enabledPayment" | "enabledCommission" | "enabledSurvey", value: boolean) {
     update.mutate({ data: { [key]: value } });
+  }
+
+  // حداقل فاصله نظرسنجی (روز) — با خروج از فیلد ذخیره می‌شود
+  function saveThrottleDays() {
+    if (throttleDraft === null) return;
+    const days = parseInt(throttleDraft, 10);
+    setThrottleDraft(null);
+    if (!Number.isFinite(days) || days === settings?.surveyThrottleDays) return;
+    update.mutate({ data: { surveyThrottleDays: days } });
   }
 
   function savePatternSettings() {
@@ -107,6 +117,7 @@ function SettingsTab() {
         bodyIdPayment: bodyIds.bodyIdPayment ?? settings?.bodyIdPayment ?? "",
         bodyIdCommission: bodyIds.bodyIdCommission ?? settings?.bodyIdCommission ?? "",
         bodyIdBirthday: bodyIds.bodyIdBirthday ?? settings?.bodyIdBirthday ?? "",
+        bodyIdSurvey: bodyIds.bodyIdSurvey ?? settings?.bodyIdSurvey ?? "",
       },
     });
   }
@@ -203,6 +214,30 @@ function SettingsTab() {
             </div>
             <Switch checked={settings.enabledCommission} onCheckedChange={(v) => toggle("enabledCommission", v)} data-testid="switch-sms-commission" />
           </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">نظرسنجی پس از مراجعه</div>
+              <div className="text-sm text-muted-foreground">پیامک نظرسنجی رضایت پس از ثبت پرداخت؛ امتیاز (۱ تا ۵) را منشی در تماس بعدی ثبت می‌کند</div>
+            </div>
+            <Switch checked={settings.enabledSurvey} onCheckedChange={(v) => toggle("enabledSurvey", v)} data-testid="switch-sms-survey" />
+          </div>
+          {settings.enabledSurvey && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/40 p-3">
+              <Label htmlFor="sms-survey-throttle" className="text-sm font-normal leading-6">
+                حداقل فاصله بین دو پیامک نظرسنجی برای هر مراجع (روز)
+              </Label>
+              <Input
+                id="sms-survey-throttle"
+                dir="ltr"
+                inputMode="numeric"
+                className="w-24 shrink-0"
+                value={throttleDraft ?? String(settings.surveyThrottleDays)}
+                onChange={(e) => setThrottleDraft(e.target.value.replace(/[^0-9]/g, ""))}
+                onBlur={saveThrottleDays}
+                data-testid="input-survey-throttle-days"
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -231,6 +266,7 @@ function SettingsTab() {
               <div>• پرداخت: {"{0}"} نام — {"{1}"} مبلغ — {"{2}"} خدمت</div>
               <div>• پورسانت: {"{0}"} نام — {"{1}"} پورسانت — {"{2}"} درصد — {"{3}"} مبلغ</div>
               <div>• تولد: {"{0}"} نام</div>
+              <div>• نظرسنجی: {"{0}"} نام — {"{1}"} خدمت</div>
               <div className="pt-1">
                 نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم. www.drjavadyari.ir»
               </div>
@@ -244,6 +280,7 @@ function SettingsTab() {
                 { key: "bodyIdPayment", label: "کد متن پرداخت" },
                 { key: "bodyIdCommission", label: "کد متن پورسانت" },
                 { key: "bodyIdBirthday", label: "کد متن تولد" },
+                { key: "bodyIdSurvey", label: "کد متن نظرسنجی" },
               ] as const).map((f) => (
                 <div key={f.key} className="space-y-2">
                   <Label htmlFor={`sms-${f.key}`}>{f.label}</Label>
@@ -277,6 +314,7 @@ const TEMPLATE_META: { key: keyof Omit<SmsTemplates, "defaults">; title: string;
   { key: "payment", title: "رسید پرداخت", vars: ["{نام}", "{مبلغ}", "{خدمت}"] },
   { key: "commission", title: "پورسانت معرف", vars: ["{نام}", "{پورسانت}", "{درصد}", "{مبلغ}"] },
   { key: "birthday", title: "تبریک تولد", vars: ["{نام}"] },
+  { key: "survey", title: "نظرسنجی پس از مراجعه", vars: ["{نام}", "{خدمت}"] },
 ];
 
 function TemplatesTab() {
@@ -536,6 +574,7 @@ const EVENT_LABELS: Record<string, string> = {
   payment: "پرداخت",
   commission: "پورسانت",
   birthday: "تولد",
+  survey: "نظرسنجی",
   manual: "دستی",
 };
 

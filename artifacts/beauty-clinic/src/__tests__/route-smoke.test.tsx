@@ -43,6 +43,7 @@ const routes: RouteCase[] = [
   { path: "/backup", heading: "پشتیبان‌گیری" },
   { path: "/accounting", heading: "حسابداری و سود و زیان" },
   { path: "/sms", heading: "پنل پیامکی" },
+  { path: "/surveys", heading: "نظرسنجی‌ها" },
   { path: "/users", heading: "مدیریت کاربران" },
 ];
 
@@ -96,6 +97,7 @@ const lazyModules: Record<string, () => Promise<{ default: unknown }>> = {
   users: () => import("@/pages/users"),
   laser: () => import("@/pages/laser"),
   sms: () => import("@/pages/sms"),
+  surveys: () => import("@/pages/surveys"),
 };
 
 describe("lazy page chunks expose a default component", () => {
