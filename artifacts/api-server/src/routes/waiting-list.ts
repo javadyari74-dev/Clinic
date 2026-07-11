@@ -1,16 +1,19 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
-import { db, waitingListTable, patientsTable, servicesTable } from "@workspace/db";
+import { eq, desc, and, sql } from "drizzle-orm";
+import { db, waitingListTable, patientsTable, servicesTable, appointmentsTable, staffTable, paymentsTable } from "@workspace/db";
 import {
   ListWaitingListQueryParams,
   CreateWaitingEntryBody,
   UpdateWaitingEntryParams,
   UpdateWaitingEntryBody,
   DeleteWaitingEntryParams,
+  ConvertWaitingEntryParams,
+  ConvertWaitingEntryBody,
   NotifyWaitingEntryParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
-import { sendSms, formatShamsiDateForSms } from "../lib/sms";
+import { generateUniqueAppointmentCode } from "../lib/appointment-code";
+import { sendSms, formatShamsiDateForSms, fireAppointmentSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -124,6 +127,124 @@ router.delete("/waiting-list/:id", async (req, res): Promise<void> => {
     return;
   }
   res.sendStatus(204);
+});
+
+// تبدیل مورد لیست انتظار به نوبت — اتمیک در سمت سرور:
+// ساخت نوبت و «برآورده‌شده» کردن مورد در یک تراکنش انجام می‌شود تا هرگز نوبتی
+// ساخته نشود در حالی که مورد همچنان «در انتظار» مانده است.
+router.post("/waiting-list/:id/convert", async (req, res): Promise<void> => {
+  const params = ConvertWaitingEntryParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = ConvertWaitingEntryBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  const [entry] = await db
+    .select()
+    .from(waitingListTable)
+    .where(eq(waitingListTable.id, params.data.id));
+  if (!entry) {
+    res.status(404).json({ error: "مورد لیست انتظار یافت نشد" });
+    return;
+  }
+  if (entry.status !== "waiting") {
+    res.status(409).json({ error: "این مورد دیگر در وضعیت انتظار نیست" });
+    return;
+  }
+
+  const serviceId = parsed.data.serviceId ?? entry.serviceId;
+
+  const existing = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(appointmentsTable)
+    .where(and(
+      eq(appointmentsTable.patientId, entry.patientId),
+      eq(appointmentsTable.serviceId, serviceId)
+    ));
+  const sessionNumber = Number(existing[0].count) + 1;
+  const appointmentCode = await generateUniqueAppointmentCode();
+
+  // ساخت نوبت + برآورده‌شدن مورد لیست انتظار در یک تراکنش
+  const { appt } = await db.transaction(async (tx) => {
+    const [createdAppt] = await tx
+      .insert(appointmentsTable)
+      .values({
+        patientId: entry.patientId,
+        serviceId,
+        staffId: parsed.data.staffId ?? null,
+        scheduledAt: parsed.data.scheduledAt,
+        deposit: parsed.data.deposit ?? 0,
+        sessionNumber,
+        appointmentCode,
+      })
+      .returning();
+    await tx
+      .update(waitingListTable)
+      .set({ status: "fulfilled", appointmentId: createdAppt.id })
+      .where(eq(waitingListTable.id, entry.id));
+    return { appt: createdAppt };
+  });
+
+  const [apptDetail] = await db
+    .select({
+      id: appointmentsTable.id,
+      appointmentCode: appointmentsTable.appointmentCode,
+      patientId: appointmentsTable.patientId,
+      serviceId: appointmentsTable.serviceId,
+      staffId: appointmentsTable.staffId,
+      scheduledAt: appointmentsTable.scheduledAt,
+      status: appointmentsTable.status,
+      notes: appointmentsTable.notes,
+      price: appointmentsTable.price,
+      deposit: appointmentsTable.deposit,
+      sessionNumber: appointmentsTable.sessionNumber,
+      createdAt: appointmentsTable.createdAt,
+      patientName: patientsTable.name,
+      patientPhone: patientsTable.phone,
+      serviceName: servicesTable.name,
+      unitLabel: servicesTable.unitLabel,
+      staffName: staffTable.name,
+    })
+    .from(appointmentsTable)
+    .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
+    .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
+    .leftJoin(staffTable, eq(appointmentsTable.staffId, staffTable.id))
+    .where(eq(appointmentsTable.id, appt.id));
+
+  // بیعانه نیز یک تراکنش صندوق است — همان الگوی ثبت نوبت عادی
+  if (appt.deposit && appt.deposit > 0) {
+    await db.insert(paymentsTable).values({
+      appointmentId: appt.id,
+      amount: appt.deposit,
+      originalAmount: appt.deposit,
+      method: "cash",
+      notes: "بیعانه",
+      patientName: apptDetail?.patientName ?? null,
+      serviceName: apptDetail?.serviceName ?? null,
+      sessionNumber: apptDetail?.sessionNumber ?? null,
+      unitLabel: apptDetail?.unitLabel ?? null,
+      paidAt: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  await logActivity("create", "appointment", appt.id, `نوبت ${appointmentCode} از لیست انتظار برای «${apptDetail?.patientName ?? ""}» ثبت شد`);
+
+  // پیامک تأیید نوبت — آتش و فراموش؛ خارج از مسیر پاسخ
+  fireAppointmentSms({
+    patientId: appt.patientId,
+    patientName: apptDetail?.patientName ?? null,
+    phone: apptDetail?.patientPhone ?? null,
+    scheduledAt: appt.scheduledAt,
+    serviceName: apptDetail?.serviceName ?? null,
+  });
+
+  const entryDetail = await selectEntry(entry.id);
+  res.status(201).json({ appointment: apptDetail, entry: entryDetail });
 });
 
 // اطلاع‌رسانی جای خالی — با کلیک منشی ارسال می‌شود و نتیجه به او برمی‌گردد.

@@ -71,6 +71,8 @@ export * from './smsTemplatesUpdate';
 export * from './staffInput';
 export * from './staffMember';
 export * from './staffUpdate';
+export * from './waitingConvertInput';
+export * from './waitingConvertResult';
 export * from './waitingEntry';
 export * from './waitingEntryInput';
 export * from './waitingEntryList';

@@ -510,6 +510,18 @@ export const DeleteWaitingEntryParams = zod.object({
 })
 
 
+export const ConvertWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConvertWaitingEntryBody = zod.object({
+  "scheduledAt": zod.number(),
+  "serviceId": zod.number().optional(),
+  "staffId": zod.number().nullish(),
+  "deposit": zod.number().optional()
+})
+
+
 export const NotifyWaitingEntryParams = zod.object({
   "id": zod.coerce.number()
 })

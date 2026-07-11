@@ -3,7 +3,7 @@ import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
   getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
   getGetAppointmentQueryOptions,
-  useListWaitingList, useUpdateWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
+  useListWaitingList, useConvertWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
   type WaitingEntry,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -262,12 +262,29 @@ export default function Appointments() {
     queryClient.invalidateQueries({ queryKey: getListWaitingListQueryKey() });
   }, [queryClient]);
 
-  // پس از ثبت نوبتِ حاصل از تبدیل، مورد لیست انتظار «برآورده‌شده» علامت می‌خورد
-  const fulfillWaitingEntry = useUpdateWaitingEntry({
+  // تبدیل مورد لیست انتظار به نوبت — سرور نوبت را می‌سازد و مورد را در یک
+  // تراکنش «برآورده‌شده» می‌کند؛ هیچ زنجیره‌سازی سمت کلاینت وجود ندارد.
+  const convertWaitingEntry = useConvertWaitingEntry({
     mutation: {
       onSuccess: () => {
+        invalidate();
         invalidateWaiting();
+        setIsOpen(false);
+        convertEntryRef.current = null;
         toast({ title: "مورد لیست انتظار به نوبت تبدیل شد" });
+        form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
+      },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "تبدیل به نوبت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "تبدیل مورد لیست انتظار با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
       },
     },
   });
@@ -283,14 +300,15 @@ export default function Appointments() {
     },
   });
 
-  // نامزدهای لیست انتظار برای یک روز مشخص: بازه دلخواهشان آن روز را پوشش دهد
-  // (موارد بدون بازه، هر روزی را می‌پذیرند)
-  const findCandidatesForDay = useCallback((scheduledAtMs: number): WaitingEntry[] => {
+  // نامزدهای لیست انتظار برای جای خالی: خدمتشان با نوبت لغوشده یکی باشد و
+  // بازه دلخواهشان آن روز را پوشش دهد (موارد بدون بازه، هر روزی را می‌پذیرند)
+  const findCandidatesForDay = useCallback((scheduledAtMs: number, serviceId?: number | null): WaitingEntry[] => {
     const d = new Date(scheduledAtMs);
     const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     const dayEnd = dayStart + 86_400_000;
     return (waitingList?.data ?? []).filter((e) => {
       if (e.status !== "waiting") return false;
+      if (serviceId != null && e.serviceId !== serviceId) return false;
       const fromMs = e.preferredFrom ? toMs(e.preferredFrom) : null;
       const toMsV = e.preferredTo ? toMs(e.preferredTo) : fromMs;
       if (fromMs === null) return true;
@@ -304,19 +322,10 @@ export default function Appointments() {
 
   const createAppointment = useCreateAppointment({
     mutation: {
-      onSuccess: (created) => {
+      onSuccess: () => {
         invalidate();
         setIsOpen(false);
         toast({ title: "نوبت با موفقیت ثبت شد" });
-        // اگر این نوبت از لیست انتظار تبدیل شده، مورد مربوطه «برآورده‌شده» می‌شود
-        const convertEntry = convertEntryRef.current;
-        if (convertEntry && created?.id) {
-          fulfillWaitingEntry.mutate({
-            id: convertEntry.id,
-            data: { status: "fulfilled", appointmentId: created.id },
-          });
-        }
-        convertEntryRef.current = null;
         form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
       },
       onError: (error) => {
@@ -350,7 +359,7 @@ export default function Appointments() {
             const app = (allAppointments?.data ?? []).find(a => a.id === vars.id);
             if (app?.scheduledAt) {
               const ms = toMs(app.scheduledAt);
-              const candidates = findCandidatesForDay(ms);
+              const candidates = findCandidatesForDay(ms, app.serviceId);
               if (candidates.length > 0) {
                 setCancelCandidates({
                   dateLabel: formatShamsiDate(app.scheduledAt),
@@ -386,6 +395,19 @@ export default function Appointments() {
   const hasDeposit = form.watch("hasDeposit");
 
   function onSubmit(values: FormValues) {
+    const convertEntry = convertEntryRef.current;
+    // اگر بیمار در دیالوگ عوض شده باشد، این دیگر تبدیلِ آن مورد نیست — ثبت عادی
+    if (convertEntry && values.patientId === convertEntry.patientId) {
+      convertWaitingEntry.mutate({
+        id: convertEntry.id,
+        data: {
+          scheduledAt: dateTimeToMs(values.date, values.time),
+          serviceId: values.serviceId,
+          deposit: values.hasDeposit && values.depositAmount > 0 ? values.depositAmount : undefined,
+        },
+      });
+      return;
+    }
     createAppointment.mutate({
       data: {
         patientId: values.patientId,
@@ -541,8 +563,8 @@ export default function Appointments() {
       {/* New appointment dialog */}
       <Dialog open={isOpen} onOpenChange={(open) => {
         setIsOpen(open);
-        // پیوند تبدیل فقط وقتی پاک می‌شود که ثبت در جریان نباشد؛ وگرنه موفقیتِ در راه، آن را برآورده می‌کند
-        if (!open && !createAppointment.isPending) convertEntryRef.current = null;
+        // پیوند تبدیل فقط وقتی پاک می‌شود که تبدیل در جریان نباشد
+        if (!open && !convertWaitingEntry.isPending) convertEntryRef.current = null;
       }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>ثبت نوبت جدید</DialogTitle></DialogHeader>
@@ -647,8 +669,8 @@ export default function Appointments() {
               </div>
 
               <DialogFooter>
-                <Button type="submit" disabled={createAppointment.isPending} className="w-full">
-                  {createAppointment.isPending ? "در حال ثبت..." : "ثبت نوبت"}
+                <Button type="submit" disabled={createAppointment.isPending || convertWaitingEntry.isPending} className="w-full">
+                  {createAppointment.isPending || convertWaitingEntry.isPending ? "در حال ثبت..." : "ثبت نوبت"}
                 </Button>
               </DialogFooter>
             </form>

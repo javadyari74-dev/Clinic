@@ -356,6 +356,19 @@ export interface WaitingEntryUpdate {
   appointmentId?: number | null;
 }
 
+export interface WaitingConvertInput {
+  scheduledAt: number;
+  serviceId?: number;
+  /** @nullable */
+  staffId?: number | null;
+  deposit?: number;
+}
+
+export interface WaitingConvertResult {
+  appointment: AppointmentWithDetails;
+  entry: WaitingEntry;
+}
+
 export interface WaitingNotifyResult {
   ok: boolean;
   /** @nullable */
