@@ -13,10 +13,17 @@ pull (read) access to that repo, so the Replit Git pane / checkpoint sync cannot
 Pushing is only possible with a Personal Access Token from the `javadyari74-dev` account,
 provided as the env secret `GH_PUSH_TOKEN` (do not print its value).
 
-**How to push (plain fast-forward, no force):**
+**History rewrite (July 11, 2026):** remote `main` was rewritten with git-filter-repo to
+purge `clinic.db`, `clinic.db-wal`, `clinic.db-shm` blobs (patient data / SMS credentials).
+Local platform-managed history was NOT rewritten, so it is **no longer a descendant of
+remote main** and still contains those blobs. **Never push local history directly again** —
+a plain push will be rejected, and forcing it would re-expose the purged data.
+
+**How to push now (snapshot method):** in /tmp, clone remote `main`, overlay the current
+working tree via `git archive | tar` (excluding `.git`, `*.db*`, `.local`, `node_modules`),
+commit the snapshot on top of remote main, and plain fast-forward push:
 `git push "https://x-access-token:${GH_PUSH_TOKEN}@github.com/javadyari74-dev/Clinic.git" HEAD:refs/heads/main`
-Local `replit-agent` history is a linear descendant of what's on remote `main`, so plain
-pushes fast-forward. Never force-push (and main-agent can't run destructive git anyway).
+Never force-push. Always verify no `*.db*` files are staged before committing.
 
 **Timing caveat:** the main agent cannot `git commit`. New working-tree edits only get
 committed by the Replit auto-checkpoint at end of turn, so they reach GitHub on the *next*
