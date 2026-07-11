@@ -24,3 +24,4 @@
 - [Session expiry 401 handling](session-expiry-401.md) — all 401s converge on notifySessionExpired(); manual fetch must use guardSession; never wrap the login fetch.
 - [Backup builders separation](backup-builders-separation.md) — manual-download backup and internal auto/merge backup use separate builders; never add a table to the manual payload unless legacy restore/wipe also handles it.
 - [UUID additive column](uuid-additive-column.md) — core tables carry uuid v4 beside numeric id; SQLite can't ADD NOT NULL so column is nullable+unique-index; JS backfill+startup assert guarantee presence.
+- [Atomic guarded insert](atomic-guarded-insert.md) — throttle/dedupe guards must be one INSERT…SELECT…WHERE NOT EXISTS, not SELECT-then-INSERT; drizzle libsql db.get throws on empty raw-sql result, use db.all.
