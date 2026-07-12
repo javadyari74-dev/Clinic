@@ -7,6 +7,7 @@ import {
   useCreateReminder, getListRemindersQueryKey,
   useListPatients, getListPatientsQueryKey,
   useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
+  useGetPatientLoyalty, getGetPatientLoyaltyQueryKey, getGetLoyaltyOverviewQueryKey,
   getGetPaymentQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet } from "lucide-react";
+import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Wallet, Award } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -286,6 +287,10 @@ export default function Payments() {
   const [balanceApplyEnabled, setBalanceApplyEnabled] = useState(false);
   const [balanceApplied, setBalanceApplied] = useState(0);
 
+  // باشگاه مشتریان: استفاده از امتیاز در همین پرداخت
+  const [loyaltyApplyEnabled, setLoyaltyApplyEnabled] = useState(false);
+  const [loyaltyPointsApplied, setLoyaltyPointsApplied] = useState(0);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 },
@@ -306,6 +311,30 @@ export default function Payments() {
     [patientsList, selectedPatientId],
   );
   const patientBalance = selectedPatient?.accountBalance ?? 0;
+
+  // وضعیت امتیاز باشگاه مشتریانِ مراجعِ انتخاب‌شده (موجودی + تنظیمات)
+  const { data: patientLoyalty } = useGetPatientLoyalty(selectedPatientId ?? 0, {
+    query: {
+      queryKey: getGetPatientLoyaltyQueryKey(selectedPatientId ?? 0),
+      enabled: !!selectedPatientId,
+    },
+  });
+  const loyaltyBalance = patientLoyalty?.balance ?? 0;
+  const loyaltySettings = patientLoyalty?.settings;
+  const loyaltyUsable =
+    !!loyaltySettings?.enabled && loyaltyBalance >= (loyaltySettings?.minRedeem ?? Infinity);
+
+  // بیشترین امتیازِ قابل استفاده برای یک مبلغ باقی‌مانده؛ اگر از حداقل کمتر شود، صفر
+  const computeLoyaltyPoints = useCallback(
+    (payable: number): number => {
+      if (!loyaltyApplyEnabled || !loyaltySettings?.enabled) return 0;
+      const redeemValue = loyaltySettings.redeemValue;
+      if (!(redeemValue > 0)) return 0;
+      const pts = Math.min(loyaltyBalance, Math.floor(payable / redeemValue));
+      return pts >= loyaltySettings.minRedeem ? pts : 0;
+    },
+    [loyaltyApplyEnabled, loyaltySettings, loyaltyBalance],
+  );
 
   // اگر بیمارِ انتخاب‌شده معرفی از نوع «مراجع» داشته باشد، بخش تخصیص کمیسیون به‌صورت
   // خودکار فعال و با گیرنده‌ی معرف + درصدِ ذخیره‌شده پر می‌شود تا اعتبار به حساب او شارژ شود.
@@ -367,9 +396,12 @@ export default function Payments() {
       const afterDeposit = Math.max(0, (originalAmount || 0) - currentDeposit);
       const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
       setBalanceApplied(applied);
-      form.setValue("amount", Math.max(0, afterDeposit - applied));
+      const afterBalance = Math.max(0, afterDeposit - applied);
+      const pts = computeLoyaltyPoints(afterBalance);
+      setLoyaltyPointsApplied(pts);
+      form.setValue("amount", Math.max(0, afterBalance - pts * (loyaltySettings?.redeemValue ?? 0)));
     }
-  }, [fullAmountChecked, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
+  }, [fullAmountChecked, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance, computeLoyaltyPoints, loyaltySettings]);
 
   const selectedDiscount = useMemo(
     () => discounts?.find(d => d.id === selectedDiscountId) ?? null,
@@ -394,8 +426,11 @@ export default function Payments() {
     const afterDeposit = Math.max(0, afterDiscount - currentDeposit);
     const applied = balanceApplyEnabled ? Math.min(patientBalance, afterDeposit) : 0;
     setBalanceApplied(applied);
-    form.setValue("amount", Math.max(0, afterDeposit - applied));
-  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance]);
+    const afterBalance = Math.max(0, afterDeposit - applied);
+    const pts = computeLoyaltyPoints(afterBalance);
+    setLoyaltyPointsApplied(pts);
+    form.setValue("amount", Math.max(0, afterBalance - pts * (loyaltySettings?.redeemValue ?? 0)));
+  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit, balanceApplyEnabled, patientBalance, computeLoyaltyPoints, loyaltySettings]);
 
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
@@ -517,6 +552,12 @@ export default function Payments() {
           queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(selectedPatientId) });
         }
 
+        // امتیاز باشگاه (کسب یا خرج) سمت سرور ثبت شده؛ کش امتیاز مراجع و نمای باشگاه تازه شود
+        if (selectedPatientId) {
+          queryClient.invalidateQueries({ queryKey: getGetPatientLoyaltyQueryKey(selectedPatientId) });
+          queryClient.invalidateQueries({ queryKey: getGetLoyaltyOverviewQueryKey() });
+        }
+
         // رسید از ردیف پرداختِ ذخیره‌شده در دیتابیس ساخته می‌شود (جزئیات کامل و دائمی)
         const receipt = receiptFromPayment(payment);
 
@@ -572,6 +613,13 @@ export default function Payments() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPaymentsQueryKey() });
+        // حذف پرداخت سمت سرور امتیازهای باشگاه را هم برمی‌گرداند؛
+        // کش نمای باشگاه و امتیاز همهٔ مراجعین تازه شود
+        queryClient.invalidateQueries({ queryKey: getGetLoyaltyOverviewQueryKey() });
+        queryClient.invalidateQueries({
+          predicate: (q) =>
+            typeof q.queryKey[0] === "string" && q.queryKey[0].endsWith("/loyalty"),
+        });
         toast({ title: "پرداخت حذف شد" });
       },
     },
@@ -593,6 +641,8 @@ export default function Payments() {
     setSvcReminderDate("");
     setBalanceApplyEnabled(false);
     setBalanceApplied(0);
+    setLoyaltyApplyEnabled(false);
+    setLoyaltyPointsApplied(0);
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -607,8 +657,8 @@ export default function Payments() {
       data: {
         ...values,
         originalAmount: values.originalAmount,
-        // وقتی موجودی اکانت یا بیعانه بخشی/تمام مبلغ را پوشش دهد، مبلغِ نقدیِ صفر معتبر است و نباید به مبلغ کل برگردد
-        amount: (balanceApplyEnabled || currentDeposit > 0) ? values.amount : (values.amount || values.originalAmount),
+        // وقتی موجودی اکانت، امتیاز باشگاه یا بیعانه بخشی/تمام مبلغ را پوشش دهد، مبلغِ نقدیِ صفر معتبر است و نباید به مبلغ کل برگردد
+        amount: (balanceApplyEnabled || loyaltyApplyEnabled || currentDeposit > 0) ? values.amount : (values.amount || values.originalAmount),
         appointmentId: values.appointmentId ?? 0,
         unitsUsed: isPerUnit ? (values.unitsUsed ?? 1) : undefined,
         // اسنپ‌شات جزئیات تا هر پرداخت به‌صورت کامل و دائمی در دیتابیس بماند
@@ -621,6 +671,8 @@ export default function Payments() {
         depositAmount: currentDeposit > 0 ? currentDeposit : undefined,
         // کسر از موجودی اکانت سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
         applyAccountBalance: balanceApplyEnabled && balanceApplied > 0 ? balanceApplied : undefined,
+        // استفاده از امتیاز باشگاه مشتریان — سمت سرور و اتمیک با ثبت پرداخت
+        redeemPoints: loyaltyApplyEnabled && loyaltyPointsApplied > 0 ? loyaltyPointsApplied : undefined,
       },
     });
   }
@@ -902,6 +954,51 @@ export default function Payments() {
                         <span>مبلغ کسرشده از اکانت:</span>
                         <span className="font-bold font-mono">− {formatCurrency(balanceApplied)}</span>
                       </div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
+
+              {/* Loyalty Club Section */}
+              {selectedPatient && loyaltySettings?.enabled && loyaltyBalance > 0 && (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="flex items-center gap-2 font-medium cursor-pointer" htmlFor="loyalty-toggle">
+                        <Award className="h-4 w-4 text-amber-600" />
+                        استفاده از امتیاز باشگاه مشتریان
+                      </Label>
+                      <Switch
+                        id="loyalty-toggle"
+                        checked={loyaltyApplyEnabled}
+                        onCheckedChange={setLoyaltyApplyEnabled}
+                        disabled={!loyaltyUsable}
+                      />
+                    </div>
+                    <div className="text-sm rounded-md bg-amber-50 border border-amber-200 px-3 py-2 flex justify-between text-amber-800">
+                      <span>امتیاز {selectedPatient.name}:</span>
+                      <span className="font-bold font-mono">
+                        {toPersianDigits(loyaltyBalance)} امتیاز ({formatCurrency(loyaltyBalance * (loyaltySettings?.redeemValue ?? 0))})
+                      </span>
+                    </div>
+                    {!loyaltyUsable && (
+                      <p className="text-xs text-muted-foreground">
+                        حداقل امتیاز برای استفاده: {toPersianDigits(loyaltySettings?.minRedeem ?? 0)} امتیاز
+                      </p>
+                    )}
+                    {loyaltyApplyEnabled && loyaltyPointsApplied > 0 && (
+                      <div className="text-sm rounded-md bg-amber-100 px-3 py-2 flex justify-between text-amber-900">
+                        <span>استفاده از {toPersianDigits(loyaltyPointsApplied)} امتیاز:</span>
+                        <span className="font-bold font-mono">
+                          − {formatCurrency(loyaltyPointsApplied * (loyaltySettings?.redeemValue ?? 0))}
+                        </span>
+                      </div>
+                    )}
+                    {loyaltyApplyEnabled && loyaltyUsable && loyaltyPointsApplied === 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        مبلغ باقی‌مانده برای استفاده از حداقل امتیاز کافی نیست
+                      </p>
                     )}
                   </div>
                   <Separator />

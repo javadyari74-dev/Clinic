@@ -375,6 +375,73 @@ export interface WaitingNotifyResult {
   error?: string | null;
 }
 
+export interface LoyaltySettings {
+  enabled: boolean;
+  earnAmount: number;
+  redeemValue: number;
+  minRedeem: number;
+}
+
+export interface LoyaltySettingsInput {
+  enabled: boolean;
+  /** @minimum 1000 */
+  earnAmount: number;
+  /** @minimum 1000 */
+  redeemValue: number;
+  /** @minimum 1 */
+  minRedeem: number;
+}
+
+export type LoyaltyTransactionType = typeof LoyaltyTransactionType[keyof typeof LoyaltyTransactionType];
+
+
+export const LoyaltyTransactionType = {
+  earn: 'earn',
+  redeem: 'redeem',
+  reverse: 'reverse',
+} as const;
+
+export interface LoyaltyTransaction {
+  id: number;
+  patientId: number;
+  /** @nullable */
+  paymentId?: number | null;
+  delta: number;
+  amount: number;
+  type: LoyaltyTransactionType;
+  /** @nullable */
+  description?: string | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+}
+
+export interface PatientLoyalty {
+  balance: number;
+  settings: LoyaltySettings;
+  transactions: LoyaltyTransaction[];
+}
+
+export interface LoyaltyTopPatient {
+  patientId: number;
+  patientName: string;
+  /** @nullable */
+  fileNumber?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  balance: number;
+  earnedTotal: number;
+}
+
+export interface LoyaltyOverview {
+  totalMembers: number;
+  totalEarned: number;
+  totalRedeemed: number;
+  totalOutstanding: number;
+  topPatients: LoyaltyTopPatient[];
+  recent: LoyaltyTransaction[];
+}
+
 export interface Survey {
   id: number;
   patientId: number;
@@ -485,6 +552,7 @@ export interface PaymentInput {
   discountAmount?: number;
   depositAmount?: number;
   applyAccountBalance?: number;
+  redeemPoints?: number;
 }
 
 export interface Discount {

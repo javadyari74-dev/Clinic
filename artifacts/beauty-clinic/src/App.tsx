@@ -48,6 +48,7 @@ const Laser = lazy(pageLoaders.laser);
 const ClientErrors = lazy(pageLoaders.clientErrors);
 const SmsPanel = lazy(pageLoaders.sms);
 const Surveys = lazy(pageLoaders.surveys);
+const Loyalty = lazy(pageLoaders.loyalty);
 
 function PageFallback() {
   return (
@@ -239,6 +240,11 @@ function Router() {
             <Route path="/surveys">
               <Protected permission="surveys">
                 <Surveys />
+              </Protected>
+            </Route>
+            <Route path="/loyalty">
+              <Protected permission="loyalty">
+                <Loyalty />
               </Protected>
             </Route>
             <Route path="/users">

@@ -22,4 +22,5 @@ export interface PaymentInput {
   discountAmount?: number;
   depositAmount?: number;
   applyAccountBalance?: number;
+  redeemPoints?: number;
 }

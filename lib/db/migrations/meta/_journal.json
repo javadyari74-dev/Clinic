@@ -120,6 +120,13 @@
       "when": 1783760868716,
       "tag": "0016_add_surveys",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1783847268716,
+      "tag": "0017_add_loyalty",
+      "breakpoints": true
     }
   ]
 }

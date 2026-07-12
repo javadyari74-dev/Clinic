@@ -10,6 +10,7 @@ import {
   useListPatients, useListCommissionRecipients,
   useListPatientAccountTransactions, useCreatePatientAccountTransaction,
   getListPatientAccountTransactionsQueryKey,
+  useGetPatientLoyalty, getGetPatientLoyaltyQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +27,7 @@ import { formatCurrency, formatShamsiDate, toPersianDigits, formatBirthdate } fr
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
   CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Pencil, History, Bell,
-  Wallet, Gift, UserPlus, ArrowDownCircle, ArrowUpCircle
+  Wallet, Gift, UserPlus, ArrowDownCircle, ArrowUpCircle, Award
 } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
@@ -57,6 +58,10 @@ export default function PatientDetail() {
   const id = Number(params.id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  // امتیاز باشگاه مشتریان این مراجع (موجودی + سابقه)
+  const { data: patientLoyalty } = useGetPatientLoyalty(id, {
+    query: { queryKey: getGetPatientLoyaltyQueryKey(id), enabled: Number.isFinite(id) && id > 0 },
+  });
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [noteText, setNoteText] = useState("");
   const [apptOpen, setApptOpen] = useState(false);
@@ -579,6 +584,59 @@ export default function PatientDetail() {
             })}
             {!accountTxns?.length && (
               <p className="text-center text-muted-foreground text-sm py-6">تراکنشی ثبت نشده</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Loyalty Club Card */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Award className="h-4 w-4 text-amber-600" />
+            باشگاه مشتریان
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-between bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-3">
+            <span className="text-sm text-amber-800">امتیاز فعلی</span>
+            <span className="text-xl font-bold font-mono text-amber-700">
+              {toPersianDigits(patientLoyalty?.balance ?? 0)} امتیاز
+              {patientLoyalty && patientLoyalty.balance > 0 && (
+                <span className="text-sm font-normal text-amber-600 mr-2">
+                  ({formatCurrency(patientLoyalty.balance * patientLoyalty.settings.redeemValue)})
+                </span>
+              )}
+            </span>
+          </div>
+          {patientLoyalty && !patientLoyalty.settings.enabled && (
+            <p className="text-xs text-muted-foreground mb-3">
+              باشگاه مشتریان در حال حاضر غیرفعال است؛ برای فعال‌سازی به صفحه باشگاه مشتریان مراجعه کنید.
+            </p>
+          )}
+          <div className="space-y-2 max-h-56 overflow-y-auto">
+            {(patientLoyalty?.transactions ?? []).map((t) => {
+              const isCredit = t.delta > 0;
+              const typeLabel = t.type === "earn" ? "کسب امتیاز" : t.type === "redeem" ? "استفاده از امتیاز" : "برگردان";
+              return (
+                <div key={t.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg border text-sm">
+                  <div className="flex items-center gap-2">
+                    {isCredit
+                      ? <ArrowDownCircle className="h-4 w-4 text-emerald-600 shrink-0" />
+                      : <ArrowUpCircle className="h-4 w-4 text-rose-600 shrink-0" />}
+                    <div>
+                      <p className="font-medium">{typeLabel}{t.description ? ` — ${t.description}` : ""}</p>
+                      <p className="text-xs text-muted-foreground">{formatShamsiDate(t.createdAt, true)}</p>
+                    </div>
+                  </div>
+                  <span className={`font-mono font-bold ${isCredit ? "text-emerald-600" : "text-rose-600"}`}>
+                    {isCredit ? "+" : "−"}{toPersianDigits(Math.abs(t.delta))}
+                  </span>
+                </div>
+              );
+            })}
+            {!patientLoyalty?.transactions?.length && (
+              <p className="text-center text-muted-foreground text-sm py-6">هنوز امتیازی ثبت نشده</p>
             )}
           </div>
         </CardContent>

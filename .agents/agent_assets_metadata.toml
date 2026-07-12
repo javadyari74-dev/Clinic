@@ -42,3 +42,9 @@ id = "uug0uyDHBAsEoftZMAMms"
 uri = "file://dist-desktop/DoctorYariClinic-Windows.zip"
 type = "unspecified"
 title = "بسته ویندوز مطب زیبایی دکتر یاری"
+
+[[outputs]]
+id = "7By6OdflRYBW7gYsUr2pS"
+uri = "file://DoctorYariClinic-desktop-2026-07-12.zip"
+type = "unspecified"
+title = "بسته دسکتاپ ویندوز - نسخه ۱۲ جولای ۲۰۲۶ (با باشگاه مشتریان)"
