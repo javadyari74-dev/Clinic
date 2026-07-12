@@ -36,3 +36,9 @@ id = "BbO8N4k97LdFaSJEUlNrq"
 uri = "file://dist-desktop/clinic-desktop-windows.zip"
 type = "unspecified"
 title = "بسته دسکتاپ ویندوز (متن‌ها با آدرس سایت)"
+
+[[outputs]]
+id = "uug0uyDHBAsEoftZMAMms"
+uri = "file://dist-desktop/DoctorYariClinic-Windows.zip"
+type = "unspecified"
+title = "بسته ویندوز مطب زیبایی دکتر یاری"
