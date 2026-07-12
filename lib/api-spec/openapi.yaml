@@ -26,6 +26,7 @@ tags:
   - name: sms
   - name: waiting-list
   - name: surveys
+  - name: loyalty
 
 paths:
   /healthz:
@@ -572,6 +573,66 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WaitingNotifyResult"
+        "404":
+          description: Not found
+
+  # ── Loyalty (باشگاه مشتریان) ─────────────────────────────────────────────
+  /loyalty/settings:
+    get:
+      operationId: getLoyaltySettings
+      tags: [loyalty]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoyaltySettings"
+    put:
+      operationId: updateLoyaltySettings
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoyaltySettingsInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoyaltySettings"
+
+  /loyalty/overview:
+    get:
+      operationId: getLoyaltyOverview
+      tags: [loyalty]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoyaltyOverview"
+
+  /patients/{id}/loyalty:
+    get:
+      operationId: getPatientLoyalty
+      tags: [loyalty]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PatientLoyalty"
         "404":
           description: Not found
 
@@ -1710,6 +1771,82 @@ components:
         ok: { type: boolean }
         error: { type: ["string", "null"] }
 
+    # ── Loyalty (باشگاه مشتریان) ─────────────────────────────────────────────
+    LoyaltySettings:
+      type: object
+      required: [enabled, earnAmount, redeemValue, minRedeem]
+      properties:
+        enabled: { type: boolean }
+        # به ازای هر این‌قدر تومان پرداخت، ۱ امتیاز
+        earnAmount: { type: integer }
+        # ارزش تومانی هر امتیاز هنگام استفاده
+        redeemValue: { type: integer }
+        # حداقل امتیاز لازم برای استفاده
+        minRedeem: { type: integer }
+
+    LoyaltySettingsInput:
+      type: object
+      required: [enabled, earnAmount, redeemValue, minRedeem]
+      properties:
+        enabled: { type: boolean }
+        earnAmount: { type: integer, minimum: 1000 }
+        redeemValue: { type: integer, minimum: 1000 }
+        minRedeem: { type: integer, minimum: 1 }
+
+    LoyaltyTransaction:
+      type: object
+      required: [id, patientId, delta, amount, type, createdAt]
+      properties:
+        id: { type: integer }
+        patientId: { type: integer }
+        paymentId: { type: ["integer", "null"] }
+        delta: { type: integer }
+        amount: { type: integer }
+        type: { type: string, enum: [earn, redeem, reverse] }
+        description: { type: ["string", "null"] }
+        createdAt: { type: integer }
+        patientName: { type: ["string", "null"] }
+
+    PatientLoyalty:
+      type: object
+      required: [balance, settings, transactions]
+      properties:
+        balance: { type: integer }
+        settings:
+          $ref: "#/components/schemas/LoyaltySettings"
+        transactions:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoyaltyTransaction"
+
+    LoyaltyTopPatient:
+      type: object
+      required: [patientId, patientName, balance, earnedTotal]
+      properties:
+        patientId: { type: integer }
+        patientName: { type: string }
+        fileNumber: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        balance: { type: integer }
+        earnedTotal: { type: integer }
+
+    LoyaltyOverview:
+      type: object
+      required: [totalMembers, totalEarned, totalRedeemed, totalOutstanding, topPatients, recent]
+      properties:
+        totalMembers: { type: integer }
+        totalEarned: { type: integer }
+        totalRedeemed: { type: integer }
+        totalOutstanding: { type: integer }
+        topPatients:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoyaltyTopPatient"
+        recent:
+          type: array
+          items:
+            $ref: "#/components/schemas/LoyaltyTransaction"
+
     # ── Surveys ──────────────────────────────────────────────────────────────
     Survey:
       type: object
@@ -1820,6 +1957,8 @@ components:
         depositAmount: { type: integer }
         # مبلغی که هنگام همین پرداخت باید از موجودی اکانت مراجع کسر شود (اتمیک، سمت سرور)
         applyAccountBalance: { type: integer }
+        # تعداد امتیاز باشگاه مشتریان که در همین پرداخت استفاده می‌شود (اتمیک، سمت سرور)
+        redeemPoints: { type: integer }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:

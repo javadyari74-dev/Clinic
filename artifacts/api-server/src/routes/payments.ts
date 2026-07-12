@@ -10,6 +10,13 @@ import {
 import { logActivity } from "../lib/activity";
 import { logger } from "../lib/logger";
 import { firePaymentSms, fireCommissionSms, fireSurveySms } from "../lib/sms";
+import {
+  getLoyaltySettings,
+  getLoyaltyBalance,
+  applyLoyaltyOnPayment,
+  reverseLoyaltyForPayment,
+  LOYALTY_ERRORS,
+} from "../lib/loyalty";
 
 const router: IRouter = Router();
 
@@ -37,9 +44,10 @@ router.post("/payments", async (req, res): Promise<void> => {
     return;
   }
   const paidAt = Math.floor(Date.now() / 1000);
-  // applyAccountBalance فقط ورودی است و ستونی در جدول پرداخت ندارد؛ از داده‌ی ذخیره‌شونده جدا می‌شود
-  const { applyAccountBalance, ...paymentValues } = parsed.data;
+  // applyAccountBalance و redeemPoints فقط ورودی‌اند و ستونی در جدول پرداخت ندارند؛ از داده‌ی ذخیره‌شونده جدا می‌شوند
+  const { applyAccountBalance, redeemPoints, ...paymentValues } = parsed.data;
   const balanceToApply = Math.abs(Math.round(applyAccountBalance ?? 0));
+  const pointsToRedeem = Math.max(0, Math.round(redeemPoints ?? 0));
 
   // اگر قرار است از موجودی اکانت استفاده شود، بیمار را پیدا کن و کفایت موجودی را پیش از ثبت پرداخت بررسی کن
   // تا «ثبت پرداخت» و «کسر موجودی» اتمیک باشند (یا هر دو انجام می‌شوند یا هیچ‌کدام)
@@ -72,6 +80,37 @@ router.post("/payments", async (req, res): Promise<void> => {
     balancePatientId = balancePatient.id;
   }
 
+  // ── باشگاه مشتریان: بیمارِ پرداخت را برای کسب/خرج امتیاز پیدا کن ──
+  // کسب امتیاز و استفاده از امتیاز داخل تراکنشِ همان پرداخت انجام می‌شود (اتمیک).
+  const loyaltySettings = await getLoyaltySettings();
+  let loyaltyPatientId: number | null = null;
+  if (paymentValues.appointmentId && paymentValues.appointmentId > 0 && (loyaltySettings.enabled || pointsToRedeem > 0)) {
+    const [apptForLoyalty] = await db
+      .select({ patientId: appointmentsTable.patientId })
+      .from(appointmentsTable)
+      .where(eq(appointmentsTable.id, paymentValues.appointmentId));
+    loyaltyPatientId = apptForLoyalty?.patientId ?? null;
+  }
+  if (pointsToRedeem > 0) {
+    if (!loyaltySettings.enabled) {
+      res.status(400).json({ error: "باشگاه مشتریان فعال نیست" });
+      return;
+    }
+    if (!loyaltyPatientId) {
+      res.status(400).json({ error: "برای استفاده از امتیاز باشگاه، نوبت مرتبط لازم است" });
+      return;
+    }
+    if (pointsToRedeem < loyaltySettings.minRedeem) {
+      res.status(400).json({ error: `حداقل امتیاز قابل استفاده ${loyaltySettings.minRedeem} امتیاز است` });
+      return;
+    }
+    const currentBalance = await getLoyaltyBalance(db, loyaltyPatientId);
+    if (pointsToRedeem > currentBalance) {
+      res.status(400).json({ error: "امتیاز باشگاه کافی نیست" });
+      return;
+    }
+  }
+
   // جزئیات کامل پرداخت (مراجع، خدمت، شماره جلسه، تخفیف، بیعانه و...) روی همین ردیف ذخیره می‌شود
   // تا هر تراکنش به‌صورت دائمی و کامل در صندوق ثبت بماند و در پشتیبان‌گیری بیاید
   // ثبت پرداخت و کسر موجودی اکانت در یک تراکنش انجام می‌شود تا اتمیک بماند
@@ -100,10 +139,34 @@ router.post("/payments", async (req, res): Promise<void> => {
         .where(eq(patientsTable.id, balancePatientId));
     }
 
+    // باشگاه مشتریان: خرج امتیاز (در صورت درخواست) و کسب امتیاز از همین پرداخت
+    if (loyaltyPatientId) {
+      await applyLoyaltyOnPayment(tx, {
+        patientId: loyaltyPatientId,
+        paymentId: created.id,
+        amountPaid: created.amount,
+        redeemPoints: pointsToRedeem,
+        settings: loyaltySettings,
+        serviceName: created.serviceName,
+      });
+    }
+
     return created;
   }).catch((err: unknown) => {
     if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
       res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return null;
+    }
+    if (err instanceof Error && err.message === LOYALTY_ERRORS.disabled) {
+      res.status(400).json({ error: "باشگاه مشتریان فعال نیست" });
+      return null;
+    }
+    if (err instanceof Error && err.message === LOYALTY_ERRORS.minRedeem) {
+      res.status(400).json({ error: "امتیاز کمتر از حداقلِ قابل استفاده است" });
+      return null;
+    }
+    if (err instanceof Error && err.message === LOYALTY_ERRORS.insufficient) {
+      res.status(400).json({ error: "امتیاز باشگاه کافی نیست" });
       return null;
     }
     throw err;
@@ -302,11 +365,19 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
           .where(eq(discountsTable.id, claimed.discountId));
       }
 
+      // ۴) برگرداندن آثار امتیازیِ باشگاه مشتریان (کسب/خرج این پرداخت)؛ اگر امتیازِ
+      //    کسب‌شده از این پرداخت قبلاً استفاده شده باشد، حذف لغو می‌شود.
+      await reverseLoyaltyForPayment(tx, claimed.id);
+
       return claimed;
     });
   } catch (err) {
     if (err instanceof Error && err.message === PAYMENT_NOT_FOUND) {
       res.status(404).json({ error: "پرداخت یافت نشد" });
+      return;
+    }
+    if (err instanceof Error && err.message === LOYALTY_ERRORS.negativeOnDelete) {
+      res.status(400).json({ error: "امتیازهای کسب‌شده از این پرداخت قبلاً استفاده شده‌اند؛ ابتدا باید امتیازهای استفاده‌شده برگردانده شود" });
       return;
     }
     throw err;

@@ -9,7 +9,7 @@
 - [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
 - [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.
 - [Payments balance vs accrual](payments-balance-accrual.md) — staff/external accrual + wallet deduction are server-side/atomic; patient-referrer credit is UI-orchestrated; zero cash amount is valid.
-- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, and discount usage; commissions link by paymentId (legacy rows by appointmentId only when sole payment).
+- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, discount usage, and loyalty points; side-effects link by paymentId.
 - [Codegen + project references](codegen-project-references.md) — api-server consumes api-zod via TS project references → stale dist .d.ts after codegen unless the composite is rebuilt (tsc --build).
 - [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
 - [Migration journal drift](migration-journal-drift.md) — lost unit_label migration re-added as 0009; drizzle libsql gates by MAX(created_at) not hashes; runMigrations reconciles drift so already-present columns don't crash on re-apply.

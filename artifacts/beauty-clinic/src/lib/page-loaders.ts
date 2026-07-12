@@ -21,6 +21,7 @@ export const pageLoaders = {
   clientErrors: () => import("@/pages/client-errors"),
   sms: () => import("@/pages/sms"),
   surveys: () => import("@/pages/surveys"),
+  loyalty: () => import("@/pages/loyalty"),
 };
 
 const routeLoaders: Record<string, () => Promise<unknown>> = {
@@ -43,6 +44,7 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   "/client-errors": pageLoaders.clientErrors,
   "/sms": pageLoaders.sms,
   "/surveys": pageLoaders.surveys,
+  "/loyalty": pageLoaders.loyalty,
 };
 
 const prefetched = new Set<string>();

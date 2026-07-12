@@ -532,6 +532,89 @@ export const NotifyWaitingEntryResponse = zod.object({
 })
 
 
+export const GetLoyaltySettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+})
+
+
+export const updateLoyaltySettingsBodyEarnAmountMin = 1000;
+
+export const updateLoyaltySettingsBodyRedeemValueMin = 1000;
+
+
+
+
+export const UpdateLoyaltySettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number().min(updateLoyaltySettingsBodyEarnAmountMin),
+  "redeemValue": zod.number().min(updateLoyaltySettingsBodyRedeemValueMin),
+  "minRedeem": zod.number().min(1)
+})
+
+export const UpdateLoyaltySettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+})
+
+
+export const GetLoyaltyOverviewResponse = zod.object({
+  "totalMembers": zod.number(),
+  "totalEarned": zod.number(),
+  "totalRedeemed": zod.number(),
+  "totalOutstanding": zod.number(),
+  "topPatients": zod.array(zod.object({
+  "patientId": zod.number(),
+  "patientName": zod.string(),
+  "fileNumber": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "balance": zod.number(),
+  "earnedTotal": zod.number()
+})),
+  "recent": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "paymentId": zod.number().nullish(),
+  "delta": zod.number(),
+  "amount": zod.number(),
+  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "description": zod.string().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish()
+}))
+})
+
+
+export const GetPatientLoyaltyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetPatientLoyaltyResponse = zod.object({
+  "balance": zod.number(),
+  "settings": zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+}),
+  "transactions": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "paymentId": zod.number().nullish(),
+  "delta": zod.number(),
+  "amount": zod.number(),
+  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "description": zod.string().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish()
+}))
+})
+
+
 export const ListSurveysQueryParams = zod.object({
   "status": zod.enum(['pending', 'scored']).optional(),
   "from": zod.coerce.number().optional(),
@@ -750,7 +833,8 @@ export const CreatePaymentBody = zod.object({
   "discountName": zod.string().optional(),
   "discountAmount": zod.number().optional(),
   "depositAmount": zod.number().optional(),
-  "applyAccountBalance": zod.number().optional()
+  "applyAccountBalance": zod.number().optional(),
+  "redeemPoints": zod.number().optional()
 })
 
 
