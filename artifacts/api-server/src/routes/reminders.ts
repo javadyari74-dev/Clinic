@@ -34,7 +34,6 @@ router.get("/reminders", async (req, res): Promise<void> => {
       status: remindersTable.status,
       createdAt: remindersTable.createdAt,
       patientName: patientsTable.name,
-      patientTier: patientsTable.tier,
     })
     .from(remindersTable)
     .leftJoin(patientsTable, eq(remindersTable.patientId, patientsTable.id))

@@ -8,7 +8,7 @@ import { fileURLToPath } from "url";
 import * as schema from "./schema";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const DB_PATH = process.env.SQLITE_DB_PATH ?? path.join(__dirname, "../../../clinic.db");
+const DB_PATH = process.env.SQLITE_DB_PATH ?? path.join(__dirname, "../../../clinic.db");
 
 const client = createClient({ url: `file:${DB_PATH}` });
 export const db = drizzle(client, { schema });

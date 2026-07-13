@@ -42,9 +42,6 @@ const routes: RouteCase[] = [
   { path: "/reminders", heading: "یادآوری‌ها" },
   { path: "/backup", heading: "پشتیبان‌گیری" },
   { path: "/accounting", heading: "حسابداری و سود و زیان" },
-  { path: "/sms", heading: "پنل پیامکی" },
-  { path: "/surveys", heading: "نظرسنجی‌ها" },
-  { path: "/loyalty", heading: "باشگاه مشتریان" },
   { path: "/users", heading: "مدیریت کاربران" },
 ];
 
@@ -97,9 +94,6 @@ const lazyModules: Record<string, () => Promise<{ default: unknown }>> = {
   accounting: () => import("@/pages/accounting"),
   users: () => import("@/pages/users"),
   laser: () => import("@/pages/laser"),
-  sms: () => import("@/pages/sms"),
-  surveys: () => import("@/pages/surveys"),
-  loyalty: () => import("@/pages/loyalty"),
 };
 
 describe("lazy page chunks expose a default component", () => {
@@ -129,7 +123,6 @@ const NAV_LABELS = {
   accounting: "حسابداری و سود/زیان",
   reports: "گزارشات",
   reminders: "یادآوری‌ها",
-  sms: "پنل پیامکی",
   backup: "پشتیبان‌گیری",
   users: "مدیریت کاربران",
 } as const;
@@ -151,7 +144,7 @@ describe("permission-gated sidebar reveals only allowed nav items", () => {
 
     for (const key of ["dashboard", "payments", "services", "laser", "staff",
       "commissions", "discounts", "inventory", "accounting", "reports",
-      "reminders", "sms", "backup", "users"] as const) {
+      "reminders", "backup", "users"] as const) {
       expect(nav.queryByText(NAV_LABELS[key])).not.toBeInTheDocument();
     }
   });
@@ -170,7 +163,7 @@ describe("permission-gated sidebar reveals only allowed nav items", () => {
 
     for (const key of ["dashboard", "patients", "appointments", "payments",
       "services", "staff", "commissions", "discounts", "inventory",
-      "accounting", "reports", "reminders", "sms", "backup", "users"] as const) {
+      "accounting", "reports", "reminders", "backup", "users"] as const) {
       expect(nav.queryByText(NAV_LABELS[key])).not.toBeInTheDocument();
     }
   });

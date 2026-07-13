@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, count } from "drizzle-orm";
+import { eq, and, asc, desc, count } from "drizzle-orm";
 import {
   db,
   laserClientsTable,
@@ -7,10 +7,22 @@ import {
   laserAppointmentsTable,
   laserPaymentsTable,
   laserSettingsTable,
+  usersTable,
 } from "@workspace/db";
 import { requireAdmin } from "../lib/auth";
 
 const router = Router();
+
+// ─── Laser operator (for auto-fill of operator name) ──────────────────────────
+router.get("/laser/operator", async (_req, res) => {
+  const operators = await db
+    .select({ username: usersTable.username })
+    .from(usersTable)
+    .where(and(eq(usersTable.role, "laser_operator"), eq(usersTable.isActive, true)))
+    .orderBy(asc(usersTable.id))
+    .all();
+  res.json({ operatorName: operators[0]?.username ?? null });
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -267,34 +279,6 @@ router.post("/laser/payments", async (req, res) => {
   await db.update(laserAppointmentsTable).set({ status: "completed" }).where(eq(laserAppointmentsTable.id, Number(appointmentId)));
 
   res.status(201).json(payment);
-});
-
-// Edit a payment record — admin only
-router.put("/laser/payments/:id", requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const existing = await db.select().from(laserPaymentsTable).where(eq(laserPaymentsTable.id, id)).get();
-  if (!existing) { res.status(404).json({ message: "پرداخت یافت نشد" }); return; }
-  const { amount, method, operatorName, commissionAmount, notes, nextSessionDate, nextSessionNote } = req.body ?? {};
-  const updates: Partial<typeof laserPaymentsTable.$inferInsert> = {};
-  if (amount !== undefined) updates.amount = Number(amount);
-  if (method !== undefined) updates.method = method || "cash";
-  if (operatorName !== undefined) updates.operatorName = operatorName || null;
-  if (commissionAmount !== undefined) updates.commissionAmount = Number(commissionAmount ?? 0);
-  if (notes !== undefined) updates.notes = notes || null;
-  if (nextSessionDate !== undefined) updates.nextSessionDate = nextSessionDate || null;
-  if (nextSessionNote !== undefined) updates.nextSessionNote = nextSessionNote || null;
-  const [row] = await db.update(laserPaymentsTable).set(updates).where(eq(laserPaymentsTable.id, id)).returning();
-  res.json(row);
-});
-
-// Delete a payment record — admin only. Reverts the linked appointment to active.
-router.delete("/laser/payments/:id", requireAdmin, async (req, res) => {
-  const id = Number(req.params.id);
-  const existing = await db.select().from(laserPaymentsTable).where(eq(laserPaymentsTable.id, id)).get();
-  if (!existing) { res.status(404).json({ message: "پرداخت یافت نشد" }); return; }
-  await db.delete(laserPaymentsTable).where(eq(laserPaymentsTable.id, id));
-  await db.update(laserAppointmentsTable).set({ status: "scheduled" }).where(eq(laserAppointmentsTable.id, existing.appointmentId));
-  res.status(204).end();
 });
 
 // ─── Reminders ────────────────────────────────────────────────────────────────

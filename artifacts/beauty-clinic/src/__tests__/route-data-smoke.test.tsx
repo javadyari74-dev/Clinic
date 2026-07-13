@@ -73,11 +73,6 @@ const routes: RouteCase[] = [
   // Accounting's default tab is "chart"; the expenses-by-category breakdown is
   // always visible there. (Per-service profit lives in a non-default tab.)
   { path: "/accounting", marker: /اجاره/ },
-  // Surveys renders each row with the patient's name; the fixture row also
-  // carries a score so the scored badge path is exercised.
-  { path: "/surveys", marker: PATIENT_ONE_NAME },
-  // Loyalty renders top patients by name in the club table.
-  { path: "/loyalty", marker: PATIENT_ONE_NAME },
   { path: "/users", marker: USER_NAME },
   { path: "/backup", marker: "پشتیبان‌گیری", role: "heading" },
 ];
@@ -186,8 +181,6 @@ const resilienceRoutes: ResilienceCase[] = [
   { path: "/reports", emptyMarker: "گزارشات", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/reminders", emptyMarker: "یادآوری‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/accounting", emptyMarker: "حسابداری و سود و زیان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
-  { path: "/surveys", emptyMarker: "نظرسنجی‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
-  { path: "/loyalty", emptyMarker: "باشگاه مشتریان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/users", emptyMarker: "مدیریت کاربران", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   // backup loads no data on mount, so an all-500 backend produces no error
   // notice — it still renders its static heading.

@@ -11,40 +11,4 @@ title = "نرم‌افزار مطب دکتر یاری — نسخه اصلاح‌
 id = "gtK1ey7-nC4N4LxmM5wu1"
 uri = "file://attached_assets/desktop-prebuilt.zip"
 type = "unspecified"
-title = "بستهٔ آمادهٔ نصب ویندوز (desktop-prebuilt.zip)"
-
-[[outputs]]
-id = "_dlEsJZXyrgK4Oz_KQd5q"
-uri = "file://DoctorYariClinic-desktop.zip"
-type = "unspecified"
-title = "بستهٔ آمادهٔ ساخت نرم‌افزار ویندوز (با اصلاح پورسانت)"
-
-[[outputs]]
-id = "K0oyq9d2X9LNq2pBEOQD5"
-uri = "file://DoctorYariClinic-desktop-2026-07-02.zip"
-type = "unspecified"
-title = "بستهٔ به‌روز ویندوز (شامل اصلاح پورسانت و کرش)"
-
-[[outputs]]
-id = "UL8oDRVIhPxdKKLEGKmFW"
-uri = "file://DoctorYariClinic-desktop-2026-07-10.zip"
-type = "unspecified"
-title = "بسته دسکتاپ ویندوز - مطب زیبایی دکتر یاری (۱۰ جولای)"
-
-[[outputs]]
-id = "BbO8N4k97LdFaSJEUlNrq"
-uri = "file://dist-desktop/clinic-desktop-windows.zip"
-type = "unspecified"
-title = "بسته دسکتاپ ویندوز (متن‌ها با آدرس سایت)"
-
-[[outputs]]
-id = "uug0uyDHBAsEoftZMAMms"
-uri = "file://dist-desktop/DoctorYariClinic-Windows.zip"
-type = "unspecified"
-title = "بسته ویندوز مطب زیبایی دکتر یاری"
-
-[[outputs]]
-id = "7By6OdflRYBW7gYsUr2pS"
-uri = "file://DoctorYariClinic-desktop-2026-07-12.zip"
-type = "unspecified"
-title = "بسته دسکتاپ ویندوز - نسخه ۱۲ جولای ۲۰۲۶ (با باشگاه مشتریان)"
+title = "نسخه دسکتاپ ویندوز (به‌روزشده)"

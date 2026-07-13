@@ -1,11 +1,9 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { randomUUID } from "node:crypto";
 
 export const inventoryTable = sqliteTable("inventory", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  uuid: text("uuid").notNull().unique().$defaultFn(() => randomUUID()),
   name: text("name").notNull(),
   category: text("category"),
   unit: text("unit"),
@@ -18,6 +16,6 @@ export const inventoryTable = sqliteTable("inventory", {
   updatedAt: integer("updated_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
 });
 
-export const insertInventorySchema = createInsertSchema(inventoryTable).omit({ id: true, uuid: true, updatedAt: true });
+export const insertInventorySchema = createInsertSchema(inventoryTable).omit({ id: true, updatedAt: true });
 export type InsertInventory = z.infer<typeof insertInventorySchema>;
 export type Inventory = typeof inventoryTable.$inferSelect;

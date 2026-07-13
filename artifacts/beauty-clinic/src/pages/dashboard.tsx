@@ -15,7 +15,6 @@ import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
   Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone,
 } from "lucide-react";
-import { TierBadge } from "@/components/tier-badge";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -537,10 +536,7 @@ export default function Dashboard() {
                             )}
                           />
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate flex items-center gap-1.5">
-                              {a.patientName}
-                              <TierBadge tier={a.patientTier} />
-                            </p>
+                            <p className="font-medium truncate">{a.patientName}</p>
                             <p className="text-xs text-muted-foreground truncate">
                               {a.serviceName}
                               {a.staffName ? ` · ${a.staffName}` : ""}
@@ -581,9 +577,8 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{r.title}</p>
                             {r.patientName && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <p className="text-xs text-muted-foreground">
                                 مراجع: {r.patientName}
-                                <TierBadge tier={r.patientTier} />
                               </p>
                             )}
                           </div>
@@ -714,9 +709,8 @@ export default function Dashboard() {
                       <div className="flex-1 space-y-0.5">
                         <p className="text-sm font-medium">{r.title}</p>
                         {r.patientName && (
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <p className="text-xs text-muted-foreground">
                             مراجع: {r.patientName}
-                            <TierBadge tier={r.patientTier} />
                           </p>
                         )}
                         <p className="text-xs font-mono text-muted-foreground">

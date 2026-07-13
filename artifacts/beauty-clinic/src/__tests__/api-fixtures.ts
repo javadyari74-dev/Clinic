@@ -313,105 +313,6 @@ const reportsSummary = {
   lowStockItems: inventory,
 };
 
-const loyaltySettings = {
-  enabled: true,
-  earnAmount: 100_000,
-  redeemValue: 10_000,
-  minRedeem: 10,
-};
-
-const loyaltyTxn = {
-  id: 1,
-  uuid: "loyal-1",
-  patientId: 1,
-  paymentId: 1,
-  delta: 12,
-  amount: 1_200_000,
-  type: "earn",
-  description: "کسب ۱۲ امتیاز از پرداخت",
-  createdAt: 1_782_000_000,
-};
-
-const loyaltyOverview = {
-  totalMembers: 1,
-  totalEarned: 12,
-  totalRedeemed: 0,
-  totalOutstanding: 12,
-  topPatients: [
-    {
-      patientId: 1,
-      patientName: PATIENT_ONE_NAME,
-      fileNumber: "100",
-      phone: "09121234567",
-      balance: 12,
-      earnedTotal: 12,
-    },
-  ],
-  recent: [{ ...loyaltyTxn, patientName: PATIENT_ONE_NAME }],
-};
-
-const emptyLoyaltyOverview = {
-  totalMembers: 0,
-  totalEarned: 0,
-  totalRedeemed: 0,
-  totalOutstanding: 0,
-  topPatients: [] as unknown[],
-  recent: [] as unknown[],
-};
-
-const patientLoyalty = {
-  balance: 12,
-  settings: loyaltySettings,
-  transactions: [loyaltyTxn],
-};
-
-const emptyPatientLoyalty = {
-  balance: 0,
-  settings: { ...loyaltySettings, enabled: false },
-  transactions: [] as unknown[],
-};
-
-const surveysList = {
-  data: [
-    {
-      id: 1,
-      patientId: 1,
-      appointmentId: 1,
-      paymentId: 1,
-      serviceId: 1,
-      staffId: 1,
-      sentAt: 1_782_000_000,
-      smsStatus: "sent",
-      score: 4,
-      comment: "برخورد عالی بود",
-      scoredAt: 1_782_050_000,
-      createdAt: 1_782_000_000,
-      patientName: PATIENT_ONE_NAME,
-      patientPhone: "09121234567",
-      patientFileNumber: "100",
-      serviceName: SERVICE_NAME,
-      staffName: STAFF_NAME,
-    },
-  ],
-  total: 1,
-};
-
-const surveyStats = {
-  total: 1,
-  scoredCount: 1,
-  avgScore: 4,
-  byService: [{ id: 1, name: SERVICE_NAME, count: 1, avgScore: 4 }],
-  byStaff: [{ id: 1, name: STAFF_NAME, count: 1, avgScore: 4 }],
-};
-
-const emptySurveyStats = {
-  total: 0,
-  scoredCount: 0,
-  avgScore: null,
-  byService: [] as unknown[],
-  byStaff: [] as unknown[],
-};
-
 const accountingSummary = {
   revenue: 1_200_000,
   expenses: 300_000,
@@ -616,11 +517,6 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/laser\/payments$/, () => laserPayments, emptyArr],
   [/\/api\/laser\/reminders$/, () => laserReminders, emptyArr],
   [/\/api\/laser\/settings$/, () => laserSettings, () => laserSettings],
-  [/\/api\/loyalty\/settings$/, () => loyaltySettings, () => ({ ...loyaltySettings, enabled: false })],
-  [/\/api\/loyalty\/overview$/, () => loyaltyOverview, () => emptyLoyaltyOverview],
-  [/\/api\/patients\/\d+\/loyalty$/, () => patientLoyalty, () => emptyPatientLoyalty],
-  [/\/api\/surveys\/stats$/, () => surveyStats, () => emptySurveyStats],
-  [/\/api\/surveys$/, () => surveysList, () => ({ data: [] as unknown[], total: 0 })],
   [/\/api\/users$/, () => users, emptyArr],
   [/\/api\/health$/, () => ({ status: "ok" }), () => ({ status: "ok" })],
 ];

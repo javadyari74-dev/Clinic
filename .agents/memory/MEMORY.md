@@ -1,15 +1,11 @@
 - [Beauty Clinic App Stack](beauty-clinic-stack.md) — Persian RTL full-stack clinic management system architecture decisions.
 - [Timestamp Units Quirk](timestamp-units.md) — seeded scheduledAt is ms; payments.paid_at is seconds; formatShamsiDate now auto-detects both.
-- [Commission source of truth](commission-source-of-truth.md) — referral commission: recorded commissions rows win (frozen truth); only fall back to live referrerRate estimate when NO rows exist. Never mix.
-- [Beauty Clinic Offline Requirement](beauty-clinic-offline.md) — must run 100% offline (Electron+SQLite); bundle fonts locally, never CDN.
-- [GitHub Push Setup](github-push-setup.md) — push to javadyari74-dev/Clinic single main via GH_PUSH_TOKEN; connected account lacks write.
-- [Branch Consolidation Recovery](branch-consolidation.md) — Frankenstein merge fix: align all to subrepl-uiyrwrdf via `git archive|tar`; drop corrupt clinic.db; routes under /api.
 - [Desktop Windows build](desktop-windows-build.md) — workspace strips non-Linux esbuild binaries; pre-build JS on Linux, Windows only runs electron-builder.
 - [Workflows after import](workflows-after-import.md) — restart via "Project" (not per-artifact names); re-register via verifyAndReplaceArtifactToml; api-server dev has no watch.
 - [PersianDatePicker contract](persian-date-picker-contract.md) — value/onChange are GREGORIAN "YYYY-MM-DD"; for unix fields convert via new Date(y,m-1,d,12,0,0).
 - [Rollback recovery](rollback-recovery.md) — rollback reverts working tree but work survives in prior commits; recover with `git show <commit>:<path> > <path>`.
 - [Payments balance vs accrual](payments-balance-accrual.md) — staff/external accrual + wallet deduction are server-side/atomic; patient-referrer credit is UI-orchestrated; zero cash amount is valid.
-- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, discount usage, and loyalty points; side-effects link by paymentId.
+- [Payment side-effect reversal](payment-commission-reversal.md) — deleting a payment must atomically reverse its commissions, wallet txns, and discount usage; commissions link by paymentId (legacy rows by appointmentId only when sole payment).
 - [Codegen + project references](codegen-project-references.md) — api-server consumes api-zod via TS project references → stale dist .d.ts after codegen unless the composite is rebuilt (tsc --build).
 - [SQLite ilike search bug](sqlite-ilike-search-bug.md) — GET /api/patients?q= 500s; uses Postgres ilike on SQLite, swap to like.
 - [Migration journal drift](migration-journal-drift.md) — lost unit_label migration re-added as 0009; drizzle libsql gates by MAX(created_at) not hashes; runMigrations reconciles drift so already-present columns don't crash on re-apply.
@@ -17,11 +13,3 @@
 - [Frontend smoke tests](frontend-smoke-tests.md) — beauty-clinic vitest/jsdom route smoke test: never-resolving fetch, assert h1 by role (sidebar labels collide), patient-detail asserts loading text.
 - [Route-level access control](route-access-control.md) — sidebar filter doesn't secure pages; shared canAccessNavItem + Protected guard redirects to first-allowed (handles laser-op login landing).
 - [Frontend api types source](frontend-api-types-source.md) — beauty-clinic imports generated hooks/types from @workspace/api-client-react, NOT @workspace/api-zod; orval query overrides need queryKey alongside enabled.
-- [Radix Select null focus crash](radix-select-controlled.md) — Select value flipping to undefined (controlled↔uncontrolled) crashes on trigger.focus(); always use "" not undefined.
-- [Commission dedupe constraint](commissions-dedupe.md) — one commission per (payment, recipient); partial unique index + 409 pre-check + constraint-catch; migration dedupes before indexing.
-- [SMS fire-and-forget](sms-fire-and-forget.md) — all SMS prep (even recipient lookups) must live in void-async try/catch off the request path; non-sends log a failed sms_log row.
-- [Melipayamak pattern send](melipayamak-pattern.md) — BaseServiceNumber arg order is a contract with panel pattern text; sanitize ";" from args; host unreachable from Replit.
-- [Session expiry 401 handling](session-expiry-401.md) — all 401s converge on notifySessionExpired(); manual fetch must use guardSession; never wrap the login fetch.
-- [Backup builders separation](backup-builders-separation.md) — manual-download backup and internal auto/merge backup use separate builders; never add a table to the manual payload unless legacy restore/wipe also handles it.
-- [UUID additive column](uuid-additive-column.md) — core tables carry uuid v4 beside numeric id; SQLite can't ADD NOT NULL so column is nullable+unique-index; JS backfill+startup assert guarantee presence.
-- [Atomic guarded insert](atomic-guarded-insert.md) — throttle/dedupe guards must be one INSERT…SELECT…WHERE NOT EXISTS, not SELECT-then-INSERT; drizzle libsql db.get throws on empty raw-sql result, use db.all.

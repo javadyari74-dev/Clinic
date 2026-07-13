@@ -1,5 +1,5 @@
-import { Router, type IRouter, type Request } from "express";
-import { eq } from "drizzle-orm";
+import { Router, type IRouter } from "express";
+import { eq, getTableColumns } from "drizzle-orm";
 import {
   db,
   patientsTable,
@@ -16,27 +16,20 @@ import {
   activityLogTable,
   expensesTable,
   usersTable,
+  laserClientsTable,
+  laserServicesTable,
+  laserAppointmentsTable,
+  laserPaymentsTable,
+  laserSettingsTable,
 } from "@workspace/db";
 import { seedAdminUser } from "../lib/seed";
-import {
-  getBackupDir,
-  getDefaultBackupDir,
-  getBackupLogs,
-  getSetting,
-  setSetting,
-  validateBackupDir,
-  runAutoBackup,
-  mergeRestore,
-  MergeError,
-} from "../lib/backup-service";
 
 const router: IRouter = Router();
 
-// نسخه فرمت فایل پشتیبان دستی — هنگام افزودن/حذف جدول افزایش یابد
-const BACKUP_VERSION = 2;
-const BACKUP_DIR_KEY = "backup_dir";
+// نسخه فرمت فایل پشتیبان — هنگام افزودن/حذف جدول افزایش یابد
+const BACKUP_VERSION = 3;
 
-// GET /api/backup/download — پشتیبان کامل از تمام داده‌های مطب (به‌جز بخش لیزر)
+// GET /api/backup/download — پشتیبان کامل از تمام داده‌های مطب (شامل بخش لیزر)
 router.get("/backup/download", async (_req, res): Promise<void> => {
   const [
     patients,
@@ -53,6 +46,11 @@ router.get("/backup/download", async (_req, res): Promise<void> => {
     activityLog,
     expenses,
     users,
+    laserClients,
+    laserServices,
+    laserAppointments,
+    laserPayments,
+    laserSettings,
   ] = await Promise.all([
     db.select().from(patientsTable),
     db.select().from(servicesTable),
@@ -68,6 +66,11 @@ router.get("/backup/download", async (_req, res): Promise<void> => {
     db.select().from(activityLogTable),
     db.select().from(expensesTable),
     db.select().from(usersTable),
+    db.select().from(laserClientsTable),
+    db.select().from(laserServicesTable),
+    db.select().from(laserAppointmentsTable),
+    db.select().from(laserPaymentsTable),
+    db.select().from(laserSettingsTable),
   ]);
 
   const backup = {
@@ -88,6 +91,11 @@ router.get("/backup/download", async (_req, res): Promise<void> => {
       activityLog,
       expenses,
       users,
+      laserClients,
+      laserServices,
+      laserAppointments,
+      laserPayments,
+      laserSettings,
     },
   };
 
@@ -114,12 +122,36 @@ async function wipeClinicData(): Promise<void> {
   await db.delete(patientsTable);
 }
 
+// حذف تمام داده‌های بخش لیزر (فرزند → والد). فقط در بازیابی استفاده می‌شود، نه در /reset.
+async function wipeLaserData(): Promise<void> {
+  await db.delete(laserPaymentsTable);
+  await db.delete(laserAppointmentsTable);
+  await db.delete(laserClientsTable);
+  await db.delete(laserServicesTable);
+  await db.delete(laserSettingsTable);
+}
+
+// تبدیل مقادیر ستون‌های تاریخ (در فایل پشتیبان به‌صورت رشتهٔ ISO ذخیره شده‌اند)
+// دوباره به شیء Date تا درج با حالت timestamp درایزل خطا ندهد.
+function coerceDateColumns(table: any, row: Record<string, unknown>): Record<string, unknown> {
+  const cols = getTableColumns(table) as Record<string, { dataType?: string }>;
+  const out: Record<string, unknown> = { ...row };
+  for (const [key, col] of Object.entries(cols)) {
+    const v = out[key];
+    if (col?.dataType === "date" && v != null && !(v instanceof Date)) {
+      out[key] = new Date(v as string | number);
+    }
+  }
+  return out;
+}
+
 // درج دسته‌ای با حفظ شناسه‌ها — تکه‌تکه تا از سقف پارامترهای SQLite عبور نکند
 async function restoreRows(table: any, rows: unknown): Promise<void> {
   if (!Array.isArray(rows) || rows.length === 0) return;
+  const prepared = (rows as Record<string, unknown>[]).map((r) => coerceDateColumns(table, r));
   const CHUNK = 100;
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    await db.insert(table).values(rows.slice(i, i + CHUNK));
+  for (let i = 0; i < prepared.length; i += CHUNK) {
+    await db.insert(table).values(prepared.slice(i, i + CHUNK));
   }
 }
 
@@ -142,9 +174,19 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
     return;
   }
 
+  // فایل‌های پشتیبان قدیمی (نسخه ۲) بخش لیزر را ندارند؛ در آن صورت داده‌های
+  // لیزر فعلی نباید پاک شوند. فقط وقتی فایل شامل بخش لیزر است آن را جایگزین می‌کنیم.
+  const hasLaserData =
+    "laserClients" in data ||
+    "laserServices" in data ||
+    "laserSettings" in data ||
+    "laserAppointments" in data ||
+    "laserPayments" in data;
+
   try {
     // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)
     await wipeClinicData();
+    if (hasLaserData) await wipeLaserData();
 
     // ۲) درج مجدد (والد → فرزند) با حفظ شناسه‌ها
     await restoreRows(patientsTable, data.patients);
@@ -160,6 +202,13 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
     await restoreRows(remindersTable, data.reminders);
     await restoreRows(patientNotesTable, data.notes);
     await restoreRows(activityLogTable, data.activityLog);
+
+    // ۲-ب) بخش لیزر (والد → فرزند) با حفظ شناسه‌ها
+    await restoreRows(laserClientsTable, data.laserClients);
+    await restoreRows(laserServicesTable, data.laserServices);
+    await restoreRows(laserSettingsTable, data.laserSettings);
+    await restoreRows(laserAppointmentsTable, data.laserAppointments);
+    await restoreRows(laserPaymentsTable, data.laserPayments);
 
     // ۳) کاربران — فقط افزودن نام‌های کاربری جدید تا کاربر فعلی از سیستم خارج نشود
     if (Array.isArray(data.users)) {
@@ -183,93 +232,4 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
   }
 });
 
-// --------------------------------------------------------------------------
-// تنظیمات مسیر ذخیره بکاپ
-// --------------------------------------------------------------------------
-router.get("/backup/settings", async (_req, res): Promise<void> => {
-  const configured = await getSetting(BACKUP_DIR_KEY);
-  const backupDir = await getBackupDir();
-  res.json({
-    backupDir,
-    defaultDir: getDefaultBackupDir(),
-    isDefault: !configured || configured.trim().length === 0,
-  });
-});
-
-router.put("/backup/settings", async (req, res): Promise<void> => {
-  const raw = req.body?.backupDir;
-  // مقدار خالی یعنی بازگشت به مسیر پیش‌فرض
-  if (raw == null || String(raw).trim().length === 0) {
-    await setSetting(BACKUP_DIR_KEY, "");
-    res.json({
-      ok: true,
-      backupDir: getDefaultBackupDir(),
-      defaultDir: getDefaultBackupDir(),
-      isDefault: true,
-      message: "مسیر پیش‌فرض بکاپ فعال شد",
-    });
-    return;
-  }
-  const dir = String(raw).trim();
-  const valid = validateBackupDir(dir);
-  if (!valid.ok) {
-    res.status(400).json({ error: valid.error ?? "مسیر انتخاب‌شده معتبر نیست" });
-    return;
-  }
-  await setSetting(BACKUP_DIR_KEY, dir);
-  res.json({
-    ok: true,
-    backupDir: dir,
-    defaultDir: getDefaultBackupDir(),
-    isDefault: false,
-    message: "مسیر ذخیره بکاپ با موفقیت ذخیره شد",
-  });
-});
-
-// GET /api/backup/logs — گزارش بکاپ‌های خودکار
-router.get("/backup/logs", async (_req, res): Promise<void> => {
-  const logs = await getBackupLogs(50);
-  res.json({ logs });
-});
-
-// POST /api/backup/merge — بازیابی ادغامی بر اساس uuid (بدون از دست دادن داده‌های فعلی)
-router.post("/backup/merge", async (req, res): Promise<void> => {
-  try {
-    const result = await mergeRestore(req.body);
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    if (err instanceof MergeError) {
-      res.status(400).json({ error: err.message });
-      return;
-    }
-    res.status(500).json({ error: "خطا در بازیابی ادغامی", detail: String(err) });
-  }
-});
-
 export default router;
-
-// --------------------------------------------------------------------------
-// روتر داخلی (بدون احراز هویت) فقط برای فراخوانی از خود دستگاه (Electron هنگام خروج)
-// --------------------------------------------------------------------------
-function isLoopback(req: Request): boolean {
-  const ip = req.ip || req.socket?.remoteAddress || "";
-  return (
-    ip === "127.0.0.1" ||
-    ip === "::1" ||
-    ip === "::ffff:127.0.0.1" ||
-    ip.endsWith("127.0.0.1")
-  );
-}
-
-export const internalBackupRouter: IRouter = Router();
-
-// POST /api/backup/auto — گرفتن بکاپ خودکار (با رعایت throttle). فقط از localhost.
-internalBackupRouter.post("/backup/auto", async (req, res): Promise<void> => {
-  if (!isLoopback(req)) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
-  const reason = typeof req.body?.reason === "string" ? req.body.reason : "auto";
-  const result = await runAutoBackup({ reason });
-  res.json(result);
-});

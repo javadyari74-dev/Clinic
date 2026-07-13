@@ -19,16 +19,5 @@ export interface Patient {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
-  /** @nullable */
-  tier?: string | null;
-  accountBalance?: number;
-  /** @nullable */
-  referrerType?: string | null;
-  /** @nullable */
-  referrerId?: number | null;
-  /** @nullable */
-  referrerRate?: number | null;
-  /** @nullable */
-  referrerName?: string | null;
   createdAt: number;
 }

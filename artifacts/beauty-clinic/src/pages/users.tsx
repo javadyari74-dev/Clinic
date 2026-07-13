@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth, guardSession, Permission } from "@/hooks/use-auth";
+import { useAuth, Permission } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,9 +30,6 @@ const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
   { key: "accounting", label: "حسابداری" },
   { key: "reports", label: "گزارشات" },
   { key: "reminders", label: "یادآوری‌ها" },
-  { key: "sms", label: "پنل پیامکی" },
-  { key: "surveys", label: "نظرسنجی‌ها" },
-  { key: "loyalty", label: "باشگاه مشتریان" },
   { key: "backup", label: "پشتیبان‌گیری" },
 ];
 
@@ -65,7 +62,7 @@ function authFetch(url: string, options?: RequestInit) {
       Authorization: `Bearer ${getToken()}`,
       ...(options?.headers ?? {}),
     },
-  }).then(guardSession);
+  });
 }
 
 function UserFormDialog({

@@ -1,114 +1,10 @@
-import { useState } from "react";
-import { useGetReportsSummary, useGetRevenueChart, useGetSurveyStats } from "@workspace/api-client-react";
+import { useGetReportsSummary, useGetRevenueChart } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, toPersianDigits, dateToUnixSeconds } from "@/lib/format";
+import { formatCurrency, toPersianDigits } from "@/lib/format";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import { TrendingUp, Users, Calendar, AlertTriangle, Star } from "lucide-react";
+import { TrendingUp, Users, Calendar, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ErrorNotice } from "@/components/error-notice";
-import { PersianDatePicker } from "@/components/persian-date-picker";
-import { cn } from "@/lib/utils";
-
-function StatGroupList({ title, groups }: { title: string; groups: { id?: number | null; name?: string | null; count: number; avgScore: number }[] }) {
-  return (
-    <div className="space-y-3">
-      <h3 className="text-sm font-medium text-muted-foreground">{title}</h3>
-      {groups.length === 0 ? (
-        <p className="text-sm text-muted-foreground">داده‌ای موجود نیست</p>
-      ) : (
-        groups.map((g, idx) => (
-          <div key={`${g.id ?? "null"}-${idx}`} className="flex items-center justify-between gap-3">
-            <span className="text-sm truncate">{g.name ?? "نامشخص"}</span>
-            <div className="flex items-center gap-2 shrink-0">
-              <Badge variant="secondary">{toPersianDigits(g.count)} نظر</Badge>
-              <span className="flex items-center gap-1 text-sm font-medium">
-                {toPersianDigits(g.avgScore.toFixed(1))}
-                <Star className="size-3.5 fill-amber-400 text-amber-400" />
-              </span>
-            </div>
-          </div>
-        ))
-      )}
-    </div>
-  );
-}
-
-// گزارش رضایت مراجعین از نظرسنجی‌های امتیازدار — با فیلتر بازه تاریخ شمسی
-function SatisfactionSection() {
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
-
-  const from = dateToUnixSeconds(fromDate, false);
-  const to = dateToUnixSeconds(toDate, true);
-  const params = {
-    ...(from !== undefined ? { from } : {}),
-    ...(to !== undefined ? { to } : {}),
-  };
-  const { data: stats, isError, refetch } = useGetSurveyStats(params);
-
-  const hasFilter = fromDate !== "" || toDate !== "";
-
-  return (
-    <Card>
-      <CardHeader className="space-y-4">
-        <CardTitle className="flex items-center gap-2">
-          <Star className="h-5 w-5 text-amber-500" />
-          رضایت مراجعین (نظرسنجی)
-        </CardTitle>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">از تاریخ</span>
-            <PersianDatePicker value={fromDate} onChange={setFromDate} placeholder="ابتدای بازه" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">تا تاریخ</span>
-            <PersianDatePicker value={toDate} onChange={setToDate} placeholder="انتهای بازه" />
-          </div>
-          {hasFilter && (
-            <Button variant="ghost" size="sm" onClick={() => { setFromDate(""); setToDate(""); }} data-testid="button-clear-survey-range">
-              حذف فیلتر
-            </Button>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {isError ? (
-          <ErrorNotice onRetry={() => refetch()} />
-        ) : !stats ? (
-          <p className="text-sm text-muted-foreground">در حال بارگذاری...</p>
-        ) : (
-          <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-xl border p-4">
-                <div className="text-sm text-muted-foreground">نظرسنجی ارسال‌شده</div>
-                <div className="mt-1 text-2xl font-bold">{toPersianDigits(stats.total)}</div>
-              </div>
-              <div className="rounded-xl border p-4">
-                <div className="text-sm text-muted-foreground">امتیاز ثبت‌شده</div>
-                <div className="mt-1 text-2xl font-bold">{toPersianDigits(stats.scoredCount)}</div>
-              </div>
-              <div className="rounded-xl border p-4">
-                <div className="text-sm text-muted-foreground">میانگین رضایت</div>
-                <div className="mt-1 flex items-center gap-2">
-                  <span className={cn("text-2xl font-bold", stats.avgScore != null && stats.avgScore < 3 ? "text-destructive" : "text-green-700")}>
-                    {stats.avgScore != null ? toPersianDigits(stats.avgScore.toFixed(1)) : "—"}
-                  </span>
-                  {stats.avgScore != null && <Star className="size-5 fill-amber-400 text-amber-400" />}
-                  <span className="text-sm text-muted-foreground">از ۵</span>
-                </div>
-              </div>
-            </div>
-            <div className="grid gap-6 md:grid-cols-2">
-              <StatGroupList title="به تفکیک خدمت" groups={stats.byService} />
-              <StatGroupList title="به تفکیک کارمند" groups={stats.byStaff} />
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
 
 const statusLabels: Record<string, string> = {
   scheduled: "رزرو شده",
@@ -224,8 +120,6 @@ export default function Reports() {
           </CardContent>
         </Card>
       </div>
-
-      <SatisfactionSection />
 
       {summary?.lowStockItems && summary.lowStockItems.length > 0 && (
         <Card className="border-orange-200">

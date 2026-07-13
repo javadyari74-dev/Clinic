@@ -1,11 +1,9 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { randomUUID } from "node:crypto";
 
 export const discountsTable = sqliteTable("discounts", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  uuid: text("uuid").notNull().unique().$defaultFn(() => randomUUID()),
   name: text("name").notNull(),
   code: text("code").notNull().unique(),
   type: text("type").notNull(),
@@ -20,6 +18,6 @@ export const discountsTable = sqliteTable("discounts", {
   createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
 });
 
-export const insertDiscountSchema = createInsertSchema(discountsTable).omit({ id: true, uuid: true, createdAt: true, usageCount: true });
+export const insertDiscountSchema = createInsertSchema(discountsTable).omit({ id: true, createdAt: true, usageCount: true });
 export type InsertDiscount = z.infer<typeof insertDiscountSchema>;
 export type Discount = typeof discountsTable.$inferSelect;

@@ -1,11 +1,9 @@
 import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
-import { randomUUID } from "node:crypto";
 
 export const paymentsTable = sqliteTable("payments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
-  uuid: text("uuid").notNull().unique().$defaultFn(() => randomUUID()),
   appointmentId: integer("appointment_id").notNull(),
   discountId: integer("discount_id"),
   originalAmount: integer("original_amount").notNull(),
@@ -27,6 +25,6 @@ export const paymentsTable = sqliteTable("payments", {
   index("payments_appt_paid_idx").on(table.appointmentId, table.paidAt),
 ]);
 
-export const insertPaymentSchema = createInsertSchema(paymentsTable).omit({ id: true, uuid: true, paidAt: true });
+export const insertPaymentSchema = createInsertSchema(paymentsTable).omit({ id: true, paidAt: true });
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
 export type Payment = typeof paymentsTable.$inferSelect;

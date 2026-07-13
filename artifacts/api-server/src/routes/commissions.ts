@@ -9,8 +9,6 @@ import {
   DeleteCommissionParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
-import { logger } from "../lib/logger";
-import { fireCommissionSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -53,58 +51,8 @@ router.post("/commissions", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  // جلوگیری از ثبت کمیسیون تکراری برای همان پرداخت و همان گیرنده
-  // (مثلاً وقتی پورسانت معرف قبلاً به‌صورت خودکار هنگام ثبت پرداخت درج شده است)
-  if (parsed.data.paymentId) {
-    const [existing] = await db
-      .select({ id: commissionsTable.id })
-      .from(commissionsTable)
-      .where(and(
-        eq(commissionsTable.paymentId, parsed.data.paymentId),
-        eq(commissionsTable.recipientType, parsed.data.recipientType),
-        eq(commissionsTable.recipientId, parsed.data.recipientId),
-      ))
-      .limit(1);
-    if (existing) {
-      res.status(409).json({ error: "برای این پرداخت قبلاً کمیسیونی برای همین گیرنده ثبت شده است" });
-      return;
-    }
-  }
-
-  let commission;
-  try {
-    [commission] = await db.insert(commissionsTable).values(parsed.data).returning();
-  } catch (err) {
-    // ایندکس یکتای دیتابیس (پرداخت + گیرنده) — پوشش حالت رقابتی که از پیش‌بررسی بالا رد شده باشد
-    if (err instanceof Error && /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(err.message)) {
-      res.status(409).json({ error: "برای این پرداخت قبلاً کمیسیونی برای همین گیرنده ثبت شده است" });
-      return;
-    }
-    throw err;
-  }
+  const [commission] = await db.insert(commissionsTable).values(parsed.data).returning();
   await logActivity("create", "commission", commission.id, `کمیسیون ${commission.amount.toLocaleString()} تومان ثبت شد`);
-
-  // پیامک اطلاع پورسانت برای معرف — جستجوی گیرنده و ارسال، هر دو خارج از مسیر
-  // اصلی درخواست (آتش و فراموش) تا خطای احتمالی ثبت کمیسیون را مختل نکند.
-  void (async () => {
-    try {
-      const [recipient] =
-        commission.recipientType === "staff"
-          ? await db.select({ name: staffTable.name, phone: staffTable.phone }).from(staffTable).where(eq(staffTable.id, commission.recipientId))
-          : await db.select({ name: commissionRecipientsTable.name, phone: commissionRecipientsTable.phone }).from(commissionRecipientsTable).where(eq(commissionRecipientsTable.id, commission.recipientId));
-      if (recipient) {
-        fireCommissionSms({
-          referrerName: recipient.name,
-          phone: recipient.phone,
-          commissionAmount: commission.amount,
-          rate: commission.rate,
-        });
-      }
-    } catch (err) {
-      logger.warn({ err }, "commission SMS recipient lookup failed");
-    }
-  })();
-
   res.status(201).json({ ...commission, recipientName: null });
 });
 
