@@ -12,3 +12,9 @@ id = "gtK1ey7-nC4N4LxmM5wu1"
 uri = "file://attached_assets/desktop-prebuilt.zip"
 type = "unspecified"
 title = "نسخه دسکتاپ ویندوز (به‌روزشده)"
+
+[[outputs]]
+id = "D9j0d8qERbqngjPxXM5vt"
+uri = "file://DoctorYariClinic-desktop-2026-07-12.zip"
+type = "unspecified"
+title = "بسته دسکتاپ ویندوز - کامل‌ترین نسخه (۱۲ ژوئیه)"
