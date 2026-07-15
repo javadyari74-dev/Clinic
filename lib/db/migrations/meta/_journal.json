@@ -55,7 +55,7 @@
       "idx": 7,
       "version": "6",
       "when": 1782983268716,
-      "tag": "0007_add_service_unit_label",
+      "tag": "0007_patient_tiers_balance_referrals",
       "breakpoints": true
     },
     {
@@ -77,6 +77,55 @@
       "version": "6",
       "when": 1783242468716,
       "tag": "0010_add_client_errors",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1783328868716,
+      "tag": "0011_add_record_uuids",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1783415268716,
+      "tag": "0012_add_backup_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1783501668716,
+      "tag": "0013_add_sms_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1783588068716,
+      "tag": "0014_commissions_unique_payment_recipient",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1783674468716,
+      "tag": "0015_add_waiting_list",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1783760868716,
+      "tag": "0016_add_surveys",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1783847268716,
+      "tag": "0017_add_loyalty",
       "breakpoints": true
     }
   ]

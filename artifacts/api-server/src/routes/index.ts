@@ -21,6 +21,9 @@ import backupRouter from "./backup";
 import accountingRouter from "./accounting";
 import laserRouter from "./laser";
 import smsRouter from "./sms";
+import waitingListRouter from "./waiting-list";
+import surveysRouter from "./surveys";
+import loyaltyRouter from "./loyalty";
 
 const router: IRouter = Router();
 
@@ -48,5 +51,8 @@ router.use(backupRouter);
 router.use(accountingRouter);
 router.use(laserRouter);
 router.use(smsRouter);
+router.use(waitingListRouter);
+router.use(surveysRouter);
+router.use(loyaltyRouter);
 
 export default router;

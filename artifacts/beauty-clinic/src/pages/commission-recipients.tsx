@@ -6,6 +6,7 @@ import {
   getGetCommissionRecipientReferralsQueryKey, getGetCommissionRecipientReferralsQueryOptions,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
@@ -311,6 +312,7 @@ export default function CommissionRecipients() {
         onConfirm={() => { del.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
+      <RecipientProfileDialog recipientId={profileId} open={!!profileId} onClose={closeProfile} />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">گیرندگان کمیسیون</h1>
@@ -447,6 +449,10 @@ export default function CommissionRecipients() {
                         <TableCell className="text-left" onClick={e => e.stopPropagation()}>
                           {row.type === "external" ? (
                             <>
+                              <Button variant="ghost" size="sm" className="gap-1 text-primary" onClick={() => openProfile(row.id)}>
+                                <FolderOpen className="h-3 w-3" />
+                                <span className="text-xs">مشاهده پرونده</span>
+                              </Button>
                               <Button variant="ghost" size="sm" onClick={() => {
                                 const r = recipients?.find(x => x.id === row.id);
                                 if (r) openEdit(r);

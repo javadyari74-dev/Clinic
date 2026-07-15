@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, or, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, or, and, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -10,10 +10,58 @@ import {
   UpdatePatientBody,
   DeletePatientParams,
   ListPatientAppointmentsParams,
+  ListPatientAccountTransactionsParams,
+  CreatePatientAccountTransactionParams,
+  CreatePatientAccountTransactionBody,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { requireAdmin } from "../lib/auth";
+import { fireCommissionSms } from "../lib/sms";
+import { getUpcomingBirthdays } from "../lib/birthdays";
 
 const router: IRouter = Router();
+
+type PatientRow = typeof patientsTable.$inferSelect;
+
+// نام معرف هر بیمار را بر اساس نوع معرف (مراجع/کمیسیون‌گیرنده/کارمند/لیزر) پیدا می‌کند
+async function enrichReferrerNames<T extends PatientRow>(rows: T[]): Promise<(T & { referrerName: string | null })[]> {
+  const patientIds = new Set<number>();
+  const recipientIds = new Set<number>();
+  const staffIds = new Set<number>();
+  for (const r of rows) {
+    if (!r.referrerType || !r.referrerId) continue;
+    if (r.referrerType === "patient") patientIds.add(r.referrerId);
+    else if (r.referrerType === "staff") staffIds.add(r.referrerId);
+    else recipientIds.add(r.referrerId); // recipient / laser
+  }
+
+  const patientMap = new Map<number, string>();
+  const recipientMap = new Map<number, string>();
+  const staffMap = new Map<number, string>();
+
+  if (patientIds.size > 0) {
+    const ps = await db.select({ id: patientsTable.id, name: patientsTable.name }).from(patientsTable).where(inArray(patientsTable.id, [...patientIds]));
+    for (const p of ps) patientMap.set(p.id, p.name);
+  }
+  if (recipientIds.size > 0) {
+    const rs = await db.select({ id: commissionRecipientsTable.id, name: commissionRecipientsTable.name }).from(commissionRecipientsTable).where(inArray(commissionRecipientsTable.id, [...recipientIds]));
+    for (const r of rs) recipientMap.set(r.id, r.name);
+  }
+  if (staffIds.size > 0) {
+    const ss = await db.select({ id: staffTable.id, name: staffTable.name }).from(staffTable).where(inArray(staffTable.id, [...staffIds]));
+    for (const s of ss) staffMap.set(s.id, s.name);
+  }
+
+  return rows.map((r) => {
+    let referrerName: string | null = null;
+    if (r.referrerType && r.referrerId) {
+      if (r.referrerType === "patient") referrerName = patientMap.get(r.referrerId) ?? null;
+      else if (r.referrerType === "staff") referrerName = staffMap.get(r.referrerId) ?? null;
+      else referrerName = recipientMap.get(r.referrerId) ?? null;
+    }
+    return { ...r, referrerName };
+  });
+}
 
 router.get("/patients", async (req, res): Promise<void> => {
   const query = ListPatientsQueryParams.safeParse(req.query);
@@ -35,13 +83,13 @@ router.get("/patients", async (req, res): Promise<void> => {
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);
-    res.json({ data: rows, total, page, limit });
+    res.json({ data: await enrichReferrerNames(rows), total, page, limit });
     return;
   }
 
   const rows = await baseQuery.orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
   const [{ count: total }] = await countQuery;
-  res.json({ data: rows, total, page, limit });
+  res.json({ data: await enrichReferrerNames(rows), total, page, limit });
 });
 
 router.post("/patients", async (req, res): Promise<void> => {
@@ -55,97 +103,10 @@ router.post("/patients", async (req, res): Promise<void> => {
   res.status(201).json(patient);
 });
 
-// ── Birthday helpers ─────────────────────────────────────────────────────────
-
-function getShamsiPartsServer(date: Date): { year: number; month: number; day: number } {
-  const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-    year: "numeric", month: "numeric", day: "numeric",
-  }).formatToParts(date);
-  const get = (t: string) => parseInt(parts.find((p) => p.type === t)!.value);
-  return { year: get("year"), month: get("month"), day: get("day") };
-}
-
-function shamsiToGregorianServer(year: number, month: number, day: number): Date {
-  const ref = new Date();
-  ref.setHours(12, 0, 0, 0);
-  const r = getShamsiPartsServer(ref);
-  const approx = Math.round(
-    (year - r.year) * 365.25 +
-    ((month - 1) * 30.5 + day) - ((r.month - 1) * 30.5 + r.day),
-  );
-  const base = new Date(ref);
-  base.setDate(base.getDate() + approx);
-  for (let d = -8; d <= 8; d++) {
-    const test = new Date(base);
-    test.setDate(test.getDate() + d);
-    const p = getShamsiPartsServer(test);
-    if (p.year === year && p.month === month && p.day === day) return test;
-  }
-  return base;
-}
-
 // GET /api/patients/upcoming-birthdays?days=10
 router.get("/patients/upcoming-birthdays", async (req, res): Promise<void> => {
   const daysAhead = Math.min(parseInt((req.query.days as string) || "10", 10) || 10, 90);
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayShamsi = getShamsiPartsServer(today);
-
-  const patients = await db
-    .select()
-    .from(patientsTable)
-    .where(isNotNull(patientsTable.birthdate));
-
-  const results: {
-    patientId: number;
-    name: string;
-    phone: string;
-    birthdate: string;
-    birthdayShamsiYear: number;
-    birthdayShamsiMonth: number;
-    birthdayShamsiDay: number;
-    daysUntil: number;
-  }[] = [];
-
-  for (const patient of patients) {
-    if (!patient.birthdate) continue;
-    const parts = patient.birthdate.split("-").map(Number);
-    if (parts.length !== 3 || parts.some(isNaN)) continue;
-    const [, birthMonth, birthDay] = parts;
-
-    // Try this year first, then next year
-    for (const yearOffset of [0, 1]) {
-      const birthdayYear = todayShamsi.year + yearOffset;
-      const birthdayGreg = shamsiToGregorianServer(birthdayYear, birthMonth, birthDay);
-
-      // Verify conversion was accurate (handles invalid dates like Esfand 30 in non-leap)
-      const check = getShamsiPartsServer(birthdayGreg);
-      if (check.month !== birthMonth || check.day !== birthDay) continue;
-
-      birthdayGreg.setHours(0, 0, 0, 0);
-      const diffDays = Math.round(
-        (birthdayGreg.getTime() - today.getTime()) / 86400000,
-      );
-
-      if (diffDays < 0) continue; // already passed this year, try next
-      if (diffDays <= daysAhead) {
-        results.push({
-          patientId: patient.id,
-          name: patient.name,
-          phone: patient.phone,
-          birthdate: patient.birthdate,
-          birthdayShamsiYear: birthdayYear,
-          birthdayShamsiMonth: birthMonth,
-          birthdayShamsiDay: birthDay,
-          daysUntil: diffDays,
-        });
-      }
-      break; // either included or too far ahead — done with this patient
-    }
-  }
-
-  results.sort((a, b) => a.daysUntil - b.daysUntil);
+  const results = await getUpcomingBirthdays(daysAhead);
   res.json(results);
 });
 
@@ -171,7 +132,8 @@ router.get("/patients/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  res.json(patient);
+  const [enriched] = await enrichReferrerNames([patient]);
+  res.json(enriched);
 });
 
 router.put("/patients/:id", async (req, res): Promise<void> => {
@@ -194,18 +156,43 @@ router.put("/patients/:id", async (req, res): Promise<void> => {
   res.json(patient);
 });
 
-router.delete("/patients/:id", async (req, res): Promise<void> => {
+router.delete("/patients/:id", requireAdmin, async (req, res): Promise<void> => {
   const params = DeletePatientParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [patient] = await db.delete(patientsTable).where(eq(patientsTable.id, params.data.id)).returning();
-  if (!patient) {
+  const patientId = params.data.id;
+  const existing = await db.select().from(patientsTable).where(eq(patientsTable.id, patientId)).get();
+  if (!existing) {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  await logActivity("delete", "patient", patient.id, `بیمار "${patient.name}" حذف شد`);
+  await db.transaction(async (tx) => {
+    const appts = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+    const apptIds = appts.map((a) => a.id);
+    let paymentIds: number[] = [];
+    if (apptIds.length > 0) {
+      const payments = await tx.select({ id: paymentsTable.id }).from(paymentsTable).where(inArray(paymentsTable.appointmentId, apptIds));
+      paymentIds = payments.map((p) => p.id);
+    }
+    // کمیسیون‌های مرتبط با نوبت‌ها/پرداخت‌های این مراجع و کمیسیون‌هایی که این مراجع دریافت‌کننده‌شان بوده
+    const commissionConditions = [
+      and(eq(commissionsTable.recipientType, "patient"), eq(commissionsTable.recipientId, patientId)),
+    ];
+    if (apptIds.length > 0) commissionConditions.push(inArray(commissionsTable.appointmentId, apptIds));
+    if (paymentIds.length > 0) commissionConditions.push(inArray(commissionsTable.paymentId, paymentIds));
+    await tx.delete(commissionsTable).where(or(...commissionConditions));
+    if (paymentIds.length > 0) {
+      await tx.delete(paymentsTable).where(inArray(paymentsTable.id, paymentIds));
+    }
+    await tx.delete(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+    await tx.delete(patientNotesTable).where(eq(patientNotesTable.patientId, patientId));
+    await tx.delete(patientAccountTransactionsTable).where(eq(patientAccountTransactionsTable.patientId, patientId));
+    await tx.delete(remindersTable).where(eq(remindersTable.patientId, patientId));
+    await tx.delete(patientsTable).where(eq(patientsTable.id, patientId));
+  });
+  await logActivity("delete", "patient", existing.id, `بیمار "${existing.name}" حذف شد`);
   res.sendStatus(204);
 });
 
@@ -300,6 +287,17 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
 
   const label = isDeduct ? "برداشت از" : "شارژ";
   await logActivity("update", "patient", patient.id, `${label} اکانت بیمار "${patient.name}" به مبلغ ${magnitude.toLocaleString()} تومان`);
+
+  // اعتبار معرفی (معرف از نوع مراجع): پیامک اطلاع پورسانت برای بیمارِ معرف — آتش و فراموش
+  if (parsed.data.type === "referral_credit") {
+    fireCommissionSms({
+      referrerName: patient.name,
+      phone: patient.phone,
+      commissionAmount: magnitude,
+      referrerPatientId: patient.id,
+    });
+  }
+
   res.status(201).json(tx);
 });
 
