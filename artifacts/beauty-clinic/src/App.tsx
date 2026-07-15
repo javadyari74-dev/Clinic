@@ -35,6 +35,7 @@ const Accounting = lazy(pageLoaders.accounting);
 const Users = lazy(pageLoaders.users);
 const Laser = lazy(pageLoaders.laser);
 const ClientErrors = lazy(pageLoaders.clientErrors);
+const SmsPanel = lazy(pageLoaders.sms);
 
 function PageFallback() {
   return (
