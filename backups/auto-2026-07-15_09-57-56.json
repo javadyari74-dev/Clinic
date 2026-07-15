@@ -1,0 +1,32 @@
+{
+  "exportedAt": "2026-07-15T09:57:56.780Z",
+  "version": 3,
+  "data": {
+    "patients": [],
+    "services": [],
+    "staff": [],
+    "appointments": [],
+    "payments": [],
+    "discounts": [],
+    "inventory": [],
+    "commissions": [],
+    "recipients": [],
+    "reminders": [],
+    "notes": [],
+    "activityLog": [],
+    "expenses": [],
+    "users": [
+      {
+        "id": 1,
+        "username": "admin",
+        "password": "$2b$10$CDypjDmO0v./PQ78H20v9.Qf3/2/AJ68doae9kTso0Ds6AEgv2Ze.",
+        "role": "admin",
+        "staffId": null,
+        "permissions": "[]",
+        "isActive": true,
+        "createdAt": "2026-07-15T09:20:43.000Z"
+      }
+    ],
+    "accountTransactions": []
+  }
+}
