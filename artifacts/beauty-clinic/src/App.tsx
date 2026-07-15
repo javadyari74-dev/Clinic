@@ -6,13 +6,24 @@ import {
   Redirect,
   useLocation,
 } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryClient,
+  QueryClientProvider,
+  QueryCache,
+  MutationCache,
+} from "@tanstack/react-query";
+import { ApiError } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Layout, navItems, canAccessNavItem } from "@/components/layout";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { AuthProvider, useAuth, type Permission } from "@/hooks/use-auth";
+import {
+  AuthProvider,
+  useAuth,
+  notifySessionExpired,
+  type Permission,
+} from "@/hooks/use-auth";
 import { pageLoaders, prefetchCommonRoutes } from "@/lib/page-loaders";
 
 const NotFound = lazy(pageLoaders.notFound);
@@ -36,6 +47,8 @@ const Users = lazy(pageLoaders.users);
 const Laser = lazy(pageLoaders.laser);
 const ClientErrors = lazy(pageLoaders.clientErrors);
 const SmsPanel = lazy(pageLoaders.sms);
+const Surveys = lazy(pageLoaders.surveys);
+const Loyalty = lazy(pageLoaders.loyalty);
 
 function PageFallback() {
   return (
@@ -45,9 +58,20 @@ function PageFallback() {
   );
 }
 
+// پاسخ 401 یعنی نشست کاربر دیگر معتبر نیست (مثلاً توکن ۷روزه منقضی شده).
+// به‌جای نمایش خطای گمراه‌کننده «مشکل سرور»، کاربر با پیام روشن به صفحه ورود
+// برمی‌گردد (پیام و حذف توکن داخل notifySessionExpired انجام می‌شود).
+function handleUnauthorized(err: unknown) {
+  if (err instanceof ApiError && err.status === 401) {
+    notifySessionExpired();
+  }
+}
+
 // Exported so tests can reset the shared cache between renders; the app is the
 // sole consumer at runtime.
 export const queryClient = new QueryClient({
+  queryCache: new QueryCache({ onError: handleUnauthorized }),
+  mutationCache: new MutationCache({ onError: handleUnauthorized }),
   defaultOptions: {
     queries: {
       retry: 1,
@@ -206,6 +230,21 @@ function Router() {
             <Route path="/accounting">
               <Protected permission="accounting">
                 <Accounting />
+              </Protected>
+            </Route>
+            <Route path="/sms">
+              <Protected permission="sms">
+                <SmsPanel />
+              </Protected>
+            </Route>
+            <Route path="/surveys">
+              <Protected permission="surveys">
+                <Surveys />
+              </Protected>
+            </Route>
+            <Route path="/loyalty">
+              <Protected permission="loyalty">
+                <Loyalty />
               </Protected>
             </Route>
             <Route path="/users">

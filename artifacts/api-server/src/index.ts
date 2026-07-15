@@ -4,7 +4,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
-import { backfillAppointmentCodes, backfillPaymentSnapshots } from "./lib/backfill";
+import { backfillAppointmentCodes, backfillPaymentSnapshots, backfillUuids } from "./lib/backfill";
+import { runAutoBackup } from "./lib/backup-service";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +31,24 @@ runMigrations(migrationsFolder)
     await seedAdminUser();
     await backfillAppointmentCodes();
     await backfillPaymentSnapshots();
+    const uuidReport = await backfillUuids();
+    const uuidFilled = Object.values(uuidReport).reduce((a, b) => a + b, 0);
+    if (uuidFilled > 0) {
+      logger.info({ uuidReport, uuidFilled }, "Backfilled UUIDs for existing records");
+    } else {
+      logger.info("UUID backfill: all records already have a uuid");
+    }
+    // بکاپ خودکار هنگام باز شدن برنامه (با رعایت throttle ۱۵ دقیقه‌ای)
+    try {
+      const auto = await runAutoBackup({ reason: "startup" });
+      if (auto.ok && !auto.skipped) {
+        logger.info({ filename: auto.filename }, "Automatic startup backup created");
+      } else if (!auto.ok) {
+        logger.warn({ error: auto.error }, "Automatic startup backup failed");
+      }
+    } catch (err) {
+      logger.warn({ err }, "Automatic startup backup threw");
+    }
     app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");

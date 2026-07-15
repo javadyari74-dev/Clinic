@@ -1,18 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { guardSession } from "@/hooks/use-auth";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const TOKEN_KEY = "clinic_auth_token";
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
-  const res = await fetch(`${BASE}${path}`, {
-    ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(opts?.headers ?? {}),
-    },
-  });
+  const res = guardSession(
+    await fetch(`${BASE}${path}`, {
+      ...opts,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(opts?.headers ?? {}),
+      },
+    }),
+  );
   if (!res.ok) throw new Error(await res.text());
   if (res.status === 204) return undefined as T;
   return res.json();

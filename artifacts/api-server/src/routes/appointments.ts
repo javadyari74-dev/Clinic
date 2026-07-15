@@ -11,6 +11,7 @@ import {
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
+import { fireAppointmentSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
@@ -32,6 +33,7 @@ const appointmentWithDetails = {
   patientName: patientsTable.name,
   patientPhone: patientsTable.phone,
   patientFileNumber: patientsTable.fileNumber,
+  patientTier: patientsTable.tier,
   serviceName: servicesTable.name,
   servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${appointmentsTable.unitsUsed}, ${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
   serviceCode: servicesTable.serviceCode,
@@ -154,6 +156,16 @@ router.post("/appointments", async (req, res): Promise<void> => {
   }
 
   await logActivity("create", "appointment", appt.id, `نوبت جدید ${appointmentCode} برای "${detail?.patientName ?? ''}" ثبت شد`);
+
+  // پیامک تأیید نوبت برای بیمار — آتش و فراموش؛ در نبود اینترنت، ثبت نوبت مختل نمی‌شود
+  fireAppointmentSms({
+    patientId: appt.patientId,
+    patientName: detail?.patientName ?? null,
+    phone: detail?.patientPhone ?? null,
+    scheduledAt: appt.scheduledAt,
+    serviceName: detail?.serviceName ?? null,
+  });
+
   res.status(201).json(detail);
 });
 

@@ -1,8 +1,10 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
   getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
   getGetAppointmentQueryOptions,
+  useListWaitingList, useConvertWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
+  type WaitingEntry,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -22,14 +24,17 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { formatShamsiDate, formatCurrency, toPersianDigits } from "@/lib/format";
 import { Check, ChevronsUpDown, Plus, Pencil, Trash2 } from "lucide-react";
+import { TierBadge } from "@/components/tier-badge";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { AppointmentCalendar } from "@/components/appointment-calendar";
+import { WaitingListPanel, formatPreferredRange, secToDateStr } from "@/components/waiting-list-panel";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useAuth } from "@/hooks/use-auth";
+import { useAuth, guardSession } from "@/hooks/use-auth";
 
 const ACTIVE_STATUSES = ["scheduled", "confirmed"];
 
@@ -86,11 +91,13 @@ function tsToTimeStr(ts: number): string {
 
 async function bulkDeleteAppointments(ids: number[]): Promise<void> {
   const token = localStorage.getItem("clinic_auth_token");
-  const res = await fetch("/api/appointments/bulk", {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ids }),
-  });
+  const res = guardSession(
+    await fetch("/api/appointments/bulk", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    }),
+  );
   if (!res.ok) throw new Error("خطا در حذف دسته‌جمعی");
 }
 
@@ -98,6 +105,7 @@ type AppRow = {
   id: number;
   scheduledAt: number;
   patientName?: string | null;
+  patientTier?: string | null;
   serviceName?: string | null;
   sessionNumber?: number | null;
   deposit?: number | null;
@@ -131,7 +139,12 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
         </TableCell>
       )}
       <TableCell className="text-sm">{formatShamsiDate(app.scheduledAt, true)}</TableCell>
-      <TableCell className="font-medium">{app.patientName}</TableCell>
+      <TableCell className="font-medium">
+        <span className="flex items-center gap-1.5">
+          {app.patientName}
+          <TierBadge tier={app.patientTier} />
+        </span>
+      </TableCell>
       <TableCell>{app.serviceName}</TableCell>
       <TableCell>
         {app.sessionNumber
@@ -215,6 +228,13 @@ export default function Appointments() {
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<number[] | null>(null);
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [moveTarget, setMoveTarget] = useState<{ app: AppRow; date: string; time: string } | null>(null);
+  // مورد لیست انتظاری که در حال تبدیل به نوبت است؛ پس از ثبت نوبت، «برآورده‌شده» می‌شود.
+  // ref است (نه state) تا بستن دیالوگ در حین ارسال، پیوند تبدیل را از دست ندهد.
+  const convertEntryRef = useRef<WaitingEntry | null>(null);
+  // نامزدهای لیست انتظار پس از لغو یک نوبت (برای پیشنهاد جای خالی)
+  const [cancelCandidates, setCancelCandidates] = useState<{ dateLabel: string; dateStr: string; entries: WaitingEntry[] } | null>(null);
+  const [notifyingCandidateId, setNotifyingCandidateId] = useState<number | null>(null);
 
   const { data: rawList, isError, refetch } = useListAppointments({ status: (statusFilter === "all" || statusFilter === "active") ? undefined : statusFilter as any });
   const { data: allAppointments } = useListAppointments({ limit: 500 } as any);
@@ -230,12 +250,71 @@ export default function Appointments() {
   const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
+  const { data: waitingList } = useListWaitingList({ status: "waiting" });
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const invalidate = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
   }, [queryClient]);
+
+  const invalidateWaiting = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: getListWaitingListQueryKey() });
+  }, [queryClient]);
+
+  // تبدیل مورد لیست انتظار به نوبت — سرور نوبت را می‌سازد و مورد را در یک
+  // تراکنش «برآورده‌شده» می‌کند؛ هیچ زنجیره‌سازی سمت کلاینت وجود ندارد.
+  const convertWaitingEntry = useConvertWaitingEntry({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        invalidateWaiting();
+        setIsOpen(false);
+        convertEntryRef.current = null;
+        toast({ title: "مورد لیست انتظار به نوبت تبدیل شد" });
+        form.reset({ date: todayString(), time: "09:00", hasDeposit: false, depositAmount: 0, patientId: 0, serviceId: 0 });
+      },
+      onError: (error) => {
+        const serverMessage =
+          (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "تبدیل به نوبت ناموفق بود",
+          description:
+            typeof serverMessage === "string" && serverMessage.trim()
+              ? serverMessage
+              : "تبدیل مورد لیست انتظار با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  const notifyCandidate = useNotifyWaitingEntry({
+    mutation: {
+      onSuccess: (result) => {
+        if (result.ok) toast({ title: "پیامک اطلاع‌رسانی جای خالی ارسال شد" });
+        else toast({ title: "ارسال پیامک ناموفق بود", description: result.error ?? undefined, variant: "destructive" });
+      },
+      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onSettled: () => setNotifyingCandidateId(null),
+    },
+  });
+
+  // نامزدهای لیست انتظار برای جای خالی: خدمتشان با نوبت لغوشده یکی باشد و
+  // بازه دلخواهشان آن روز را پوشش دهد (موارد بدون بازه، هر روزی را می‌پذیرند)
+  const findCandidatesForDay = useCallback((scheduledAtMs: number, serviceId?: number | null): WaitingEntry[] => {
+    const d = new Date(scheduledAtMs);
+    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const dayEnd = dayStart + 86_400_000;
+    return (waitingList?.data ?? []).filter((e) => {
+      if (e.status !== "waiting") return false;
+      if (serviceId != null && e.serviceId !== serviceId) return false;
+      const fromMs = e.preferredFrom ? toMs(e.preferredFrom) : null;
+      const toMsV = e.preferredTo ? toMs(e.preferredTo) : fromMs;
+      if (fromMs === null) return true;
+      return fromMs < dayEnd && (toMsV ?? fromMs) >= dayStart;
+    });
+  }, [waitingList]);
 
   const prefetchAppointment = useCallback((id: number) => {
     queryClient.prefetchQuery({ ...getGetAppointmentQueryOptions(id), staleTime: 30_000 });
@@ -275,6 +354,21 @@ export default function Appointments() {
         } else {
           const newStatus = (vars.data as any).status;
           toast({ title: `وضعیت نوبت به «${statuses[newStatus]?.label ?? newStatus}» تغییر کرد` });
+          // پس از لغو نوبت، نامزدهای لیست انتظار برای همان روز پیشنهاد می‌شوند
+          if (newStatus === "cancelled") {
+            const app = (allAppointments?.data ?? []).find(a => a.id === vars.id);
+            if (app?.scheduledAt) {
+              const ms = toMs(app.scheduledAt);
+              const candidates = findCandidatesForDay(ms, app.serviceId);
+              if (candidates.length > 0) {
+                setCancelCandidates({
+                  dateLabel: formatShamsiDate(app.scheduledAt),
+                  dateStr: secToDateStr(ms),
+                  entries: candidates,
+                });
+              }
+            }
+          }
         }
       },
     },
@@ -301,6 +395,19 @@ export default function Appointments() {
   const hasDeposit = form.watch("hasDeposit");
 
   function onSubmit(values: FormValues) {
+    const convertEntry = convertEntryRef.current;
+    // اگر بیمار در دیالوگ عوض شده باشد، این دیگر تبدیلِ آن مورد نیست — ثبت عادی
+    if (convertEntry && values.patientId === convertEntry.patientId) {
+      convertWaitingEntry.mutate({
+        id: convertEntry.id,
+        data: {
+          scheduledAt: dateTimeToMs(values.date, values.time),
+          serviceId: values.serviceId,
+          deposit: values.hasDeposit && values.depositAmount > 0 ? values.depositAmount : undefined,
+        },
+      });
+      return;
+    }
     createAppointment.mutate({
       data: {
         patientId: values.patientId,
@@ -339,6 +446,21 @@ export default function Appointments() {
     updateAppointment.mutate({ id, data: { status } });
   }
 
+  // تبدیل مورد لیست انتظار به نوبت: دیالوگ ثبت نوبت با اطلاعات پیش‌پرشده باز می‌شود
+  function handleConvert(entry: WaitingEntry, presetDate?: string) {
+    convertEntryRef.current = entry;
+    setCancelCandidates(null);
+    form.reset({
+      patientId: entry.patientId,
+      serviceId: entry.serviceId,
+      date: presetDate ?? (entry.preferredFrom ? secToDateStr(entry.preferredFrom * 1000) : todayString()),
+      time: "09:00",
+      hasDeposit: false,
+      depositAmount: 0,
+    });
+    setIsOpen(true);
+  }
+
   const toggleSelect = useCallback((id: number) => {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s; });
   }, []);
@@ -367,6 +489,45 @@ export default function Appointments() {
     }
   }
 
+  // ── تقویم گرافیکی ──
+  const calendarAppointments = (allAppointments?.data ?? []).map(a => ({
+    id: a.id,
+    scheduledAt: toMs(a.scheduledAt ?? 0),
+    patientName: a.patientName,
+    serviceName: a.serviceName,
+    status: a.status,
+    staffName: a.staffName,
+  }));
+
+  function handleCalendarCreate(date: string, time: string) {
+    convertEntryRef.current = null;
+    form.reset({ patientId: 0, serviceId: 0, date, time, hasDeposit: false, depositAmount: 0 });
+    setIsOpen(true);
+  }
+
+  function handleCalendarEdit(id: number) {
+    if (!isAdmin) return;
+    const app = (allAppointments?.data ?? []).find(a => a.id === id);
+    if (app) openEdit(app as AppRow);
+  }
+
+  function handleCalendarMove(id: number, date: string, time: string) {
+    if (!isAdmin) return;
+    const app = (allAppointments?.data ?? []).find(a => a.id === id);
+    if (!app) return;
+    const newMs = dateTimeToMs(date, time);
+    if (newMs === toMs(app.scheduledAt ?? 0)) return; // بدون تغییر
+    setMoveTarget({ app: app as AppRow, date, time });
+  }
+
+  function confirmMove() {
+    if (!moveTarget) return;
+    updateAppointment.mutate(
+      { id: moveTarget.app.id, data: { scheduledAt: dateTimeToMs(moveTarget.date, moveTarget.time) } },
+      { onSettled: () => setMoveTarget(null) },
+    );
+  }
+
   const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
   const activeIds = (appointmentsList?.data ?? []).map(a => a.id);
   const historyIds = historyList.map(a => a.id);
@@ -378,7 +539,7 @@ export default function Appointments() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">نوبت‌ها</h1>
           <p className="text-muted-foreground mt-1">مدیریت نوبت‌های مطب</p>
         </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+        <Button className="gap-2" onClick={() => { convertEntryRef.current = null; setIsOpen(true); }}>
           <Plus className="h-4 w-4" />
           نوبت جدید
         </Button>
@@ -400,7 +561,11 @@ export default function Appointments() {
       )}
 
       {/* New appointment dialog */}
-      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <Dialog open={isOpen} onOpenChange={(open) => {
+        setIsOpen(open);
+        // پیوند تبدیل فقط وقتی پاک می‌شود که تبدیل در جریان نباشد
+        if (!open && !convertWaitingEntry.isPending) convertEntryRef.current = null;
+      }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>ثبت نوبت جدید</DialogTitle></DialogHeader>
           <Form {...form}>
@@ -460,7 +625,7 @@ export default function Appointments() {
               <FormField control={form.control} name="serviceId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
+                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
                     <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                   </Select>
@@ -504,8 +669,8 @@ export default function Appointments() {
               </div>
 
               <DialogFooter>
-                <Button type="submit" disabled={createAppointment.isPending} className="w-full">
-                  {createAppointment.isPending ? "در حال ثبت..." : "ثبت نوبت"}
+                <Button type="submit" disabled={createAppointment.isPending || convertWaitingEntry.isPending} className="w-full">
+                  {createAppointment.isPending || convertWaitingEntry.isPending ? "در حال ثبت..." : "ثبت نوبت"}
                 </Button>
               </DialogFooter>
             </form>
@@ -539,7 +704,7 @@ export default function Appointments() {
               <FormField control={editForm.control} name="serviceId" render={({ field }) => (
                 <FormItem>
                   <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
+                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
                     <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
                   </Select>
@@ -566,7 +731,7 @@ export default function Appointments() {
               <FormField control={editForm.control} name="status" render={({ field }) => (
                 <FormItem>
                   <FormLabel>وضعیت</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value ?? ""}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب وضعیت" /></SelectTrigger></FormControl>
                     <SelectContent>
                       {Object.entries(statuses).map(([key, { label }]) => (
@@ -617,12 +782,60 @@ export default function Appointments() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Move confirm (calendar drag & drop) */}
+      <AlertDialog open={!!moveTarget} onOpenChange={(open) => { if (!open) setMoveTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>جابه‌جایی نوبت</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-1">
+              {moveTarget && (
+                <>
+                  <span className="block">نوبت «{moveTarget.app.patientName}» — {moveTarget.app.serviceName}</span>
+                  <span className="block">از: {formatShamsiDate(moveTarget.app.scheduledAt, true)}</span>
+                  <span className="block font-medium text-foreground">به: {formatShamsiDate(dateTimeToMs(moveTarget.date, moveTarget.time), true)}</span>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>انصراف</AlertDialogCancel>
+            <AlertDialogAction disabled={updateAppointment.isPending} onClick={confirmMove} data-testid="confirm-move">
+              {updateAppointment.isPending ? "در حال جابه‌جایی..." : "جابه‌جا شود"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Tabs */}
       <Tabs defaultValue="active">
         <TabsList className="mb-4">
           <TabsTrigger value="active">نوبت‌های فعال</TabsTrigger>
+          <TabsTrigger value="calendar">تقویم</TabsTrigger>
           <TabsTrigger value="history">تاریخچه نوبت‌ها</TabsTrigger>
+          <TabsTrigger value="waiting" data-testid="waiting-list-tab">
+            لیست انتظار
+            {(waitingList?.data?.length ?? 0) > 0 && (
+              <span className="mr-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-100 px-1 text-xs text-amber-700">
+                {toPersianDigits(waitingList?.data?.length ?? 0)}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="calendar">
+          <Card>
+            <CardContent className="pt-6">
+              <AppointmentCalendar
+                appointments={calendarAppointments}
+                statusMeta={statuses}
+                isAdmin={isAdmin}
+                onCreateSlot={handleCalendarCreate}
+                onEditAppointment={handleCalendarEdit}
+                onMoveAppointment={handleCalendarMove}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         <TabsContent value="active">
           <Card>
@@ -667,7 +880,50 @@ export default function Appointments() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="waiting">
+          <WaitingListPanel onConvert={handleConvert} />
+        </TabsContent>
       </Tabs>
+
+      {/* پیشنهاد نامزدهای لیست انتظار پس از لغو نوبت */}
+      <Dialog open={!!cancelCandidates} onOpenChange={(open) => { if (!open) setCancelCandidates(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>جای خالی در {cancelCandidates?.dateLabel}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            نوبت لغو شد. این مراجعین در لیست انتظار هستند و تاریخ موردنظرشان با این روز هم‌خوانی دارد:
+          </p>
+          <div className="space-y-2 max-h-[320px] overflow-y-auto">
+            {cancelCandidates?.entries.map((entry) => (
+              <div key={entry.id} className="flex items-center justify-between gap-2 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="font-medium text-sm">{entry.patientName}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {entry.serviceName}
+                    {" · "}
+                    {formatPreferredRange(entry)}
+                  </p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Button size="sm" variant="outline" className="h-7 text-xs"
+                    disabled={notifyingCandidateId === entry.id}
+                    onClick={() => { setNotifyingCandidateId(entry.id); notifyCandidate.mutate({ id: entry.id }); }}
+                    data-testid={`candidate-notify-${entry.id}`}>
+                    {notifyingCandidateId === entry.id ? "در حال ارسال..." : "اطلاع‌رسانی پیامکی"}
+                  </Button>
+                  <Button size="sm" className="h-7 text-xs"
+                    onClick={() => handleConvert(entry, cancelCandidates?.dateStr)}
+                    data-testid={`candidate-convert-${entry.id}`}>
+                    ثبت نوبت
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
