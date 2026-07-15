@@ -22,6 +22,17 @@ export interface Patient {
   gender?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** @nullable */
+  tier?: string | null;
+  accountBalance?: number;
+  /** @nullable */
+  referrerType?: string | null;
+  /** @nullable */
+  referrerId?: number | null;
+  /** @nullable */
+  referrerRate?: number | null;
+  /** @nullable */
+  referrerName?: string | null;
   createdAt: number;
 }
 
@@ -33,6 +44,11 @@ export interface PatientInput {
   birthdate?: string;
   gender?: string;
   notes?: string;
+  tier?: string;
+  accountBalance?: number;
+  referrerType?: string;
+  referrerId?: number;
+  referrerRate?: number;
 }
 
 export interface PatientUpdate {
@@ -231,6 +247,8 @@ export interface AppointmentWithDetails {
   /** @nullable */
   patientFileNumber?: string | null;
   /** @nullable */
+  patientTier?: string | null;
+  /** @nullable */
   serviceName?: string | null;
   /** @nullable */
   servicePrice?: number | null;
@@ -285,6 +303,210 @@ export interface AppointmentUpdate {
   unitsUsed?: number | null;
 }
 
+export interface WaitingEntry {
+  id: number;
+  patientId: number;
+  serviceId: number;
+  /** @nullable */
+  preferredFrom?: number | null;
+  /** @nullable */
+  preferredTo?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status: string;
+  /** @nullable */
+  appointmentId?: number | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+  /** @nullable */
+  patientPhone?: string | null;
+  /** @nullable */
+  patientFileNumber?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+}
+
+export interface WaitingEntryList {
+  data: WaitingEntry[];
+  total: number;
+}
+
+export interface WaitingEntryInput {
+  patientId: number;
+  serviceId: number;
+  preferredFrom?: number;
+  preferredTo?: number;
+  note?: string;
+}
+
+export interface WaitingEntryUpdate {
+  patientId?: number;
+  serviceId?: number;
+  /** @nullable */
+  preferredFrom?: number | null;
+  /** @nullable */
+  preferredTo?: number | null;
+  /** @nullable */
+  note?: string | null;
+  status?: string;
+  /** @nullable */
+  appointmentId?: number | null;
+}
+
+export interface WaitingConvertInput {
+  scheduledAt: number;
+  serviceId?: number;
+  /** @nullable */
+  staffId?: number | null;
+  deposit?: number;
+}
+
+export interface WaitingConvertResult {
+  appointment: AppointmentWithDetails;
+  entry: WaitingEntry;
+}
+
+export interface WaitingNotifyResult {
+  ok: boolean;
+  /** @nullable */
+  error?: string | null;
+}
+
+export interface LoyaltySettings {
+  enabled: boolean;
+  earnAmount: number;
+  redeemValue: number;
+  minRedeem: number;
+}
+
+export interface LoyaltySettingsInput {
+  enabled: boolean;
+  /** @minimum 1000 */
+  earnAmount: number;
+  /** @minimum 1000 */
+  redeemValue: number;
+  /** @minimum 1 */
+  minRedeem: number;
+}
+
+export type LoyaltyTransactionType = typeof LoyaltyTransactionType[keyof typeof LoyaltyTransactionType];
+
+
+export const LoyaltyTransactionType = {
+  earn: 'earn',
+  redeem: 'redeem',
+  reverse: 'reverse',
+} as const;
+
+export interface LoyaltyTransaction {
+  id: number;
+  patientId: number;
+  /** @nullable */
+  paymentId?: number | null;
+  delta: number;
+  amount: number;
+  type: LoyaltyTransactionType;
+  /** @nullable */
+  description?: string | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+}
+
+export interface PatientLoyalty {
+  balance: number;
+  settings: LoyaltySettings;
+  transactions: LoyaltyTransaction[];
+}
+
+export interface LoyaltyTopPatient {
+  patientId: number;
+  patientName: string;
+  /** @nullable */
+  fileNumber?: string | null;
+  /** @nullable */
+  phone?: string | null;
+  balance: number;
+  earnedTotal: number;
+}
+
+export interface LoyaltyOverview {
+  totalMembers: number;
+  totalEarned: number;
+  totalRedeemed: number;
+  totalOutstanding: number;
+  topPatients: LoyaltyTopPatient[];
+  recent: LoyaltyTransaction[];
+}
+
+export interface Survey {
+  id: number;
+  patientId: number;
+  /** @nullable */
+  appointmentId?: number | null;
+  /** @nullable */
+  paymentId?: number | null;
+  /** @nullable */
+  serviceId?: number | null;
+  /** @nullable */
+  staffId?: number | null;
+  sentAt: number;
+  smsStatus: string;
+  /** @nullable */
+  score?: number | null;
+  /** @nullable */
+  comment?: string | null;
+  /** @nullable */
+  scoredAt?: number | null;
+  createdAt: number;
+  /** @nullable */
+  patientName?: string | null;
+  /** @nullable */
+  patientPhone?: string | null;
+  /** @nullable */
+  patientFileNumber?: string | null;
+  /** @nullable */
+  serviceName?: string | null;
+  /** @nullable */
+  staffName?: string | null;
+}
+
+export interface SurveyList {
+  data: Survey[];
+  total: number;
+}
+
+export interface SurveyScoreInput {
+  /**
+     * @minimum 1
+     * @maximum 5
+     */
+  score: number;
+  /** @nullable */
+  comment?: string | null;
+}
+
+export interface SurveyStatsGroup {
+  /** @nullable */
+  id?: number | null;
+  /** @nullable */
+  name?: string | null;
+  count: number;
+  avgScore: number;
+}
+
+export interface SurveyStats {
+  total: number;
+  scoredCount: number;
+  /** @nullable */
+  avgScore: number | null;
+  byService: SurveyStatsGroup[];
+  byStaff: SurveyStatsGroup[];
+}
+
 export interface Payment {
   id: number;
   appointmentId: number;
@@ -329,6 +551,8 @@ export interface PaymentInput {
   discountName?: string;
   discountAmount?: number;
   depositAmount?: number;
+  applyAccountBalance?: number;
+  redeemPoints?: number;
 }
 
 export interface Discount {
@@ -455,6 +679,25 @@ export interface CommissionRecipientUpdate {
   description?: string | null;
 }
 
+export type CommissionRecipientReferralsReferralsItem = {
+  patientId: number;
+  name: string;
+  /** @nullable */
+  fileNumber?: string | null;
+  totalSpent: number;
+  /** @nullable */
+  referrerRate: number | null;
+  commission: number;
+};
+
+export interface CommissionRecipientReferrals {
+  recipient: CommissionRecipient;
+  referrals: CommissionRecipientReferralsReferralsItem[];
+  totalSpent: number;
+  totalCommission: number;
+  count: number;
+}
+
 export interface Commission {
   id: number;
   recipientType: string;
@@ -535,6 +778,8 @@ export interface Reminder {
   createdAt: number;
   /** @nullable */
   patientName?: string | null;
+  /** @nullable */
+  patientTier?: string | null;
 }
 
 export interface ReminderInput {
@@ -612,6 +857,121 @@ export interface ReportsSummary {
   lowStockItems: InventoryItem[];
 }
 
+export type SmsSettingsSendMode = typeof SmsSettingsSendMode[keyof typeof SmsSettingsSendMode];
+
+
+export const SmsSettingsSendMode = {
+  normal: 'normal',
+  pattern: 'pattern',
+} as const;
+
+export interface SmsSettings {
+  username: string;
+  from: string;
+  hasPassword: boolean;
+  enabledAppointment: boolean;
+  enabledPayment: boolean;
+  enabledCommission: boolean;
+  enabledSurvey: boolean;
+  surveyThrottleDays: number;
+  sendMode: SmsSettingsSendMode;
+  bodyIdAppointment: string;
+  bodyIdPayment: string;
+  bodyIdCommission: string;
+  bodyIdBirthday: string;
+  bodyIdSurvey: string;
+}
+
+export type SmsSettingsUpdateSendMode = typeof SmsSettingsUpdateSendMode[keyof typeof SmsSettingsUpdateSendMode];
+
+
+export const SmsSettingsUpdateSendMode = {
+  normal: 'normal',
+  pattern: 'pattern',
+} as const;
+
+export interface SmsSettingsUpdate {
+  username?: string;
+  password?: string;
+  from?: string;
+  enabledAppointment?: boolean;
+  enabledPayment?: boolean;
+  enabledCommission?: boolean;
+  enabledSurvey?: boolean;
+  surveyThrottleDays?: number;
+  sendMode?: SmsSettingsUpdateSendMode;
+  bodyIdAppointment?: string;
+  bodyIdPayment?: string;
+  bodyIdCommission?: string;
+  bodyIdBirthday?: string;
+  bodyIdSurvey?: string;
+}
+
+export type SmsTemplatesDefaults = {
+  appointment: string;
+  payment: string;
+  commission: string;
+  birthday: string;
+  survey: string;
+};
+
+export interface SmsTemplates {
+  appointment: string;
+  payment: string;
+  commission: string;
+  birthday: string;
+  survey: string;
+  defaults: SmsTemplatesDefaults;
+}
+
+export interface SmsTemplatesUpdate {
+  appointment?: string;
+  payment?: string;
+  commission?: string;
+  birthday?: string;
+  survey?: string;
+}
+
+export interface SmsCredit {
+  ok: boolean;
+  credit?: number;
+  error?: string;
+}
+
+export interface SmsSendInput {
+  message: string;
+  patientIds?: number[];
+  birthdayDays?: number;
+  eventType?: string;
+}
+
+export interface SmsSendResult {
+  total: number;
+  sent: number;
+  failed: number;
+  errors?: string[];
+}
+
+export interface SmsLogEntry {
+  id: number;
+  recipientPhone: string;
+  /** @nullable */
+  recipientName?: string | null;
+  /** @nullable */
+  patientId?: number | null;
+  eventType: string;
+  message: string;
+  status: string;
+  /** @nullable */
+  error?: string | null;
+  createdAt: number;
+}
+
+export interface SmsLogList {
+  data: SmsLogEntry[];
+  total: number;
+}
+
 export type ListPatientsParams = {
 q?: string;
 page?: number;
@@ -625,6 +985,31 @@ patientId?: number;
 staffId?: number;
 page?: number;
 limit?: number;
+};
+
+export type ListWaitingListParams = {
+status?: string;
+};
+
+export type ListSurveysParams = {
+status?: ListSurveysStatus;
+from?: number;
+to?: number;
+page?: number;
+limit?: number;
+};
+
+export type ListSurveysStatus = typeof ListSurveysStatus[keyof typeof ListSurveysStatus];
+
+
+export const ListSurveysStatus = {
+  pending: 'pending',
+  scored: 'scored',
+} as const;
+
+export type GetSurveyStatsParams = {
+from?: number;
+to?: number;
 };
 
 export type ListPaymentsParams = {
@@ -644,6 +1029,11 @@ type?: string;
 };
 
 export type ListActivityParams = {
+limit?: number;
+};
+
+export type ListSmsLogsParams = {
+page?: number;
 limit?: number;
 };
 

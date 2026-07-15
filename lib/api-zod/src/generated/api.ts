@@ -32,6 +32,12 @@ export const ListPatientsResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "tier": zod.string().nullish(),
+  "accountBalance": zod.number().optional(),
+  "referrerType": zod.string().nullish(),
+  "referrerId": zod.number().nullish(),
+  "referrerRate": zod.number().nullish(),
+  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })),
   "total": zod.number(),
@@ -47,7 +53,12 @@ export const CreatePatientBody = zod.object({
   "email": zod.string().optional(),
   "birthdate": zod.string().optional(),
   "gender": zod.string().optional(),
-  "notes": zod.string().optional()
+  "notes": zod.string().optional(),
+  "tier": zod.string().optional(),
+  "accountBalance": zod.number().optional(),
+  "referrerType": zod.string().optional(),
+  "referrerId": zod.number().optional(),
+  "referrerRate": zod.number().optional()
 })
 
 
@@ -64,6 +75,12 @@ export const GetPatientResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "tier": zod.string().nullish(),
+  "accountBalance": zod.number().optional(),
+  "referrerType": zod.string().nullish(),
+  "referrerId": zod.number().nullish(),
+  "referrerRate": zod.number().nullish(),
+  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })
 
@@ -79,7 +96,12 @@ export const UpdatePatientBody = zod.object({
   "email": zod.string().nullish(),
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
-  "notes": zod.string().nullish()
+  "notes": zod.string().nullish(),
+  "tier": zod.string().nullish(),
+  "accountBalance": zod.number().optional(),
+  "referrerType": zod.string().nullish(),
+  "referrerId": zod.number().nullish(),
+  "referrerRate": zod.number().nullish()
 })
 
 export const UpdatePatientResponse = zod.object({
@@ -91,6 +113,12 @@ export const UpdatePatientResponse = zod.object({
   "birthdate": zod.string().nullish(),
   "gender": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "tier": zod.string().nullish(),
+  "accountBalance": zod.number().optional(),
+  "referrerType": zod.string().nullish(),
+  "referrerId": zod.number().nullish(),
+  "referrerRate": zod.number().nullish(),
+  "referrerName": zod.string().nullish(),
   "createdAt": zod.number()
 })
 
@@ -121,6 +149,7 @@ export const ListPatientAppointmentsResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -351,6 +380,7 @@ export const ListAppointmentsResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -395,6 +425,7 @@ export const GetTodayWaitingListResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -405,6 +436,277 @@ export const GetTodayWaitingListResponse = zod.object({
   "serviceUnitCount": zod.number().nullish()
 })),
   "total": zod.number()
+})
+
+
+export const ListWaitingListQueryParams = zod.object({
+  "status": zod.coerce.string().optional()
+})
+
+export const ListWaitingListResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string(),
+  "appointmentId": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
+  "serviceName": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+export const CreateWaitingEntryBody = zod.object({
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().optional(),
+  "preferredTo": zod.number().optional(),
+  "note": zod.string().optional()
+})
+
+
+export const UpdateWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateWaitingEntryBody = zod.object({
+  "patientId": zod.number().optional(),
+  "serviceId": zod.number().optional(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string().optional(),
+  "appointmentId": zod.number().nullish()
+})
+
+export const UpdateWaitingEntryResponse = zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "serviceId": zod.number(),
+  "preferredFrom": zod.number().nullish(),
+  "preferredTo": zod.number().nullish(),
+  "note": zod.string().nullish(),
+  "status": zod.string(),
+  "appointmentId": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
+  "serviceName": zod.string().nullish()
+})
+
+
+export const DeleteWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+export const ConvertWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConvertWaitingEntryBody = zod.object({
+  "scheduledAt": zod.number(),
+  "serviceId": zod.number().optional(),
+  "staffId": zod.number().nullish(),
+  "deposit": zod.number().optional()
+})
+
+
+export const NotifyWaitingEntryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const NotifyWaitingEntryResponse = zod.object({
+  "ok": zod.boolean(),
+  "error": zod.string().nullish()
+})
+
+
+export const GetLoyaltySettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+})
+
+
+export const updateLoyaltySettingsBodyEarnAmountMin = 1000;
+
+export const updateLoyaltySettingsBodyRedeemValueMin = 1000;
+
+
+
+
+export const UpdateLoyaltySettingsBody = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number().min(updateLoyaltySettingsBodyEarnAmountMin),
+  "redeemValue": zod.number().min(updateLoyaltySettingsBodyRedeemValueMin),
+  "minRedeem": zod.number().min(1)
+})
+
+export const UpdateLoyaltySettingsResponse = zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+})
+
+
+export const GetLoyaltyOverviewResponse = zod.object({
+  "totalMembers": zod.number(),
+  "totalEarned": zod.number(),
+  "totalRedeemed": zod.number(),
+  "totalOutstanding": zod.number(),
+  "topPatients": zod.array(zod.object({
+  "patientId": zod.number(),
+  "patientName": zod.string(),
+  "fileNumber": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "balance": zod.number(),
+  "earnedTotal": zod.number()
+})),
+  "recent": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "paymentId": zod.number().nullish(),
+  "delta": zod.number(),
+  "amount": zod.number(),
+  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "description": zod.string().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish()
+}))
+})
+
+
+export const GetPatientLoyaltyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetPatientLoyaltyResponse = zod.object({
+  "balance": zod.number(),
+  "settings": zod.object({
+  "enabled": zod.boolean(),
+  "earnAmount": zod.number(),
+  "redeemValue": zod.number(),
+  "minRedeem": zod.number()
+}),
+  "transactions": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "paymentId": zod.number().nullish(),
+  "delta": zod.number(),
+  "amount": zod.number(),
+  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "description": zod.string().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish()
+}))
+})
+
+
+export const ListSurveysQueryParams = zod.object({
+  "status": zod.enum(['pending', 'scored']).optional(),
+  "from": zod.coerce.number().optional(),
+  "to": zod.coerce.number().optional(),
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListSurveysResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
+  "serviceId": zod.number().nullish(),
+  "staffId": zod.number().nullish(),
+  "sentAt": zod.number(),
+  "smsStatus": zod.string(),
+  "score": zod.number().nullish(),
+  "comment": zod.string().nullish(),
+  "scoredAt": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "staffName": zod.string().nullish()
+})),
+  "total": zod.number()
+})
+
+
+export const GetSurveyStatsQueryParams = zod.object({
+  "from": zod.coerce.number().optional(),
+  "to": zod.coerce.number().optional()
+})
+
+export const GetSurveyStatsResponse = zod.object({
+  "total": zod.number(),
+  "scoredCount": zod.number(),
+  "avgScore": zod.number().nullable(),
+  "byService": zod.array(zod.object({
+  "id": zod.number().nullish(),
+  "name": zod.string().nullish(),
+  "count": zod.number(),
+  "avgScore": zod.number()
+})),
+  "byStaff": zod.array(zod.object({
+  "id": zod.number().nullish(),
+  "name": zod.string().nullish(),
+  "count": zod.number(),
+  "avgScore": zod.number()
+}))
+})
+
+
+export const ScoreSurveyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const scoreSurveyBodyScoreMax = 5;
+
+
+
+export const ScoreSurveyBody = zod.object({
+  "score": zod.number().min(1).max(scoreSurveyBodyScoreMax),
+  "comment": zod.string().nullish()
+})
+
+export const ScoreSurveyResponse = zod.object({
+  "id": zod.number(),
+  "patientId": zod.number(),
+  "appointmentId": zod.number().nullish(),
+  "paymentId": zod.number().nullish(),
+  "serviceId": zod.number().nullish(),
+  "staffId": zod.number().nullish(),
+  "sentAt": zod.number(),
+  "smsStatus": zod.string(),
+  "score": zod.number().nullish(),
+  "comment": zod.string().nullish(),
+  "scoredAt": zod.number().nullish(),
+  "createdAt": zod.number(),
+  "patientName": zod.string().nullish(),
+  "patientPhone": zod.string().nullish(),
+  "patientFileNumber": zod.string().nullish(),
+  "serviceName": zod.string().nullish(),
+  "staffName": zod.string().nullish()
+})
+
+
+export const DeleteSurveyParams = zod.object({
+  "id": zod.coerce.number()
 })
 
 
@@ -428,6 +730,7 @@ export const GetAppointmentResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -472,6 +775,7 @@ export const UpdateAppointmentResponse = zod.object({
   "patientName": zod.string().nullish(),
   "patientPhone": zod.string().nullish(),
   "patientFileNumber": zod.string().nullish(),
+  "patientTier": zod.string().nullish(),
   "serviceName": zod.string().nullish(),
   "servicePrice": zod.number().nullish(),
   "staffName": zod.string().nullish(),
@@ -528,7 +832,9 @@ export const CreatePaymentBody = zod.object({
   "unitLabel": zod.string().optional(),
   "discountName": zod.string().optional(),
   "discountAmount": zod.number().optional(),
-  "depositAmount": zod.number().optional()
+  "depositAmount": zod.number().optional(),
+  "applyAccountBalance": zod.number().optional(),
+  "redeemPoints": zod.number().optional()
 })
 
 
@@ -816,6 +1122,32 @@ export const DeleteCommissionRecipientParams = zod.object({
 })
 
 
+export const GetCommissionRecipientReferralsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetCommissionRecipientReferralsResponse = zod.object({
+  "recipient": zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "description": zod.string().nullish(),
+  "createdAt": zod.number()
+}),
+  "referrals": zod.array(zod.object({
+  "patientId": zod.number(),
+  "name": zod.string(),
+  "fileNumber": zod.string().nullish(),
+  "totalSpent": zod.number(),
+  "referrerRate": zod.number().nullable(),
+  "commission": zod.number()
+})),
+  "totalSpent": zod.number(),
+  "totalCommission": zod.number(),
+  "count": zod.number()
+})
+
+
 export const ListRemindersQueryParams = zod.object({
   "status": zod.coerce.string().optional(),
   "type": zod.coerce.string().optional()
@@ -830,7 +1162,8 @@ export const ListRemindersResponseItem = zod.object({
   "dueAt": zod.number(),
   "status": zod.string(),
   "createdAt": zod.number(),
-  "patientName": zod.string().nullish()
+  "patientName": zod.string().nullish(),
+  "patientTier": zod.string().nullish()
 })
 export const ListRemindersResponse = zod.array(ListRemindersResponseItem)
 
@@ -867,7 +1200,8 @@ export const UpdateReminderResponse = zod.object({
   "dueAt": zod.number(),
   "status": zod.string(),
   "createdAt": zod.number(),
-  "patientName": zod.string().nullish()
+  "patientName": zod.string().nullish(),
+  "patientTier": zod.string().nullish()
 })
 
 
@@ -944,6 +1278,142 @@ export const GetReportsSummaryResponse = zod.object({
   "isActive": zod.boolean(),
   "updatedAt": zod.number()
 }))
+})
+
+
+export const GetSmsSettingsResponse = zod.object({
+  "username": zod.string(),
+  "from": zod.string(),
+  "hasPassword": zod.boolean(),
+  "enabledAppointment": zod.boolean(),
+  "enabledPayment": zod.boolean(),
+  "enabledCommission": zod.boolean(),
+  "enabledSurvey": zod.boolean(),
+  "surveyThrottleDays": zod.number(),
+  "sendMode": zod.enum(['normal', 'pattern']),
+  "bodyIdAppointment": zod.string(),
+  "bodyIdPayment": zod.string(),
+  "bodyIdCommission": zod.string(),
+  "bodyIdBirthday": zod.string(),
+  "bodyIdSurvey": zod.string()
+})
+
+
+export const UpdateSmsSettingsBody = zod.object({
+  "username": zod.string().optional(),
+  "password": zod.string().optional(),
+  "from": zod.string().optional(),
+  "enabledAppointment": zod.boolean().optional(),
+  "enabledPayment": zod.boolean().optional(),
+  "enabledCommission": zod.boolean().optional(),
+  "enabledSurvey": zod.boolean().optional(),
+  "surveyThrottleDays": zod.number().optional(),
+  "sendMode": zod.enum(['normal', 'pattern']).optional(),
+  "bodyIdAppointment": zod.string().optional(),
+  "bodyIdPayment": zod.string().optional(),
+  "bodyIdCommission": zod.string().optional(),
+  "bodyIdBirthday": zod.string().optional(),
+  "bodyIdSurvey": zod.string().optional()
+})
+
+export const UpdateSmsSettingsResponse = zod.object({
+  "username": zod.string(),
+  "from": zod.string(),
+  "hasPassword": zod.boolean(),
+  "enabledAppointment": zod.boolean(),
+  "enabledPayment": zod.boolean(),
+  "enabledCommission": zod.boolean(),
+  "enabledSurvey": zod.boolean(),
+  "surveyThrottleDays": zod.number(),
+  "sendMode": zod.enum(['normal', 'pattern']),
+  "bodyIdAppointment": zod.string(),
+  "bodyIdPayment": zod.string(),
+  "bodyIdCommission": zod.string(),
+  "bodyIdBirthday": zod.string(),
+  "bodyIdSurvey": zod.string()
+})
+
+
+export const GetSmsTemplatesResponse = zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "survey": zod.string(),
+  "defaults": zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "survey": zod.string()
+})
+})
+
+
+export const UpdateSmsTemplatesBody = zod.object({
+  "appointment": zod.string().optional(),
+  "payment": zod.string().optional(),
+  "commission": zod.string().optional(),
+  "birthday": zod.string().optional(),
+  "survey": zod.string().optional()
+})
+
+export const UpdateSmsTemplatesResponse = zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "survey": zod.string(),
+  "defaults": zod.object({
+  "appointment": zod.string(),
+  "payment": zod.string(),
+  "commission": zod.string(),
+  "birthday": zod.string(),
+  "survey": zod.string()
+})
+})
+
+
+export const GetSmsCreditResponse = zod.object({
+  "ok": zod.boolean(),
+  "credit": zod.number().optional(),
+  "error": zod.string().optional()
+})
+
+
+export const SendManualSmsBody = zod.object({
+  "message": zod.string(),
+  "patientIds": zod.array(zod.number()).optional(),
+  "birthdayDays": zod.number().optional(),
+  "eventType": zod.string().optional()
+})
+
+export const SendManualSmsResponse = zod.object({
+  "total": zod.number(),
+  "sent": zod.number(),
+  "failed": zod.number(),
+  "errors": zod.array(zod.string()).optional()
+})
+
+
+export const ListSmsLogsQueryParams = zod.object({
+  "page": zod.coerce.number().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListSmsLogsResponse = zod.object({
+  "data": zod.array(zod.object({
+  "id": zod.number(),
+  "recipientPhone": zod.string(),
+  "recipientName": zod.string().nullish(),
+  "patientId": zod.number().nullish(),
+  "eventType": zod.string(),
+  "message": zod.string(),
+  "status": zod.string(),
+  "error": zod.string().nullish(),
+  "createdAt": zod.number()
+})),
+  "total": zod.number()
 })
 
 
