@@ -21,6 +21,7 @@ export * from "./client-errors";
 export * from "./app-settings";
 export * from "./backup-log";
 export * from "./sms-log";
+export * from "./sms-saved-patterns";
 export * from "./waiting-list";
 export * from "./surveys";
 export * from "./loyalty";

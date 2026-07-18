@@ -225,38 +225,6 @@ export async function getSmsSettings(): Promise<SmsSettings> {
   };
 }
 
-// ── کدهای پترن ذخیره‌شده (نام‌دار) ────────────────────────────────────────────
-// فهرست کدهای پترن پرکاربرد با نام دلخواه (مثلاً «یادآوری مراجعه — 465123»)
-// به‌صورت JSON در app_settings نگهداری می‌شود.
-
-export const SAVED_PATTERNS_KEY = "sms_saved_patterns";
-
-export interface SavedPattern {
-  id: number;
-  name: string;
-  bodyId: string;
-}
-
-export async function getSavedPatterns(): Promise<SavedPattern[]> {
-  const map = await readSettingsMap([SAVED_PATTERNS_KEY]);
-  const raw = map.get(SAVED_PATTERNS_KEY);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (p): p is SavedPattern =>
-        p && typeof p.id === "number" && typeof p.name === "string" && typeof p.bodyId === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-export async function setSavedPatterns(patterns: SavedPattern[]): Promise<void> {
-  await setAppSetting(SAVED_PATTERNS_KEY, JSON.stringify(patterns));
-}
-
 export async function setAppSetting(key: string, value: string | null): Promise<void> {
   await db
     .insert(appSettingsTable)

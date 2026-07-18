@@ -8,15 +8,16 @@ import {
   useGetSmsCredit,
   useSendManualSms,
   useSendPatternSms,
-  useListSavedPatterns,
-  useCreateSavedPattern,
-  useDeleteSavedPattern,
-  getListSavedPatternsQueryKey,
   useListSmsLogs,
   useListPatients,
+  useListSavedSmsPatterns,
+  useCreateSavedSmsPattern,
+  useUpdateSavedSmsPattern,
+  useDeleteSavedSmsPattern,
   getGetSmsSettingsQueryKey,
   getGetSmsCreditQueryKey,
   getListSmsLogsQueryKey,
+  getListSavedSmsPatternsQueryKey,
 } from "@workspace/api-client-react";
 import type { SmsTemplates } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -36,6 +37,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquare, PlugZap, FileText, Send, History, Zap,
   CheckCircle2, XCircle, RotateCcw, Cake, Plus, Trash2,
+  BookmarkPlus, Pencil, Check, X,
 } from "lucide-react";
 
 // ─── Settings tab ──────────────────────────────────────────────────────────────
@@ -459,6 +461,222 @@ function TemplatesTab() {
   );
 }
 
+// ─── کدهای پترن ذخیره‌شده (پرکاربرد) ─────────────────────────────────────────
+// فهرست کدهای bodyId که کاربر با نام دلخواه ذخیره کرده است؛ با کلیک روی هر
+// کدام، کد در فیلد «کد پترن» قرار می‌گیرد. ویرایش و حذف هم همین‌جا انجام می‌شود.
+
+function SavedPatternsPicker({
+  currentBodyId,
+  onPick,
+}: {
+  currentBodyId: string;
+  onPick: (bodyId: string) => void;
+}) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: savedRes } = useListSavedSmsPatterns();
+  const saved = savedRes?.data ?? [];
+
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editBodyId, setEditBodyId] = useState("");
+
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: getListSavedSmsPatternsQueryKey() });
+
+  const onApiError = (title: string) => (err: unknown) => {
+    const msg = (err as { data?: { error?: string } } | null)?.data?.error;
+    toast({ title, description: msg, variant: "destructive" });
+  };
+
+  const create = useCreateSavedSmsPattern({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        setSaveOpen(false);
+        setSaveName("");
+        toast({ title: "کد پترن ذخیره شد" });
+      },
+      onError: onApiError("خطا در ذخیره کد پترن"),
+    },
+  });
+
+  const update = useUpdateSavedSmsPattern({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        setEditingId(null);
+        toast({ title: "کد پترن ویرایش شد" });
+      },
+      onError: onApiError("خطا در ویرایش کد پترن"),
+    },
+  });
+
+  const remove = useDeleteSavedSmsPattern({
+    mutation: {
+      onSuccess: () => {
+        invalidate();
+        toast({ title: "کد پترن حذف شد" });
+      },
+      onError: onApiError("خطا در حذف کد پترن"),
+    },
+  });
+
+  function handleSave() {
+    if (!saveName.trim()) {
+      toast({ title: "نام کد پترن را وارد کنید", variant: "destructive" });
+      return;
+    }
+    if (!/^\d+$/.test(currentBodyId.trim())) {
+      toast({ title: "ابتدا کد پترن معتبر (فقط عدد) را وارد کنید", variant: "destructive" });
+      return;
+    }
+    create.mutate({ data: { name: saveName.trim(), bodyId: currentBodyId.trim() } });
+  }
+
+  function handleUpdate(id: number) {
+    if (!editName.trim()) {
+      toast({ title: "نام کد پترن را وارد کنید", variant: "destructive" });
+      return;
+    }
+    if (!/^\d+$/.test(editBodyId.trim())) {
+      toast({ title: "کد پترن باید فقط عدد باشد", variant: "destructive" });
+      return;
+    }
+    update.mutate({ id, data: { name: editName.trim(), bodyId: editBodyId.trim() } });
+  }
+
+  return (
+    <div className="space-y-2 rounded-md border bg-muted/40 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-sm">کدهای پترن ذخیره‌شده</Label>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSaveOpen((v) => !v)}
+          data-testid="button-toggle-save-pattern"
+        >
+          <BookmarkPlus className="size-4" />
+          ذخیره کد فعلی
+        </Button>
+      </div>
+
+      {saveOpen && (
+        <div className="flex gap-2">
+          <Input
+            placeholder="نام دلخواه — مثلاً یادآوری نوبت لیزر"
+            value={saveName}
+            onChange={(e) => setSaveName(e.target.value)}
+            data-testid="input-save-pattern-name"
+          />
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={create.isPending}
+            data-testid="button-save-pattern"
+          >
+            {create.isPending ? <Spinner className="size-4" /> : <Check className="size-4" />}
+            ذخیره
+          </Button>
+        </div>
+      )}
+
+      {saved.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          هنوز کدی ذخیره نشده است. کد پترن را وارد کنید و با «ذخیره کد فعلی» یک نام برای آن انتخاب کنید.
+        </p>
+      ) : (
+        <div className="space-y-1">
+          {saved.map((p) =>
+            editingId === p.id ? (
+              <div className="flex items-center gap-2" key={p.id}>
+                <Input
+                  className="h-8"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="نام"
+                  data-testid={`input-edit-pattern-name-${p.id}`}
+                />
+                <Input
+                  className="h-8 w-32 shrink-0"
+                  dir="ltr"
+                  inputMode="numeric"
+                  value={editBodyId}
+                  onChange={(e) => setEditBodyId(e.target.value.replace(/[^0-9]/g, ""))}
+                  placeholder="کد"
+                  data-testid={`input-edit-pattern-bodyid-${p.id}`}
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => handleUpdate(p.id)}
+                  disabled={update.isPending}
+                  data-testid={`button-confirm-edit-pattern-${p.id}`}
+                >
+                  <Check className="size-4 text-green-600" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => setEditingId(null)}
+                  data-testid={`button-cancel-edit-pattern-${p.id}`}
+                >
+                  <X className="size-4 text-muted-foreground" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1" key={p.id}>
+                <button
+                  type="button"
+                  onClick={() => onPick(p.bodyId)}
+                  className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-right text-sm transition-colors ${
+                    currentBodyId.trim() === p.bodyId
+                      ? "border-primary bg-primary/10"
+                      : "bg-background hover:bg-muted"
+                  }`}
+                  data-testid={`button-pick-pattern-${p.id}`}
+                >
+                  <span className="truncate">{p.name}</span>
+                  <span className="shrink-0 font-mono text-xs text-muted-foreground" dir="ltr">
+                    {p.bodyId}
+                  </span>
+                </button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => {
+                    setEditingId(p.id);
+                    setEditName(p.name);
+                    setEditBodyId(p.bodyId);
+                  }}
+                  data-testid={`button-edit-pattern-${p.id}`}
+                >
+                  <Pencil className="size-3.5 text-muted-foreground" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  onClick={() => remove.mutate({ id: p.id })}
+                  disabled={remove.isPending}
+                  data-testid={`button-delete-pattern-${p.id}`}
+                >
+                  <Trash2 className="size-3.5 text-muted-foreground" />
+                </Button>
+              </div>
+            ),
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Send tab ────────────────────────────────────────────────────────────────
 
 function SendTab() {
@@ -475,7 +693,6 @@ function SendTab() {
   const [patternRecipientMode, setPatternRecipientMode] = useState<"patient" | "phone">("patient");
   const [patternPatient, setPatternPatient] = useState<{ id: number; name: string } | null>(null);
   const [patternPhone, setPatternPhone] = useState("");
-  const [savePatternName, setSavePatternName] = useState("");
 
   const { data: patientsRes } = useListPatients({ q: search || undefined, limit: 20 });
   const patients = patientsRes?.data ?? [];
@@ -513,43 +730,6 @@ function SendTab() {
       },
     },
   });
-
-  const { data: savedPatterns } = useListSavedPatterns();
-
-  const createSavedPattern = useCreateSavedPattern({
-    mutation: {
-      onSuccess: (created) => {
-        queryClient.invalidateQueries({ queryKey: getListSavedPatternsQueryKey() });
-        setSavePatternName("");
-        toast({ title: `کد «${created.name}» ذخیره شد` });
-      },
-      onError: (err: unknown) => {
-        const msg = (err as { data?: { error?: string } } | null)?.data?.error;
-        toast({ title: msg ?? "خطا در ذخیره کد پترن", variant: "destructive" });
-      },
-    },
-  });
-
-  const deleteSavedPattern = useDeleteSavedPattern({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListSavedPatternsQueryKey() });
-        toast({ title: "کد پترن حذف شد" });
-      },
-    },
-  });
-
-  function handleSavePattern() {
-    if (!/^\d+$/.test(patternBodyId.trim())) {
-      toast({ title: "ابتدا کد پترن معتبر (فقط عدد) وارد کنید", variant: "destructive" });
-      return;
-    }
-    if (!savePatternName.trim()) {
-      toast({ title: "نامی برای این کد وارد کنید (مثلاً «یادآوری مراجعه»)", variant: "destructive" });
-      return;
-    }
-    createSavedPattern.mutate({ data: { name: savePatternName.trim(), bodyId: patternBodyId.trim() } });
-  }
 
   function handleSendPattern() {
     if (!/^\d+$/.test(patternBodyId.trim())) {
@@ -685,6 +865,7 @@ function SendTab() {
 
           {mode === "pattern" && (
             <div className="space-y-4">
+              <SavedPatternsPicker currentBodyId={patternBodyId} onPick={setPatternBodyId} />
               <div className="space-y-2">
                 <Label htmlFor="pattern-body-id">کد پترن (bodyId)</Label>
                 <Input
@@ -698,57 +879,6 @@ function SendTab() {
                 <p className="text-xs text-muted-foreground">
                   کد پیامک آماده‌شده در پنل ملی‌پیامک (بخش ارسال خدماتی). متن پیام همان متن ثبت‌شده در پنل است.
                 </p>
-              </div>
-
-              {savedPatterns && savedPatterns.length > 0 && (
-                <div className="space-y-2">
-                  <Label>کدهای ذخیره‌شده</Label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {savedPatterns.map((p) => (
-                      <span className="inline-flex items-center" key={p.id}>
-                        <Badge
-                          variant={patternBodyId.trim() === p.bodyId ? "default" : "secondary"}
-                          className="cursor-pointer rounded-l-none"
-                          onClick={() => setPatternBodyId(p.bodyId)}
-                          data-testid={`badge-saved-pattern-${p.id}`}
-                        >
-                          {p.name} ({toPersianDigits(p.bodyId)})
-                        </Badge>
-                        <button
-                          type="button"
-                          className="rounded-r-md border border-r-0 border-transparent bg-muted px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive"
-                          onClick={() => deleteSavedPattern.mutate({ id: p.id })}
-                          title={`حذف «${p.name}»`}
-                          data-testid={`button-delete-saved-pattern-${p.id}`}
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label htmlFor="save-pattern-name">ذخیره این کد با نام دلخواه</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="save-pattern-name"
-                    placeholder="مثلاً یادآوری مراجعه"
-                    value={savePatternName}
-                    onChange={(e) => setSavePatternName(e.target.value)}
-                    data-testid="input-save-pattern-name"
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={handleSavePattern}
-                    disabled={createSavedPattern.isPending}
-                    data-testid="button-save-pattern"
-                  >
-                    <Plus className="size-4" />
-                    ذخیره
-                  </Button>
-                </div>
               </div>
 
               <div className="space-y-2">

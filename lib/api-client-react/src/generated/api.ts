@@ -77,8 +77,9 @@ import type {
   ReminderUpdate,
   ReportsSummary,
   RevenueChartPoint,
-  SavedPattern,
-  SavedPatternInput,
+  SavedSmsPattern,
+  SavedSmsPatternInput,
+  SavedSmsPatternList,
   Service,
   ServiceInput,
   ServiceUpdate,
@@ -4560,17 +4561,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return useMutation(getSendPatternSmsMutationOptions(options));
     }
 
-export const getListSavedPatternsUrl = () => {
+export const getListSavedSmsPatternsUrl = () => {
 
 
 
 
-  return `/api/sms/saved-patterns`
+  return `/api/sms/patterns`
 }
 
-export const listSavedPatterns = async ( options?: RequestInit): Promise<SavedPattern[]> => {
+export const listSavedSmsPatterns = async ( options?: RequestInit): Promise<SavedSmsPatternList> => {
 
-  return customFetch<SavedPattern[]>(getListSavedPatternsUrl(),
+  return customFetch<SavedSmsPatternList>(getListSavedSmsPatternsUrl(),
   {
     ...options,
     method: 'GET'
@@ -4583,42 +4584,42 @@ export const listSavedPatterns = async ( options?: RequestInit): Promise<SavedPa
 
 
 
-export const getListSavedPatternsQueryKey = () => {
+export const getListSavedSmsPatternsQueryKey = () => {
     return [
-    `/api/sms/saved-patterns`
+    `/api/sms/patterns`
     ] as const;
     }
 
 
-export const getListSavedPatternsQueryOptions = <TData = Awaited<ReturnType<typeof listSavedPatterns>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSavedPatterns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getListSavedSmsPatternsQueryOptions = <TData = Awaited<ReturnType<typeof listSavedSmsPatterns>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSavedSmsPatterns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getListSavedPatternsQueryKey();
+  const queryKey =  queryOptions?.queryKey ?? getListSavedSmsPatternsQueryKey();
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSavedPatterns>>> = ({ signal }) => listSavedPatterns({ signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSavedSmsPatterns>>> = ({ signal }) => listSavedSmsPatterns({ signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSavedPatterns>>, TError, TData> & { queryKey: QueryKey }
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSavedSmsPatterns>>, TError, TData> & { queryKey: QueryKey }
 }
 
-export type ListSavedPatternsQueryResult = NonNullable<Awaited<ReturnType<typeof listSavedPatterns>>>
-export type ListSavedPatternsQueryError = ErrorType<unknown>
+export type ListSavedSmsPatternsQueryResult = NonNullable<Awaited<ReturnType<typeof listSavedSmsPatterns>>>
+export type ListSavedSmsPatternsQueryError = ErrorType<unknown>
 
 
 
-export function useListSavedPatterns<TData = Awaited<ReturnType<typeof listSavedPatterns>>, TError = ErrorType<unknown>>(
-  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSavedPatterns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export function useListSavedSmsPatterns<TData = Awaited<ReturnType<typeof listSavedSmsPatterns>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSavedSmsPatterns>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
-  const queryOptions = getListSavedPatternsQueryOptions(options)
+  const queryOptions = getListSavedSmsPatternsQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4631,34 +4632,34 @@ export function useListSavedPatterns<TData = Awaited<ReturnType<typeof listSaved
 
 
 
-export const getCreateSavedPatternUrl = () => {
+export const getCreateSavedSmsPatternUrl = () => {
 
 
 
 
-  return `/api/sms/saved-patterns`
+  return `/api/sms/patterns`
 }
 
-export const createSavedPattern = async (savedPatternInput: SavedPatternInput, options?: RequestInit): Promise<SavedPattern> => {
+export const createSavedSmsPattern = async (savedSmsPatternInput: SavedSmsPatternInput, options?: RequestInit): Promise<SavedSmsPattern> => {
 
-  return customFetch<SavedPattern>(getCreateSavedPatternUrl(),
+  return customFetch<SavedSmsPattern>(getCreateSavedSmsPatternUrl(),
   {
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...options?.headers },
     body: JSON.stringify(
-      savedPatternInput,)
+      savedSmsPatternInput,)
   }
 );}
 
 
 
 
-export const getCreateSavedPatternMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSavedPattern>>, TError,{data: BodyType<SavedPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof createSavedPattern>>, TError,{data: BodyType<SavedPatternInput>}, TContext> => {
+export const getCreateSavedSmsPatternMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSavedSmsPattern>>, TError,{data: BodyType<SavedSmsPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createSavedSmsPattern>>, TError,{data: BodyType<SavedSmsPatternInput>}, TContext> => {
 
-const mutationKey = ['createSavedPattern'];
+const mutationKey = ['createSavedSmsPattern'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4668,10 +4669,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSavedPattern>>, {data: BodyType<SavedPatternInput>}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createSavedSmsPattern>>, {data: BodyType<SavedSmsPatternInput>}> = (props) => {
           const {data} = props ?? {};
 
-          return  createSavedPattern(data,requestOptions)
+          return  createSavedSmsPattern(data,requestOptions)
         }
 
 
@@ -4681,32 +4682,98 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type CreateSavedPatternMutationResult = NonNullable<Awaited<ReturnType<typeof createSavedPattern>>>
-    export type CreateSavedPatternMutationBody = BodyType<SavedPatternInput>
-    export type CreateSavedPatternMutationError = ErrorType<unknown>
+    export type CreateSavedSmsPatternMutationResult = NonNullable<Awaited<ReturnType<typeof createSavedSmsPattern>>>
+    export type CreateSavedSmsPatternMutationBody = BodyType<SavedSmsPatternInput>
+    export type CreateSavedSmsPatternMutationError = ErrorType<unknown>
 
-    export const useCreateSavedPattern = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSavedPattern>>, TError,{data: BodyType<SavedPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+    export const useCreateSavedSmsPattern = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSavedSmsPattern>>, TError,{data: BodyType<SavedSmsPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof createSavedPattern>>,
+        Awaited<ReturnType<typeof createSavedSmsPattern>>,
         TError,
-        {data: BodyType<SavedPatternInput>},
+        {data: BodyType<SavedSmsPatternInput>},
         TContext
       > => {
-      return useMutation(getCreateSavedPatternMutationOptions(options));
+      return useMutation(getCreateSavedSmsPatternMutationOptions(options));
     }
 
-export const getDeleteSavedPatternUrl = (id: number,) => {
+export const getUpdateSavedSmsPatternUrl = (id: number,) => {
 
 
 
 
-  return `/api/sms/saved-patterns/${id}`
+  return `/api/sms/patterns/${id}`
 }
 
-export const deleteSavedPattern = async (id: number, options?: RequestInit): Promise<void> => {
+export const updateSavedSmsPattern = async (id: number,
+    savedSmsPatternInput: SavedSmsPatternInput, options?: RequestInit): Promise<SavedSmsPattern> => {
 
-  return customFetch<void>(getDeleteSavedPatternUrl(id),
+  return customFetch<SavedSmsPattern>(getUpdateSavedSmsPatternUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      savedSmsPatternInput,)
+  }
+);}
+
+
+
+
+export const getUpdateSavedSmsPatternMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSavedSmsPattern>>, TError,{id: number;data: BodyType<SavedSmsPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateSavedSmsPattern>>, TError,{id: number;data: BodyType<SavedSmsPatternInput>}, TContext> => {
+
+const mutationKey = ['updateSavedSmsPattern'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateSavedSmsPattern>>, {id: number;data: BodyType<SavedSmsPatternInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateSavedSmsPattern(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateSavedSmsPatternMutationResult = NonNullable<Awaited<ReturnType<typeof updateSavedSmsPattern>>>
+    export type UpdateSavedSmsPatternMutationBody = BodyType<SavedSmsPatternInput>
+    export type UpdateSavedSmsPatternMutationError = ErrorType<unknown>
+
+    export const useUpdateSavedSmsPattern = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateSavedSmsPattern>>, TError,{id: number;data: BodyType<SavedSmsPatternInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateSavedSmsPattern>>,
+        TError,
+        {id: number;data: BodyType<SavedSmsPatternInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateSavedSmsPatternMutationOptions(options));
+    }
+
+export const getDeleteSavedSmsPatternUrl = (id: number,) => {
+
+
+
+
+  return `/api/sms/patterns/${id}`
+}
+
+export const deleteSavedSmsPattern = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteSavedSmsPatternUrl(id),
   {
     ...options,
     method: 'DELETE'
@@ -4718,11 +4785,11 @@ export const deleteSavedPattern = async (id: number, options?: RequestInit): Pro
 
 
 
-export const getDeleteSavedPatternMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedPattern>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof deleteSavedPattern>>, TError,{id: number}, TContext> => {
+export const getDeleteSavedSmsPatternMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedSmsPattern>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSavedSmsPattern>>, TError,{id: number}, TContext> => {
 
-const mutationKey = ['deleteSavedPattern'];
+const mutationKey = ['deleteSavedSmsPattern'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -4732,10 +4799,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSavedPattern>>, {id: number}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSavedSmsPattern>>, {id: number}> = (props) => {
           const {id} = props ?? {};
 
-          return  deleteSavedPattern(id,requestOptions)
+          return  deleteSavedSmsPattern(id,requestOptions)
         }
 
 
@@ -4745,19 +4812,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type DeleteSavedPatternMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSavedPattern>>>
+    export type DeleteSavedSmsPatternMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSavedSmsPattern>>>
 
-    export type DeleteSavedPatternMutationError = ErrorType<void>
+    export type DeleteSavedSmsPatternMutationError = ErrorType<unknown>
 
-    export const useDeleteSavedPattern = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedPattern>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+    export const useDeleteSavedSmsPattern = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedSmsPattern>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
-        Awaited<ReturnType<typeof deleteSavedPattern>>,
+        Awaited<ReturnType<typeof deleteSavedSmsPattern>>,
         TError,
         {id: number},
         TContext
       > => {
-      return useMutation(getDeleteSavedPatternMutationOptions(options));
+      return useMutation(getDeleteSavedSmsPatternMutationOptions(options));
     }
 
 export const getListSmsLogsUrl = (params?: ListSmsLogsParams,) => {

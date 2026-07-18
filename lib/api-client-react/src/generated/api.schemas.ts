@@ -771,15 +771,20 @@ export interface PatternSmsResult {
   error?: string | null;
 }
 
-export interface SavedPattern {
+export interface SavedSmsPattern {
   id: number;
+  name: string;
+  bodyId: string;
+  createdAt: number;
+}
+
+export interface SavedSmsPatternInput {
   name: string;
   bodyId: string;
 }
 
-export interface SavedPatternInput {
-  name: string;
-  bodyId: string;
+export interface SavedSmsPatternList {
+  data: SavedSmsPattern[];
 }
 
 export interface SmsLog {

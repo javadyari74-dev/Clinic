@@ -1144,21 +1144,40 @@ export const SendPatternSmsResponse = zod.object({
 })
 
 
-export const ListSavedPatternsResponseItem = zod.object({
+export const ListSavedSmsPatternsResponse = zod.object({
+  "data": zod.array(zod.object({
   "id": zod.number(),
   "name": zod.string(),
-  "bodyId": zod.string()
+  "bodyId": zod.string(),
+  "createdAt": zod.number()
+}))
 })
-export const ListSavedPatternsResponse = zod.array(ListSavedPatternsResponseItem)
 
 
-export const CreateSavedPatternBody = zod.object({
+export const CreateSavedSmsPatternBody = zod.object({
   "name": zod.string(),
   "bodyId": zod.string()
 })
 
 
-export const DeleteSavedPatternParams = zod.object({
+export const UpdateSavedSmsPatternParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateSavedSmsPatternBody = zod.object({
+  "name": zod.string(),
+  "bodyId": zod.string()
+})
+
+export const UpdateSavedSmsPatternResponse = zod.object({
+  "id": zod.number(),
+  "name": zod.string(),
+  "bodyId": zod.string(),
+  "createdAt": zod.number()
+})
+
+
+export const DeleteSavedSmsPatternParams = zod.object({
   "id": zod.coerce.number()
 })
 

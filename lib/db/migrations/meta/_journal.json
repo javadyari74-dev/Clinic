@@ -141,6 +141,13 @@
       "when": 1784020068716,
       "tag": "0019_backfill_record_uuids",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1784106468716,
+      "tag": "0020_add_sms_saved_patterns",
+      "breakpoints": true
     }
   ]
 }

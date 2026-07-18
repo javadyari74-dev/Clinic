@@ -1156,9 +1156,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/PatternSmsResult"
 
-  /sms/saved-patterns:
+  /sms/patterns:
     get:
-      operationId: listSavedPatterns
+      operationId: listSavedSmsPatterns
       tags: [sms]
       responses:
         "200":
@@ -1166,29 +1166,48 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/SavedPattern"
+                $ref: "#/components/schemas/SavedSmsPatternList"
     post:
-      operationId: createSavedPattern
+      operationId: createSavedSmsPattern
       tags: [sms]
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/SavedPatternInput"
+              $ref: "#/components/schemas/SavedSmsPatternInput"
       responses:
         "201":
           description: Created
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SavedPattern"
+                $ref: "#/components/schemas/SavedSmsPattern"
 
-  /sms/saved-patterns/{id}:
+  /sms/patterns/{id}:
+    put:
+      operationId: updateSavedSmsPattern
+      tags: [sms]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedSmsPatternInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SavedSmsPattern"
     delete:
-      operationId: deleteSavedPattern
+      operationId: deleteSavedSmsPattern
       tags: [sms]
       parameters:
         - name: id
@@ -1198,8 +1217,6 @@ paths:
       responses:
         "204":
           description: Deleted
-        "404":
-          description: Not found
 
   /sms/logs:
     get:
@@ -2219,20 +2236,30 @@ components:
         ok: { type: boolean }
         error: { type: ["string", "null"] }
 
-    SavedPattern:
+    SavedSmsPattern:
       type: object
-      required: [id, name, bodyId]
+      required: [id, name, bodyId, createdAt]
       properties:
         id: { type: integer }
         name: { type: string }
         bodyId: { type: string }
+        createdAt: { type: integer }
 
-    SavedPatternInput:
+    SavedSmsPatternInput:
       type: object
       required: [name, bodyId]
       properties:
         name: { type: string }
         bodyId: { type: string }
+
+    SavedSmsPatternList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedSmsPattern"
 
     SmsLog:
       type: object

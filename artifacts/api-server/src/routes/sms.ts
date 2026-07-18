@@ -1,12 +1,13 @@
 import { Router, type IRouter } from "express";
-import { desc, sql, inArray } from "drizzle-orm";
-import { db, smsLogTable, patientsTable } from "@workspace/db";
+import { desc, sql, inArray, eq } from "drizzle-orm";
+import { db, smsLogTable, patientsTable, smsSavedPatternsTable } from "@workspace/db";
 import {
   UpdateSmsSettingsBody,
   UpdateSmsTemplatesBody,
   SendManualSmsBody,
   SendPatternSmsBody,
-  CreateSavedPatternBody,
+  CreateSavedSmsPatternBody,
+  UpdateSavedSmsPatternBody,
   ListSmsLogsQueryParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
@@ -23,8 +24,6 @@ import {
   sendSms,
   renderTemplate,
   normalizePhone,
-  getSavedPatterns,
-  setSavedPatterns,
 } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
 
@@ -269,53 +268,91 @@ router.post("/sms/send-pattern", async (req, res): Promise<void> => {
   res.json({ ok: result.ok, error: result.error ?? null });
 });
 
-// ── کدهای پترن ذخیره‌شده (نام‌دار) ────────────────────────────────────────────
+// ── کدهای پترن ذخیره‌شده (پرکاربرد) ──────────────────────────────────────────
+// کاربر کدهای پترن پرکاربرد را با یک نام دلخواه ذخیره می‌کند تا هنگام ارسال
+// خدماتی از فهرست انتخاب کند و مجبور به تایپ دستی کد نباشد.
 
-router.get("/sms/saved-patterns", async (_req, res): Promise<void> => {
-  res.json(await getSavedPatterns());
+function validateSavedPatternInput(name: string, bodyId: string): string | null {
+  if (!name.trim()) return "نام کد پترن را وارد کنید";
+  if (!/^\d+$/.test(bodyId.trim())) return "کد پترن باید فقط عدد باشد (مثلاً 465123)";
+  return null;
+}
+
+router.get("/sms/patterns", async (_req, res): Promise<void> => {
+  const rows = await db
+    .select()
+    .from(smsSavedPatternsTable)
+    .orderBy(desc(smsSavedPatternsTable.id));
+  res.json({ data: rows });
 });
 
-router.post("/sms/saved-patterns", async (req, res): Promise<void> => {
-  const parsed = CreateSavedPatternBody.safeParse(req.body);
+router.post("/sms/patterns", async (req, res): Promise<void> => {
+  const parsed = CreateSavedSmsPatternBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
   const name = parsed.data.name.trim();
   const bodyId = parsed.data.bodyId.trim();
-  if (!name) {
-    res.status(400).json({ error: "نام کد پترن را وارد کنید (مثلاً «یادآوری مراجعه»)" });
+  const invalid = validateSavedPatternInput(name, bodyId);
+  if (invalid) {
+    res.status(400).json({ error: invalid });
     return;
   }
-  if (!/^\d+$/.test(bodyId)) {
-    res.status(400).json({ error: "کد پترن باید فقط عدد باشد (مثلاً 465123)" });
-    return;
-  }
-  const patterns = await getSavedPatterns();
-  if (patterns.some((p) => p.name === name)) {
-    res.status(400).json({ error: "کدی با این نام قبلاً ذخیره شده است" });
-    return;
-  }
-  const created = {
-    id: patterns.reduce((m, p) => Math.max(m, p.id), 0) + 1,
-    name,
-    bodyId,
-  };
-  await setSavedPatterns([...patterns, created]);
-  await logActivity("create", "sms", 0, `ذخیره کد پترن «${name}» (${bodyId})`);
-  res.status(201).json(created);
+  const [row] = await db
+    .insert(smsSavedPatternsTable)
+    .values({ name, bodyId })
+    .returning();
+  await logActivity("create", "settings", row.id, `کد پترن پیامکی «${name}» (${bodyId}) ذخیره شد`);
+  res.status(201).json(row);
 });
 
-router.delete("/sms/saved-patterns/:id", async (req, res): Promise<void> => {
-  const id = Number(req.params.id);
-  const patterns = await getSavedPatterns();
-  const target = patterns.find((p) => p.id === id);
-  if (!target) {
-    res.status(404).json({ error: "کد پترن یافت نشد" });
+router.put("/sms/patterns/:id", async (req, res): Promise<void> => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "شناسه نامعتبر است" });
     return;
   }
-  await setSavedPatterns(patterns.filter((p) => p.id !== id));
-  await logActivity("delete", "sms", 0, `حذف کد پترن «${target.name}»`);
+  const parsed = UpdateSavedSmsPatternBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const name = parsed.data.name.trim();
+  const bodyId = parsed.data.bodyId.trim();
+  const invalid = validateSavedPatternInput(name, bodyId);
+  if (invalid) {
+    res.status(400).json({ error: invalid });
+    return;
+  }
+  const [row] = await db
+    .update(smsSavedPatternsTable)
+    .set({ name, bodyId })
+    .where(eq(smsSavedPatternsTable.id, id))
+    .returning();
+  if (!row) {
+    res.status(404).json({ error: "کد پترن ذخیره‌شده یافت نشد" });
+    return;
+  }
+  await logActivity("update", "settings", id, `کد پترن پیامکی «${name}» (${bodyId}) ویرایش شد`);
+  res.json(row);
+});
+
+router.delete("/sms/patterns/:id", async (req, res): Promise<void> => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "شناسه نامعتبر است" });
+    return;
+  }
+  const [row] = await db
+    .delete(smsSavedPatternsTable)
+    .where(eq(smsSavedPatternsTable.id, id))
+    .returning();
+  if (!row) {
+    res.status(404).json({ error: "کد پترن ذخیره‌شده یافت نشد" });
+    return;
+  }
+  await logActivity("delete", "settings", id, `کد پترن پیامکی «${row.name}» حذف شد`);
   res.status(204).end();
 });
 
