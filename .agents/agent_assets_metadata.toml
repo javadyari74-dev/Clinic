@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "j_y9hHSddbTEloBcrX09Z"
+uri = "file://dist-packages/DoctorYariClinic-Windows.zip"
+type = "unspecified"
+title = "بسته ویندوز — مطب زیبایی دکتر یاری"

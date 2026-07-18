@@ -1,0 +1,72 @@
+{
+  "exportedAt": "2026-07-15T09:24:22.397Z",
+  "version": 3,
+  "data": {
+    "patients": [],
+    "services": [],
+    "staff": [],
+    "appointments": [],
+    "payments": [],
+    "discounts": [],
+    "inventory": [],
+    "commissions": [],
+    "recipients": [],
+    "reminders": [],
+    "notes": [],
+    "activityLog": [
+      {
+        "id": 1,
+        "uuid": null,
+        "action": "create",
+        "entityType": "patient",
+        "entityId": 1,
+        "description": "بیمار جدید \"تست بیمار\" ثبت شد",
+        "createdAt": 1783980194
+      },
+      {
+        "id": 2,
+        "uuid": null,
+        "action": "update",
+        "entityType": "patient",
+        "entityId": 1,
+        "description": "شارژ اکانت بیمار \"تست بیمار\" به مبلغ 50,000 تومان",
+        "createdAt": 1783980194
+      },
+      {
+        "id": 3,
+        "uuid": null,
+        "action": "delete",
+        "entityType": "patient",
+        "entityId": 1,
+        "description": "بیمار \"تست بیمار\" حذف شد",
+        "createdAt": 1783980194
+      }
+    ],
+    "expenses": [],
+    "users": [
+      {
+        "id": 1,
+        "uuid": null,
+        "username": "admin",
+        "password": "$2b$10$a5c3PXtvxcV0IkXQVf3upOUVznBGZHhF0bS2i5C/IXPjtZ5VMGNFe",
+        "role": "admin",
+        "staffId": null,
+        "permissions": "[]",
+        "isActive": true,
+        "createdAt": "2026-07-13T21:48:46.000Z"
+      }
+    ],
+    "accountTransactions": [
+      {
+        "id": 1,
+        "uuid": null,
+        "patientId": 1,
+        "amount": 50000,
+        "type": "credit",
+        "description": "شارژ تست",
+        "paymentId": null,
+        "createdAt": 1783980194
+      }
+    ]
+  }
+}

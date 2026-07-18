@@ -1,14 +1,13 @@
 import { defineConfig } from "drizzle-kit";
 import path from "path";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+const DB_PATH = process.env.SQLITE_DB_PATH ?? path.join(__dirname, "../../clinic.db");
 
 export default defineConfig({
   schema: path.join(__dirname, "./src/schema/index.ts"),
-  dialect: "postgresql",
+  out: path.join(__dirname, "./migrations"),
+  dialect: "turso",
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    url: `file:${DB_PATH}`,
   },
 });

@@ -1,0 +1,1 @@
+- [Beauty-clinic port](beauty-clinic-port.md) — ported mid-development clinic app; SQLite-not-Postgres, JWT-header auth, openapi→codegen contract, grep imports vs exports before done.

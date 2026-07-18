@@ -1,44 +1,54 @@
-# [Project name]
+# مطب زیبایی دکتر یاری (Doctor Yari Beauty Clinic)
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A Persian/RTL clinic management system: patients, appointments, payments, commissions, discounts, inventory, reminders, laser module, staff, and account/wallet balances. Ported from the user's existing app so they can continue editing it here.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
+Artifacts run as managed workflows (do not add duplicate workflows):
+- `artifacts/api-server: API Server` — Express API (`pnpm --filter @workspace/api-server run dev`)
+- `artifacts/beauty-clinic: web` — React+Vite frontend (`pnpm --filter @workspace/beauty-clinic run dev`)
+
+Other useful commands:
+- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks + Zod schemas from the OpenAPI spec (run after editing `lib/api-spec/openapi.yaml`). Also runs `typecheck:libs`.
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm run typecheck` — full typecheck across all packages
 
 ## Stack
 
-- pnpm workspaces, Node.js 24, TypeScript 5.9
+- pnpm workspaces, Node.js, TypeScript
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM
+- DB: **SQLite** via `@libsql/client` + `drizzle-orm/libsql` (self-contained `clinic.db`). No external DB to provision — the API server auto-runs migrations and seeds on startup. **Do not convert to Postgres.**
+- Auth: in-app username/password, **JWT bearer tokens** stored client-side in `localStorage` (`clinic_auth_token`); the client attaches `Authorization: Bearer` via `setAuthTokenGetter`. Seeds `admin` / `admin123` on first startup.
 - Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- API codegen: Orval (from `lib/api-spec/openapi.yaml`)
+- Build: esbuild (dev build does NOT typecheck — run `pnpm run typecheck` separately)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- DB schema (source of truth): `lib/db/src/schema/` + migrations in `lib/db/migrations/` (journaled; the server replays them on startup).
+- API contract (source of truth): `lib/api-spec/openapi.yaml` → generates `lib/api-zod` (server validation) and `lib/api-client-react` (frontend hooks).
+- API routes: `artifacts/api-server/src/routes/`
+- Frontend pages: `artifacts/beauty-clinic/src/pages/`
+- Real data auto-backups (restorable via the in-app backup UI after login): `backups/`
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Kept SQLite (faithful to the original app); no Postgres.
+- Adding/changing an API endpoint means editing `openapi.yaml` then running codegen — the zod schemas and React hooks the routes/pages import are generated, not hand-written.
+- Adding a DB column/table requires both a schema file change AND a new journaled migration in `lib/db/migrations/` (the server only replays journaled `.sql` files on startup).
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Full clinic back-office: patient records, appointment scheduling, payment/receipts, referral commissions, patient wallet/account balances, discounts, inventory, reminders, and a laser-treatment module — all in Persian with a right-to-left layout.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- No scrolling anywhere in the app (vertical or horizontal). Dialogs/forms must fit within the viewport — prefer wider multi-column layouts, compact spacing, and `overflow-x-hidden` over scrollable containers.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After editing `openapi.yaml`, always run `pnpm --filter @workspace/api-spec run codegen`, or the routes/pages will import non-existent generated symbols.
+- The dev build uses esbuild (no typechecking). Run `pnpm run typecheck` to catch type errors; a couple of pre-existing type-only warnings (e.g. a drizzle overload in `laser.ts`) don't block the build or runtime.
 
 ## Pointers
 

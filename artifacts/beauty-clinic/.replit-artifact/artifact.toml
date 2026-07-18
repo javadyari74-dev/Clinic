@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "مطب زیبایی دکتر یاری"
+version = "1.0.0"
+id = "artifacts/beauty-clinic"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21315
+
+[services.development]
+run = "pnpm --filter @workspace/beauty-clinic run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/beauty-clinic", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/beauty-clinic/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21315"
+BASE_PATH = "/"

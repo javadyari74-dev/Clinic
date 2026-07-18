@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { rm, cp } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -32,6 +32,13 @@ async function buildAll() {
       "sharp",
       "better-sqlite3",
       "sqlite3",
+      "libsql",
+      "@libsql/client",
+      "@libsql/linux-x64-gnu",
+      "@libsql/linux-x64-musl",
+      "@libsql/darwin-arm64",
+      "@libsql/darwin-x64",
+      "@libsql/win32-x64-msvc",
       "canvas",
       "bcrypt",
       "argon2",
@@ -120,7 +127,15 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
   });
 }
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+async function copyMigrations() {
+  const src = path.resolve(artifactDir, "../../lib/db/migrations");
+  const dest = path.resolve(artifactDir, "dist/migrations");
+  await cp(src, dest, { recursive: true });
+}
+
+buildAll()
+  .then(() => copyMigrations())
+  .catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
