@@ -99,6 +99,7 @@ function ReminderRow({
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               مراجع: {r.patientName}
               <TierBadge tier={r.patientTier} />
+            </span>
           )}
           <span className="text-xs text-muted-foreground font-mono">{formatShamsiDate(r.dueAt)}</span>
         </div>
