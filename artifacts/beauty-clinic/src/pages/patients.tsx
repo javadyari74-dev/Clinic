@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
 import {
-  useListPatients, useCreatePatient, useDeletePatient, getListPatientsQueryKey, useListStaff, useListCommissionRecipients,
+  useListPatients, useCreatePatient, useDeletePatient, useUpdatePatient,
+  getListPatientsQueryKey, getGetPatientQueryKey,
+  useListStaff, useListCommissionRecipients,
   getGetPatientQueryOptions, getListPatientAppointmentsQueryOptions,
   getListPatientNotesQueryOptions, getListPatientAccountTransactionsQueryOptions,
 } from "@workspace/api-client-react";
@@ -20,7 +22,7 @@ import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2 } from "lucide-react";
+import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2, Pencil } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -90,6 +92,8 @@ export default function Patients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [patientToEdit, setPatientToEdit] = useState<any | null>(null);
   const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [patientToDelete, setPatientToDelete] = useState<{ id: number; name: string } | null>(null);
@@ -160,7 +164,72 @@ export default function Patients() {
     defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "", tier: "", referrerType: "", referrerId: "", referrerRate: "" },
   });
 
+  const editForm = useForm<z.infer<typeof formSchema>>({
+    resolver: zodResolver(formSchema),
+    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "", tier: "", referrerType: "", referrerId: "", referrerRate: "" },
+  });
+
   const referrerType = form.watch("referrerType");
+  const editReferrerType = editForm.watch("referrerType");
+
+  const updatePatient = useUpdatePatient({
+    mutation: {
+      onSuccess: (data) => {
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(data.id) });
+        setIsEditOpen(false);
+        setPatientToEdit(null);
+        toast({ title: "اطلاعات مراجع با موفقیت ویرایش شد" });
+      },
+      onError: (error) => {
+        const serverMessage = (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({
+          title: "ویرایش مراجع ناموفق بود",
+          description: typeof serverMessage === "string" && serverMessage.trim() ? serverMessage : "ویرایش اطلاعات با خطا مواجه شد.",
+          variant: "destructive",
+        });
+      },
+    },
+  });
+
+  function openEditDialog(patient: any) {
+    setPatientToEdit(patient);
+    editForm.reset({
+      name: patient.name ?? "",
+      phone: patient.phone ?? "",
+      fileNumber: patient.fileNumber ?? "",
+      email: patient.email ?? "",
+      birthdate: patient.birthdate ?? "",
+      gender: patient.gender ?? "",
+      notes: patient.notes ?? "",
+      tier: patient.tier ?? "",
+      referrerType: patient.referrerType ?? "",
+      referrerId: patient.referrerId ? String(patient.referrerId) : "",
+      referrerRate: patient.referrerRate ? String(patient.referrerRate) : "",
+    });
+    setIsEditOpen(true);
+  }
+
+  function onEditSubmit(values: z.infer<typeof formSchema>) {
+    if (!patientToEdit) return;
+    const hasReferrer = !!values.referrerType && !!values.referrerId;
+    updatePatient.mutate({
+      id: patientToEdit.id,
+      data: {
+        name: values.name,
+        phone: values.phone,
+        fileNumber: values.fileNumber,
+        email: values.email || null,
+        birthdate: values.birthdate || null,
+        gender: values.gender || null,
+        notes: values.notes || null,
+        tier: values.tier || null,
+        referrerType: hasReferrer ? values.referrerType : null,
+        referrerId: hasReferrer ? Number(values.referrerId) : null,
+        referrerRate: hasReferrer && values.referrerRate ? Number(values.referrerRate) : null,
+      },
+    });
+  }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     const hasReferrer = !!values.referrerType && !!values.referrerId;
@@ -361,6 +430,141 @@ export default function Patients() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Edit Dialog ── */}
+      <Dialog open={isEditOpen} onOpenChange={(o) => { setIsEditOpen(o); if (!o) setPatientToEdit(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>ویرایش پرونده مراجع</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <FormField control={editForm.control} name="name" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>نام و نام خانوادگی *</FormLabel>
+                    <FormControl><Input placeholder="مثلا: زهرا محمدی" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="phone" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>شماره تماس *</FormLabel>
+                    <FormControl><Input placeholder="0912..." dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="fileNumber" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>شماره پرونده *</FormLabel>
+                    <FormControl><Input placeholder="P-001" dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="email" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>ایمیل</FormLabel>
+                    <FormControl><Input placeholder="email@example.com" dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="birthdate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>تاریخ تولد</FormLabel>
+                    <FormControl>
+                      <PersianDatePicker value={field.value} onChange={field.onChange} placeholder="انتخاب تاریخ تولد..." minYear={1330} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="gender" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>جنسیت</FormLabel>
+                    <FormControl>
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                        <option value="">انتخاب نکنید</option>
+                        <option value="female">خانم</option>
+                        <option value="male">آقا</option>
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="notes" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>توضیحات / هشدار پزشکی</FormLabel>
+                    <FormControl><Input placeholder="مثلا: حساسیت به پنی‌سیلین" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="tier" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>سطح‌بندی مراجع</FormLabel>
+                    <FormControl>
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                        <option value="">بدون سطح‌بندی</option>
+                        {PATIENT_TIERS.map(t => (
+                          <option key={t.key} value={t.key}>{t.emoji} {t.label}</option>
+                        ))}
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="referrerType" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>نوع معرف</FormLabel>
+                    <FormControl>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                        {...field}
+                        onChange={(e) => { field.onChange(e); editForm.setValue("referrerId", ""); }}
+                      >
+                        <option value="">بدون معرف</option>
+                        <option value="patient">مراجع</option>
+                        <option value="recipient">کمیسیون‌گیرنده</option>
+                        <option value="staff">کارمند</option>
+                        <option value="laser">لیزر</option>
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="referrerRate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>درصد پورسانت</FormLabel>
+                    <FormControl><Input type="number" dir="ltr" min={0} max={100} placeholder="مثلاً ۱۰" disabled={!editReferrerType} {...field} /></FormControl>
+                  </FormItem>
+                )} />
+                {editReferrerType && (
+                  <FormField control={editForm.control} name="referrerId" render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>انتخاب معرف</FormLabel>
+                      <FormControl>
+                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                          <option value="">انتخاب معرف...</option>
+                          {editReferrerType === "patient" && (patientsList?.data ?? []).map(p => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
+                          ))}
+                          {editReferrerType === "staff" && (staff ?? []).map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                          {(editReferrerType === "recipient" || editReferrerType === "laser") && (recipients ?? []).map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                )}
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)}>انصراف</Button>
+                <Button type="submit" disabled={updatePatient.isPending}>
+                  {updatePatient.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
+
       <Tabs defaultValue="files">
         <TabsList className="mb-4">
           <TabsTrigger value="list" className="gap-2">
@@ -430,11 +634,22 @@ export default function Patients() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{formatShamsiDate(patient.createdAt)}</TableCell>
                       <TableCell>
-                        <Link href={`/patients/${patient.id}`}>
-                          <Button variant="ghost" size="sm" className="text-primary hover:text-primary">
-                            مشاهده پرونده
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            title="ویرایش اطلاعات"
+                            onClick={(e) => { e.stopPropagation(); openEditDialog(patient); }}
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
-                        </Link>
+                          <Link href={`/patients/${patient.id}`}>
+                            <Button variant="ghost" size="sm" className="text-primary hover:text-primary">
+                              مشاهده پرونده
+                            </Button>
+                          </Link>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -482,7 +697,8 @@ export default function Patients() {
                     <TableHead className="font-bold text-foreground">جنسیت</TableHead>
                     <TableHead className="font-bold text-foreground">تاریخ ثبت</TableHead>
                     <TableHead className="font-bold text-foreground">هشدار</TableHead>
-                    {isAdmin && <TableHead className="font-bold text-foreground text-center">حذف مراجع</TableHead>}
+                    <TableHead className="font-bold text-foreground text-center">ویرایش</TableHead>
+                    {isAdmin && <TableHead className="font-bold text-foreground text-center">حذف</TableHead>}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -533,6 +749,18 @@ export default function Patients() {
                             : <span className="text-muted-foreground text-sm">—</span>
                           }
                         </TableCell>
+                        <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
+                            title="ویرایش اطلاعات"
+                            onClick={(e) => { e.stopPropagation(); openEditDialog(patient); }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                         {isAdmin && (
                           <TableCell className="text-center">
                             <Button
@@ -558,7 +786,7 @@ export default function Patients() {
                     ))}
                   {!patientsList?.data.length && (
                     <TableRow>
-                      <TableCell colSpan={isAdmin ? 9 : 8} className="text-center py-12 text-muted-foreground">
+                      <TableCell colSpan={isAdmin ? 10 : 9} className="text-center py-12 text-muted-foreground">
                         <FolderOpen className="h-10 w-10 mx-auto mb-2 opacity-20" />
                         پرونده‌ای یافت نشد
                       </TableCell>

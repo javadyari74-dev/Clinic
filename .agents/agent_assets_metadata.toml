@@ -6,3 +6,9 @@ id = "j_y9hHSddbTEloBcrX09Z"
 uri = "file://dist-packages/DoctorYariClinic-Windows.zip"
 type = "unspecified"
 title = "نسخه ویندوز مطب زیبایی دکتر یاری"
+
+[[outputs]]
+id = "3iX8YuwtNJiO2B490rxUz"
+uri = "file://clinic-desktop-windows.zip"
+type = "unspecified"
+title = "مطب زیبایی دکتر یاری — بسته ویندوز (2.1MB)"

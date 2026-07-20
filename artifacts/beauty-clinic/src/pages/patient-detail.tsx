@@ -4,8 +4,10 @@ import { useParams, useLocation } from "wouter";
 import {
   useGetPatient, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
-  useListServices, useListStaff, useCreateAppointment, getListAppointmentsQueryKey,
+  useListServices, useListStaff, useListCommissionRecipients,
+  useCreateAppointment, getListAppointmentsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
+  useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,17 +17,36 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { PATIENT_TIERS } from "@/lib/tiers";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil
 } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
+
+const editSchema = z.object({
+  name: z.string().min(2, "نام الزامی است"),
+  phone: z.string().min(10, "شماره تماس معتبر نیست"),
+  fileNumber: z.string().min(1, "شماره پرونده الزامی است"),
+  email: z.string().email("ایمیل معتبر نیست").optional().or(z.literal("")),
+  birthdate: z.string().optional(),
+  gender: z.string().optional(),
+  notes: z.string().optional(),
+  tier: z.string().optional(),
+  referrerType: z.string().optional(),
+  referrerId: z.string().optional(),
+  referrerRate: z.string().optional(),
+});
 
 const statuses: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   scheduled: { label: "رزرو شده", variant: "secondary" },
@@ -44,6 +65,7 @@ export default function PatientDetail() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [noteText, setNoteText] = useState("");
   const [apptOpen, setApptOpen] = useState(false);
   const [apptServiceId, setApptServiceId] = useState("");
@@ -60,6 +82,67 @@ export default function PatientDetail() {
   const { data: notes } = useListPatientNotes(id);
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
+  const { data: recipients } = useListCommissionRecipients();
+  const { data: patients } = useGetPatient(id);
+
+  const editForm = useForm<z.infer<typeof editSchema>>({
+    resolver: zodResolver(editSchema),
+    defaultValues: { name: "", phone: "", fileNumber: "", email: "", birthdate: "", gender: "", notes: "", tier: "", referrerType: "", referrerId: "", referrerRate: "" },
+  });
+  const editReferrerType = editForm.watch("referrerType");
+
+  const updatePatient = useUpdatePatient({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(id) });
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        setEditOpen(false);
+        toast({ title: "اطلاعات مراجع با موفقیت ویرایش شد" });
+      },
+      onError: (error) => {
+        const msg = (error as any)?.data?.error ?? (error as any)?.data?.message;
+        toast({ title: "ویرایش ناموفق بود", description: typeof msg === "string" ? msg : undefined, variant: "destructive" });
+      },
+    },
+  });
+
+  function openEditDialog() {
+    if (!patient) return;
+    editForm.reset({
+      name: patient.name ?? "",
+      phone: patient.phone ?? "",
+      fileNumber: patient.fileNumber ?? "",
+      email: patient.email ?? "",
+      birthdate: patient.birthdate ?? "",
+      gender: patient.gender ?? "",
+      notes: patient.notes ?? "",
+      tier: patient.tier ?? "",
+      referrerType: patient.referrerType ?? "",
+      referrerId: patient.referrerId ? String(patient.referrerId) : "",
+      referrerRate: patient.referrerRate ? String(patient.referrerRate) : "",
+    });
+    setEditOpen(true);
+  }
+
+  function onEditSubmit(values: z.infer<typeof editSchema>) {
+    const hasReferrer = !!values.referrerType && !!values.referrerId;
+    updatePatient.mutate({
+      id,
+      data: {
+        name: values.name,
+        phone: values.phone,
+        fileNumber: values.fileNumber,
+        email: values.email || null,
+        birthdate: values.birthdate || null,
+        gender: values.gender || null,
+        notes: values.notes || null,
+        tier: values.tier || null,
+        referrerType: hasReferrer ? values.referrerType : null,
+        referrerId: hasReferrer ? Number(values.referrerId) : null,
+        referrerRate: hasReferrer && values.referrerRate ? Number(values.referrerRate) : null,
+      },
+    });
+  }
 
   const createNote = useCreatePatientNote({
     mutation: {
@@ -201,13 +284,152 @@ export default function PatientDetail() {
           </h1>
           <p className="text-sm text-muted-foreground">پرونده مراجع</p>
         </div>
-        <div className="mr-auto">
+        <div className="mr-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" className="gap-2" onClick={openEditDialog}>
+            <Pencil className="h-4 w-4" />
+            ویرایش اطلاعات
+          </Button>
           <Button size="sm" className="gap-2" onClick={() => setApptOpen(true)}>
             <CalendarPlus className="h-4 w-4" />
             دریافت نوبت
           </Button>
         </div>
       </div>
+
+      {/* Edit Patient Dialog */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>ویرایش پرونده مراجع</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <FormField control={editForm.control} name="name" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>نام و نام خانوادگی *</FormLabel>
+                    <FormControl><Input placeholder="مثلا: زهرا محمدی" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="phone" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>شماره تماس *</FormLabel>
+                    <FormControl><Input placeholder="0912..." dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="fileNumber" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>شماره پرونده *</FormLabel>
+                    <FormControl><Input placeholder="P-001" dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="email" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>ایمیل</FormLabel>
+                    <FormControl><Input placeholder="email@example.com" dir="ltr" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="birthdate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>تاریخ تولد</FormLabel>
+                    <FormControl>
+                      <PersianDatePicker value={field.value} onChange={field.onChange} placeholder="انتخاب تاریخ تولد..." minYear={1330} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="gender" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>جنسیت</FormLabel>
+                    <FormControl>
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                        <option value="">انتخاب نکنید</option>
+                        <option value="female">خانم</option>
+                        <option value="male">آقا</option>
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="notes" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>توضیحات / هشدار پزشکی</FormLabel>
+                    <FormControl><Input placeholder="مثلا: حساسیت به پنی‌سیلین" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="tier" render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>سطح‌بندی مراجع</FormLabel>
+                    <FormControl>
+                      <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                        <option value="">بدون سطح‌بندی</option>
+                        {PATIENT_TIERS.map(t => (
+                          <option key={t.key} value={t.key}>{t.emoji} {t.label}</option>
+                        ))}
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="referrerType" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>نوع معرف</FormLabel>
+                    <FormControl>
+                      <select
+                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                        {...field}
+                        onChange={(e) => { field.onChange(e); editForm.setValue("referrerId", ""); }}
+                      >
+                        <option value="">بدون معرف</option>
+                        <option value="patient">مراجع</option>
+                        <option value="recipient">کمیسیون‌گیرنده</option>
+                        <option value="staff">کارمند</option>
+                        <option value="laser">لیزر</option>
+                      </select>
+                    </FormControl>
+                  </FormItem>
+                )} />
+                <FormField control={editForm.control} name="referrerRate" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>درصد پورسانت</FormLabel>
+                    <FormControl><Input type="number" dir="ltr" min={0} max={100} placeholder="مثلاً ۱۰" disabled={!editReferrerType} {...field} /></FormControl>
+                  </FormItem>
+                )} />
+                {editReferrerType && (
+                  <FormField control={editForm.control} name="referrerId" render={({ field }) => (
+                    <FormItem className="col-span-2">
+                      <FormLabel>انتخاب معرف</FormLabel>
+                      <FormControl>
+                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                          <option value="">انتخاب معرف...</option>
+                          {editReferrerType === "patient" && (patients as any[])?.map((p: any) => (
+                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
+                          ))}
+                          {editReferrerType === "staff" && (staff ?? []).map(s => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                          {(editReferrerType === "recipient" || editReferrerType === "laser") && (recipients ?? []).map(r => (
+                            <option key={r.id} value={r.id}>{r.name}</option>
+                          ))}
+                        </select>
+                      </FormControl>
+                    </FormItem>
+                  )} />
+                )}
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>انصراف</Button>
+                <Button type="submit" disabled={updatePatient.isPending}>
+                  {updatePatient.isPending ? "در حال ذخیره..." : "ذخیره تغییرات"}
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       {/* Patient Info Card */}
       <Card>
