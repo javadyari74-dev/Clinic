@@ -255,6 +255,7 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   const [editEntry, setEditEntry] = useState<WaitingEntry | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [patientComboOpen, setPatientComboOpen] = useState(false);
+  const [serviceComboOpen, setServiceComboOpen] = useState(false);
   const [notifyingId, setNotifyingId] = useState<number | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -489,16 +490,50 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
                 );
               }} />
 
-              <FormField control={form.control} name="serviceId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : ""}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
-                    <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              <FormField control={form.control} name="serviceId" render={({ field }) => {
+                const sel = services?.find(s => s.id === field.value);
+                return (
+                  <FormItem>
+                    <FormLabel>خدمت</FormLabel>
+                    <Popover open={serviceComboOpen} onOpenChange={setServiceComboOpen} modal>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
+                            {sel
+                              ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.category})</span></span>
+                              : "انتخاب خدمت..."}
+                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command filter={(value, search) => {
+                          const s = services?.find(s => String(s.id) === value);
+                          if (!s) return 0;
+                          return `${s.name} ${s.category ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                        }}>
+                          <CommandInput placeholder="جستجوی نام یا دسته‌بندی خدمت..." />
+                          <CommandList>
+                            <CommandEmpty>خدمتی یافت نشد</CommandEmpty>
+                            <CommandGroup>
+                              {services?.map(s => (
+                                <CommandItem key={s.id} value={String(s.id)} onSelect={(val) => { field.onChange(Number(val)); setServiceComboOpen(false); }}>
+                                  <Check className={cn("ml-2 h-4 w-4", field.value === s.id ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{s.name}</span>
+                                    {s.category && <span className="text-xs text-muted-foreground">{s.category}</span>}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }} />
 
               <div className="grid grid-cols-2 gap-3">
                 <FormField control={form.control} name="preferredFrom" render={({ field }) => (
@@ -567,6 +602,8 @@ export default function Appointments() {
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [isOpen, setIsOpen] = useState(false);
   const [patientComboOpen, setPatientComboOpen] = useState(false);
+  const [serviceComboOpen, setServiceComboOpen] = useState(false);
+  const [editServiceComboOpen, setEditServiceComboOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [confirmDeleteIds, setConfirmDeleteIds] = useState<number[] | null>(null);
   const [editAppt, setEditAppt] = useState<AppRow | null>(null);
@@ -909,16 +946,50 @@ export default function Appointments() {
                 );
               }} />
 
-              <FormField control={form.control} name="serviceId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
-                    <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              <FormField control={form.control} name="serviceId" render={({ field }) => {
+                const sel = services?.find(s => s.id === field.value);
+                return (
+                  <FormItem>
+                    <FormLabel>خدمت</FormLabel>
+                    <Popover open={serviceComboOpen} onOpenChange={setServiceComboOpen} modal>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
+                            {sel
+                              ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.category})</span></span>
+                              : "انتخاب خدمت..."}
+                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command filter={(value, search) => {
+                          const s = services?.find(s => String(s.id) === value);
+                          if (!s) return 0;
+                          return `${s.name} ${s.category ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                        }}>
+                          <CommandInput placeholder="جستجوی نام یا دسته‌بندی خدمت..." />
+                          <CommandList>
+                            <CommandEmpty>خدمتی یافت نشد</CommandEmpty>
+                            <CommandGroup>
+                              {services?.map(s => (
+                                <CommandItem key={s.id} value={String(s.id)} onSelect={(val) => { field.onChange(Number(val)); setServiceComboOpen(false); }}>
+                                  <Check className={cn("ml-2 h-4 w-4", field.value === s.id ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{s.name}</span>
+                                    {s.category && <span className="text-xs text-muted-foreground">{s.category}</span>}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }} />
 
               <div className="grid grid-cols-2 gap-3">
                 <FormField control={form.control} name="date" render={({ field }) => (
@@ -988,16 +1059,50 @@ export default function Appointments() {
                 )} />
               </div>
 
-              <FormField control={editForm.control} name="serviceId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>خدمت</FormLabel>
-                  <Select onValueChange={(val) => field.onChange(Number(val))} value={field.value ? String(field.value) : undefined}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="انتخاب خدمت" /></SelectTrigger></FormControl>
-                    <SelectContent>{services?.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
+              <FormField control={editForm.control} name="serviceId" render={({ field }) => {
+                const sel = services?.find(s => s.id === field.value);
+                return (
+                  <FormItem>
+                    <FormLabel>خدمت</FormLabel>
+                    <Popover open={editServiceComboOpen} onOpenChange={setEditServiceComboOpen} modal>
+                      <PopoverTrigger asChild>
+                        <FormControl>
+                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
+                            {sel
+                              ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.category})</span></span>
+                              : "انتخاب خدمت..."}
+                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                          </Button>
+                        </FormControl>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[340px] p-0" align="start">
+                        <Command filter={(value, search) => {
+                          const s = services?.find(s => String(s.id) === value);
+                          if (!s) return 0;
+                          return `${s.name} ${s.category ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                        }}>
+                          <CommandInput placeholder="جستجوی نام یا دسته‌بندی خدمت..." />
+                          <CommandList>
+                            <CommandEmpty>خدمتی یافت نشد</CommandEmpty>
+                            <CommandGroup>
+                              {services?.map(s => (
+                                <CommandItem key={s.id} value={String(s.id)} onSelect={(val) => { field.onChange(Number(val)); setEditServiceComboOpen(false); }}>
+                                  <Check className={cn("ml-2 h-4 w-4", field.value === s.id ? "opacity-100" : "opacity-0")} />
+                                  <div className="flex flex-col">
+                                    <span className="font-medium">{s.name}</span>
+                                    {s.category && <span className="text-xs text-muted-foreground">{s.category}</span>}
+                                  </div>
+                                </CommandItem>
+                              ))}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FormMessage />
+                  </FormItem>
+                );
+              }} />
 
               <FormField control={editForm.control} name="staffId" render={({ field }) => (
                 <FormItem>
