@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, type Service } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { PriceInput } from "@/components/price-input";
@@ -331,6 +331,31 @@ export default function Services() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string>("همه");
+  const [showFinancials, setShowFinancials] = useState(true);
+
+  // Derived: unique categories with counts
+  const categories = useMemo(() => {
+    if (!services) return [];
+    const map = new Map<string, number>();
+    for (const s of services) {
+      const cat = s.category ?? "سایر";
+      map.set(cat, (map.get(cat) ?? 0) + 1);
+    }
+    return Array.from(map.entries()).map(([name, count]) => ({ name, count }));
+  }, [services]);
+
+  // Derived: filtered list
+  const filteredServices = useMemo(() => {
+    if (!services) return [];
+    const term = searchTerm.trim().toLowerCase();
+    return services.filter((s) => {
+      const matchCat = activeCategory === "همه" || (s.category ?? "سایر") === activeCategory;
+      const matchSearch = !term || s.name.toLowerCase().includes(term);
+      return matchCat && matchSearch;
+    });
+  }, [services, searchTerm, activeCategory]);
 
   const createService = useCreateService({
     mutation: {
@@ -404,7 +429,7 @@ export default function Services() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title={`حذف ${deleteTarget?.label ?? ''}`}
@@ -445,34 +470,97 @@ export default function Services() {
         </DialogContent>
       </Dialog>
 
+      {/* Filter bar */}
+      <Card>
+        <CardContent className="pt-4 pb-3 space-y-3">
+          {/* Search + toggle */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="جستجوی نام خدمت..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pr-9"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs shrink-0"
+              onClick={() => setShowFinancials((v) => !v)}
+            >
+              {showFinancials ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              {showFinancials ? "پنهان‌کردن ارقام مالی" : "نمایش ارقام مالی"}
+            </Button>
+            <span className="text-xs text-muted-foreground shrink-0">
+              {toPersianDigits(filteredServices.length)} از {toPersianDigits(services?.length ?? 0)} خدمت
+            </span>
+          </div>
+
+          {/* Category chips */}
+          {categories.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setActiveCategory("همه")}
+                className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium border transition-colors
+                  ${activeCategory === "همه"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"}`}
+              >
+                همه
+                <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${activeCategory === "همه" ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                  {toPersianDigits(services?.length ?? 0)}
+                </span>
+              </button>
+              {categories.map(({ name, count }) => (
+                <button
+                  key={name}
+                  onClick={() => setActiveCategory(name)}
+                  className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium border transition-colors
+                    ${activeCategory === name
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"}`}
+                >
+                  {name}
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] ${activeCategory === name ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                    {toPersianDigits(count)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Table */}
       <Card>
-        <CardContent className="pt-4">
+        <CardContent className="pt-2 pb-2">
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead>نام خدمت</TableHead>
-                <TableHead>دسته‌بندی</TableHead>
-                <TableHead>مدت</TableHead>
-                <TableHead>قیمت</TableHead>
-                <TableHead>هزینه کل</TableHead>
-                <TableHead>سود هر نوبت</TableHead>
-                <TableHead>حاشیه</TableHead>
-                <TableHead>وضعیت</TableHead>
-                <TableHead className="text-left">عملیات</TableHead>
+              <TableRow className="h-9">
+                <TableHead className="py-2">نام خدمت</TableHead>
+                <TableHead className="py-2">دسته‌بندی</TableHead>
+                <TableHead className="py-2">مدت</TableHead>
+                <TableHead className="py-2">قیمت</TableHead>
+                {showFinancials && <TableHead className="py-2">هزینه کل</TableHead>}
+                {showFinancials && <TableHead className="py-2">سود هر نوبت</TableHead>}
+                {showFinancials && <TableHead className="py-2">حاشیه</TableHead>}
+                <TableHead className="py-2">وضعیت</TableHead>
+                <TableHead className="py-2 text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {services?.map((s) => {
+              {filteredServices.map((s) => {
                 const { price: effPrice, cost, profit, margin } = profitOf(s);
                 const hasCost = cost > 0;
                 const isPerUnit = [s.priceMode, s.doctorFeeMode, s.materialCostMode, s.otherCostMode].includes("per_unit");
                 return (
-                  <TableRow key={s.id}>
-                    <TableCell className="font-medium">{s.name}</TableCell>
-                    <TableCell><Badge variant="secondary">{s.category}</Badge></TableCell>
-                    <TableCell className="text-muted-foreground text-sm">{toPersianDigits(s.durationMinutes ?? 0)} دقیقه</TableCell>
-                    <TableCell className="font-mono">
+                  <TableRow key={s.id} className="h-10">
+                    <TableCell className="py-1.5 font-medium text-sm">{s.name}</TableCell>
+                    <TableCell className="py-1.5"><Badge variant="secondary" className="text-xs">{s.category}</Badge></TableCell>
+                    <TableCell className="py-1.5 text-muted-foreground text-xs">{toPersianDigits(s.durationMinutes ?? 0)} دقیقه</TableCell>
+                    <TableCell className="py-1.5 font-mono text-sm">
                       {formatCurrency(effPrice)}
                       {isPerUnit && (
                         <span className="block text-[10px] text-muted-foreground">
@@ -480,31 +568,37 @@ export default function Services() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="font-mono text-orange-600">
-                      {hasCost ? formatCurrency(cost) : <span className="text-muted-foreground text-xs">—</span>}
+                    {showFinancials && (
+                      <TableCell className="py-1.5 font-mono text-xs text-orange-600">
+                        {hasCost ? formatCurrency(cost) : <span className="text-muted-foreground">—</span>}
+                      </TableCell>
+                    )}
+                    {showFinancials && (
+                      <TableCell className={`py-1.5 font-mono text-xs font-semibold ${!hasCost ? "text-muted-foreground" : profit >= 0 ? "text-green-700" : "text-red-600"}`}>
+                        {hasCost
+                          ? <span className="flex items-center gap-1">
+                              {profit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                              {formatCurrency(profit)}
+                            </span>
+                          : <span className="text-muted-foreground">ثبت نشده</span>}
+                      </TableCell>
+                    )}
+                    {showFinancials && (
+                      <TableCell className="py-1.5">
+                        {hasCost
+                          ? <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
+                              {toPersianDigits(margin)}٪
+                            </Badge>
+                          : <span className="text-xs text-muted-foreground">—</span>}
+                      </TableCell>
+                    )}
+                    <TableCell className="py-1.5">
+                      <Badge variant={s.isActive ? "default" : "outline"} className="text-xs">{s.isActive ? "فعال" : "غیرفعال"}</Badge>
                     </TableCell>
-                    <TableCell className={`font-mono font-semibold ${!hasCost ? "text-muted-foreground" : profit >= 0 ? "text-green-700" : "text-red-600"}`}>
-                      {hasCost
-                        ? <span className="flex items-center gap-1">
-                            {profit >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                            {formatCurrency(profit)}
-                          </span>
-                        : <span className="text-xs text-muted-foreground">ثبت نشده</span>}
-                    </TableCell>
-                    <TableCell>
-                      {hasCost
-                        ? <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
-                            {toPersianDigits(margin)}٪
-                          </Badge>
-                        : <span className="text-xs text-muted-foreground">—</span>}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={s.isActive ? "default" : "outline"}>{s.isActive ? "فعال" : "غیرفعال"}</Badge>
-                    </TableCell>
-                    <TableCell className="text-left">
-                      <Button variant="ghost" size="sm" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
+                    <TableCell className="py-1.5 text-left">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
                       {user?.role === "admin" && (
-                        <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleteTarget({ id: s.id, label: s.name })}>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => setDeleteTarget({ id: s.id, label: s.name })}>
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       )}
@@ -512,9 +606,11 @@ export default function Services() {
                   </TableRow>
                 );
               })}
-              {!isLoading && !services?.length && (
+              {!isLoading && filteredServices.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">خدمتی ثبت نشده</TableCell>
+                  <TableCell colSpan={showFinancials ? 9 : 6} className="text-center py-8 text-muted-foreground">
+                    {services?.length ? "خدمتی با این فیلتر یافت نشد" : "خدمتی ثبت نشده"}
+                  </TableCell>
                 </TableRow>
               )}
             </TableBody>
