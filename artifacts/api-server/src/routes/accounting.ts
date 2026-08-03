@@ -158,6 +158,21 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
   res.json(results.filter(r => r.revenue > 0 || r.completedCount > 0).sort((a, b) => b.revenue - a.revenue));
 });
 
+// GET /api/accounting/revenue-range?from=<unix>&to=<unix>
+router.get("/accounting/revenue-range", async (req, res): Promise<void> => {
+  const from = Number(req.query.from);
+  const to = Number(req.query.to);
+  if (!from || !to || isNaN(from) || isNaN(to)) {
+    res.status(400).json({ error: "from and to (unix seconds) are required" });
+    return;
+  }
+  const [{ revenue }] = await db
+    .select({ revenue: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)` })
+    .from(paymentsTable)
+    .where(and(gte(paymentsTable.paidAt, from), lt(paymentsTable.paidAt, to)));
+  res.json({ revenue: Number(revenue), from, to });
+});
+
 // GET /api/accounting/chart?period=month|year
 router.get("/accounting/chart", async (req, res): Promise<void> => {
   const period = String(req.query.period ?? "month");

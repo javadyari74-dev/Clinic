@@ -96,6 +96,20 @@ export function useAccountingChart(period: "month" | "year" = "month") {
   });
 }
 
+export interface RevenueRange {
+  revenue: number;
+  from: number;
+  to: number;
+}
+
+export function useRevenueRange(from: number | null, to: number | null) {
+  return useQuery<RevenueRange>({
+    queryKey: ["accounting", "revenue-range", from, to],
+    queryFn: () => apiFetch(`/api/accounting/revenue-range?from=${from}&to=${to}`),
+    enabled: from !== null && to !== null && from < to,
+  });
+}
+
 export function useExpenses(category?: string) {
   return useQuery<Expense[]>({
     queryKey: ["accounting", "expenses", category],
