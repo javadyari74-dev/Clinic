@@ -22,7 +22,10 @@ import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2, Pencil } from "lucide-react";
+import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2, Pencil, ChevronsUpDown, Check } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -98,8 +101,11 @@ export default function Patients() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [patientToDelete, setPatientToDelete] = useState<{ id: number; name: string } | null>(null);
   const { data: patientsList, isError, refetch } = useListPatients({ q: search, limit: 200 });
+  const { data: allPatients } = useListPatients({ limit: 1000 });
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
+  const [referrerComboOpen, setReferrerComboOpen] = useState(false);
+  const [editReferrerComboOpen, setEditReferrerComboOpen] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === "admin";
@@ -399,25 +405,66 @@ export default function Patients() {
                   </FormItem>
                 )} />
                 {referrerType && (
-                  <FormField control={form.control} name="referrerId" render={({ field }) => (
-                    <FormItem className="col-span-2">
-                      <FormLabel>انتخاب معرف</FormLabel>
-                      <FormControl>
-                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
-                          <option value="">انتخاب معرف...</option>
-                          {referrerType === "patient" && (patientsList?.data ?? []).map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
-                          ))}
-                          {referrerType === "staff" && (staff ?? []).map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                          {(referrerType === "recipient" || referrerType === "laser") && (recipients ?? []).map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                    </FormItem>
-                  )} />
+                  <FormField control={form.control} name="referrerId" render={({ field }) => {
+                    if (referrerType === "patient") {
+                      const sel = allPatients?.data.find(p => String(p.id) === String(field.value));
+                      return (
+                        <FormItem className="col-span-2">
+                          <FormLabel>انتخاب معرف</FormLabel>
+                          <Popover open={referrerComboOpen} onOpenChange={setReferrerComboOpen} modal>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
+                                  {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجوی مراجع معرف..."}
+                                  <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[340px] p-0" align="start">
+                              <Command filter={(value, search) => {
+                                const p = allPatients?.data.find(p => String(p.id) === value);
+                                if (!p) return 0;
+                                return `${p.name} ${p.fileNumber} ${p.phone ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                              }}>
+                                <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
+                                <CommandList>
+                                  <CommandEmpty>مراجعی یافت نشد</CommandEmpty>
+                                  <CommandGroup>
+                                    {allPatients?.data.map(p => (
+                                      <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(val); setReferrerComboOpen(false); }}>
+                                        <Check className={cn("ml-2 h-4 w-4", String(field.value) === String(p.id) ? "opacity-100" : "opacity-0")} />
+                                        <div className="flex flex-col">
+                                          <span className="font-medium">{p.name}</span>
+                                          <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }
+                    return (
+                      <FormItem className="col-span-2">
+                        <FormLabel>انتخاب معرف</FormLabel>
+                        <FormControl>
+                          <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                            <option value="">انتخاب معرف...</option>
+                            {referrerType === "staff" && (staff ?? []).map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                            {(referrerType === "recipient" || referrerType === "laser") && (recipients ?? []).map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        </FormControl>
+                      </FormItem>
+                    );
+                  }} />
                 )}
               </div>
               <DialogFooter>
@@ -533,25 +580,66 @@ export default function Patients() {
                   </FormItem>
                 )} />
                 {editReferrerType && (
-                  <FormField control={editForm.control} name="referrerId" render={({ field }) => (
-                    <FormItem className="col-span-2">
-                      <FormLabel>انتخاب معرف</FormLabel>
-                      <FormControl>
-                        <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
-                          <option value="">انتخاب معرف...</option>
-                          {editReferrerType === "patient" && (patientsList?.data ?? []).map(p => (
-                            <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
-                          ))}
-                          {editReferrerType === "staff" && (staff ?? []).map(s => (
-                            <option key={s.id} value={s.id}>{s.name}</option>
-                          ))}
-                          {(editReferrerType === "recipient" || editReferrerType === "laser") && (recipients ?? []).map(r => (
-                            <option key={r.id} value={r.id}>{r.name}</option>
-                          ))}
-                        </select>
-                      </FormControl>
-                    </FormItem>
-                  )} />
+                  <FormField control={editForm.control} name="referrerId" render={({ field }) => {
+                    if (editReferrerType === "patient") {
+                      const sel = allPatients?.data.find(p => String(p.id) === String(field.value));
+                      return (
+                        <FormItem className="col-span-2">
+                          <FormLabel>انتخاب معرف</FormLabel>
+                          <Popover open={editReferrerComboOpen} onOpenChange={setEditReferrerComboOpen} modal>
+                            <PopoverTrigger asChild>
+                              <FormControl>
+                                <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
+                                  {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجوی مراجع معرف..."}
+                                  <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                                </Button>
+                              </FormControl>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-[340px] p-0" align="start">
+                              <Command filter={(value, search) => {
+                                const p = allPatients?.data.find(p => String(p.id) === value);
+                                if (!p) return 0;
+                                return `${p.name} ${p.fileNumber} ${p.phone ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                              }}>
+                                <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
+                                <CommandList>
+                                  <CommandEmpty>مراجعی یافت نشد</CommandEmpty>
+                                  <CommandGroup>
+                                    {allPatients?.data.map(p => (
+                                      <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(val); setEditReferrerComboOpen(false); }}>
+                                        <Check className={cn("ml-2 h-4 w-4", String(field.value) === String(p.id) ? "opacity-100" : "opacity-0")} />
+                                        <div className="flex flex-col">
+                                          <span className="font-medium">{p.name}</span>
+                                          <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
+                                        </div>
+                                      </CommandItem>
+                                    ))}
+                                  </CommandGroup>
+                                </CommandList>
+                              </Command>
+                            </PopoverContent>
+                          </Popover>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }
+                    return (
+                      <FormItem className="col-span-2">
+                        <FormLabel>انتخاب معرف</FormLabel>
+                        <FormControl>
+                          <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
+                            <option value="">انتخاب معرف...</option>
+                            {editReferrerType === "staff" && (staff ?? []).map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                            {(editReferrerType === "recipient" || editReferrerType === "laser") && (recipients ?? []).map(r => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        </FormControl>
+                      </FormItem>
+                    );
+                  }} />
                 )}
               </div>
               <DialogFooter>
