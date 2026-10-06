@@ -13,4 +13,6 @@ export interface SmsTemplatesInput {
   birthday?: string;
   survey?: string;
   recipientWelcome?: string;
+  appointmentReminder?: string;
+  followupReminder?: string;
 }

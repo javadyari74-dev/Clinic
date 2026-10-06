@@ -87,6 +87,8 @@ describe("server-side route access", () => {
     expect(await call("clerk", "GET", "/reports/summary")).toBe(403);
     expect(await call("clerk", "GET", "/laser/clients")).toBe(403);
     expect(await call("clerk", "GET", "/users")).toBe(403);
+    expect(await call("clerk", "POST", "/backup/run")).toBe(403);
+    expect(await call("clerk", "PUT", "/backup/mirror", { mirrorDir: "/tmp/x" })).toBe(403);
   });
 
   it("cannot be bypassed with different letter case (Express routing is case-insensitive)", async () => {

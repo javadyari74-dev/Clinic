@@ -148,6 +148,13 @@
       "when": 1784106468716,
       "tag": "0020_add_sms_saved_patterns",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791300000000,
+      "tag": "0021_add_scheduled_sms",
+      "breakpoints": true
     }
   ]
 }

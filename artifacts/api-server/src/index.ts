@@ -4,6 +4,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
+import { startSchedulers } from "./lib/scheduler";
 import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates } from "./lib/backfill";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,6 +41,7 @@ runMigrations(migrationsFolder)
         process.exit(1);
       }
       logger.info({ port }, "Server listening");
+      startSchedulers();
     });
   })
   .catch((err) => {

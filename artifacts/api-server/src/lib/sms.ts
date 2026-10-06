@@ -37,6 +37,18 @@ export const SMS_SETTING_KEYS = {
   bodyIdBirthday: "sms_bodyid_birthday",
   bodyIdSurvey: "sms_bodyid_survey",
   bodyIdRecipientWelcome: "sms_bodyid_recipient_welcome",
+  // ── پیامک‌های زمان‌بندی‌شده (همه پیش‌فرض خاموش) ──
+  // یادآوری نوبت: روز قبل از نوبت، از ساعت appointmentReminderHour به بعد
+  enabledAppointmentReminder: "sms_enabled_appointment_reminder",
+  // یادآوری برگشت: روزِ سررسید یادآوری «پیگیری» مراجع
+  enabledFollowupReminder: "sms_enabled_followup_reminder",
+  // تبریک تولد خودکار در روز تولد
+  enabledBirthdayAuto: "sms_enabled_birthday_auto",
+  appointmentReminderHour: "sms_appointment_reminder_hour",
+  // ساعت ارسال روزانهٔ یادآوری برگشت و تبریک تولد
+  dailyAutoHour: "sms_daily_auto_hour",
+  bodyIdAppointmentReminder: "sms_bodyid_appointment_reminder",
+  bodyIdFollowupReminder: "sms_bodyid_followup_reminder",
 } as const;
 
 export type SmsSendMode = "normal" | "pattern";
@@ -48,6 +60,8 @@ export const SMS_TEMPLATE_KEYS = {
   birthday: "sms_template_birthday",
   survey: "sms_template_survey",
   recipientWelcome: "sms_template_recipient_welcome",
+  appointmentReminder: "sms_template_appointment_reminder",
+  followupReminder: "sms_template_followup_reminder",
 } as const;
 
 export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
@@ -66,6 +80,10 @@ export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
     "{نام} عزیز، از مراجعه شما به مطب زیبایی دکتر یاری سپاسگزاریم. خوشحال می‌شویم میزان رضایت خود از {خدمت} را با عددی از ۱ تا ۵ در پاسخ به تماس همکاران ما اعلام کنید.\nwww.drjavadyari.ir",
   recipientWelcome:
     "{نام} عزیز، شما به عنوان معرف در مطب زیبایی دکتر یاری ثبت شدید. از این پس هر زمان فردی با معرفی شما مراجعه کند، درصدی از مبلغ پرداخت او به شما تعلق می‌گیرد.\nwww.drjavadyari.ir",
+  appointmentReminder:
+    "{نام} عزیز، یادآوری می‌کنیم نوبت شما در مطب زیبایی دکتر یاری {تاریخ} ساعت {ساعت} است. در صورت عدم امکان حضور، لطفاً به ما اطلاع دهید.\nwww.drjavadyari.ir",
+  followupReminder:
+    "{نام} عزیز، زمان جلسهٔ بعدی شما در مطب زیبایی دکتر یاری فرا رسیده است. برای رزرو نوبت با ما تماس بگیرید.\nwww.drjavadyari.ir",
 };
 
 // ── ابزارهای قالب و قالب‌بندی ─────────────────────────────────────────────────
@@ -179,11 +197,28 @@ export interface SmsSettings {
   bodyIdBirthday: string;
   bodyIdSurvey: string;
   bodyIdRecipientWelcome: string;
+  enabledAppointmentReminder: boolean;
+  enabledFollowupReminder: boolean;
+  enabledBirthdayAuto: boolean;
+  appointmentReminderHour: number;
+  dailyAutoHour: number;
+  bodyIdAppointmentReminder: string;
+  bodyIdFollowupReminder: string;
 }
 
 // حداقل فاصله نظرسنجی: عدد صحیح بین ۰ تا ۳۶۵ روز (پیش‌فرض ۳۰)
 export const SURVEY_THROTTLE_DEFAULT_DAYS = 30;
 export const SURVEY_THROTTLE_MAX_DAYS = 365;
+
+// ساعت ارسال پیامک‌های زمان‌بندی‌شده: عدد صحیح ۰ تا ۲۳ (به وقت تهران)
+export const APPOINTMENT_REMINDER_DEFAULT_HOUR = 18;
+export const DAILY_AUTO_DEFAULT_HOUR = 10;
+
+export function clampHour(raw: string | number | null | undefined, fallback: number): number {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), 0), 23);
+}
 
 export function clampSurveyThrottleDays(raw: string | number | null | undefined): number {
   const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
@@ -222,6 +257,14 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     bodyIdBirthday: (map.get(SMS_SETTING_KEYS.bodyIdBirthday) ?? "").trim(),
     bodyIdSurvey: (map.get(SMS_SETTING_KEYS.bodyIdSurvey) ?? "").trim(),
     bodyIdRecipientWelcome: (map.get(SMS_SETTING_KEYS.bodyIdRecipientWelcome) ?? "").trim(),
+    // پیامک‌های زمان‌بندی‌شده هزینه دارند؛ باید صریحاً روشن شوند (پیش‌فرض خاموش)
+    enabledAppointmentReminder: map.get(SMS_SETTING_KEYS.enabledAppointmentReminder) === "true",
+    enabledFollowupReminder: map.get(SMS_SETTING_KEYS.enabledFollowupReminder) === "true",
+    enabledBirthdayAuto: map.get(SMS_SETTING_KEYS.enabledBirthdayAuto) === "true",
+    appointmentReminderHour: clampHour(map.get(SMS_SETTING_KEYS.appointmentReminderHour), APPOINTMENT_REMINDER_DEFAULT_HOUR),
+    dailyAutoHour: clampHour(map.get(SMS_SETTING_KEYS.dailyAutoHour), DAILY_AUTO_DEFAULT_HOUR),
+    bodyIdAppointmentReminder: (map.get(SMS_SETTING_KEYS.bodyIdAppointmentReminder) ?? "").trim(),
+    bodyIdFollowupReminder: (map.get(SMS_SETTING_KEYS.bodyIdFollowupReminder) ?? "").trim(),
   };
 }
 
@@ -317,6 +360,8 @@ function describePatternFailure(resp: MelipayamakResponse): string {
 //   birthday:    {0}=نام
 //   survey:      {0}=نام  {1}=خدمت
 //   recipientWelcome: {0}=نام
+//   appointmentReminder: {0}=نام  {1}=تاریخ  {2}=ساعت
+//   followupReminder: {0}=نام
 export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   appointment: ["نام", "تاریخ", "ساعت"],
   payment: ["نام", "مبلغ", "خدمت"],
@@ -324,6 +369,8 @@ export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   birthday: ["نام"],
   survey: ["نام", "خدمت"],
   recipientWelcome: ["نام"],
+  appointmentReminder: ["نام", "تاریخ", "ساعت"],
+  followupReminder: ["نام"],
 };
 
 // متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
@@ -340,7 +387,9 @@ export function buildPatternText(args: string[]): string {
 export interface SendSmsInput {
   to: string;
   text: string;
-  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey" | "recipient_welcome";
+  eventType:
+    | "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey" | "recipient_welcome"
+    | "appointment_reminder" | "followup_reminder";
   recipientName?: string | null;
   patientId?: number | null;
   // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.

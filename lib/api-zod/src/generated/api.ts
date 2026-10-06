@@ -1015,13 +1015,20 @@ export const GetSmsSettingsResponse = zod.object({
   "enabledRecipientWelcome": zod.boolean(),
   "enabledSurvey": zod.boolean(),
   "surveyThrottleDays": zod.number(),
+  "enabledAppointmentReminder": zod.boolean(),
+  "enabledFollowupReminder": zod.boolean(),
+  "enabledBirthdayAuto": zod.boolean(),
+  "appointmentReminderHour": zod.number(),
+  "dailyAutoHour": zod.number(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
   "bodyIdCommission": zod.string(),
   "bodyIdBirthday": zod.string(),
   "bodyIdSurvey": zod.string(),
-  "bodyIdRecipientWelcome": zod.string()
+  "bodyIdRecipientWelcome": zod.string(),
+  "bodyIdAppointmentReminder": zod.string(),
+  "bodyIdFollowupReminder": zod.string()
 })
 
 
@@ -1035,13 +1042,20 @@ export const UpdateSmsSettingsBody = zod.object({
   "enabledRecipientWelcome": zod.boolean().optional(),
   "enabledSurvey": zod.boolean().optional(),
   "surveyThrottleDays": zod.number().optional(),
+  "enabledAppointmentReminder": zod.boolean().optional(),
+  "enabledFollowupReminder": zod.boolean().optional(),
+  "enabledBirthdayAuto": zod.boolean().optional(),
+  "appointmentReminderHour": zod.number().optional(),
+  "dailyAutoHour": zod.number().optional(),
   "sendMode": zod.enum(['normal', 'pattern']).optional(),
   "bodyIdAppointment": zod.string().optional(),
   "bodyIdPayment": zod.string().optional(),
   "bodyIdCommission": zod.string().optional(),
   "bodyIdBirthday": zod.string().optional(),
   "bodyIdSurvey": zod.string().optional(),
-  "bodyIdRecipientWelcome": zod.string().optional()
+  "bodyIdRecipientWelcome": zod.string().optional(),
+  "bodyIdAppointmentReminder": zod.string().optional(),
+  "bodyIdFollowupReminder": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1054,13 +1068,20 @@ export const UpdateSmsSettingsResponse = zod.object({
   "enabledRecipientWelcome": zod.boolean(),
   "enabledSurvey": zod.boolean(),
   "surveyThrottleDays": zod.number(),
+  "enabledAppointmentReminder": zod.boolean(),
+  "enabledFollowupReminder": zod.boolean(),
+  "enabledBirthdayAuto": zod.boolean(),
+  "appointmentReminderHour": zod.number(),
+  "dailyAutoHour": zod.number(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
   "bodyIdCommission": zod.string(),
   "bodyIdBirthday": zod.string(),
   "bodyIdSurvey": zod.string(),
-  "bodyIdRecipientWelcome": zod.string()
+  "bodyIdRecipientWelcome": zod.string(),
+  "bodyIdAppointmentReminder": zod.string(),
+  "bodyIdFollowupReminder": zod.string()
 })
 
 
@@ -1071,13 +1092,17 @@ export const GetSmsTemplatesResponse = zod.object({
   "birthday": zod.string(),
   "survey": zod.string(),
   "recipientWelcome": zod.string(),
+  "appointmentReminder": zod.string(),
+  "followupReminder": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
   "commission": zod.string(),
   "birthday": zod.string(),
   "survey": zod.string(),
-  "recipientWelcome": zod.string()
+  "recipientWelcome": zod.string(),
+  "appointmentReminder": zod.string(),
+  "followupReminder": zod.string()
 })
 })
 
@@ -1088,7 +1113,9 @@ export const UpdateSmsTemplatesBody = zod.object({
   "commission": zod.string().optional(),
   "birthday": zod.string().optional(),
   "survey": zod.string().optional(),
-  "recipientWelcome": zod.string().optional()
+  "recipientWelcome": zod.string().optional(),
+  "appointmentReminder": zod.string().optional(),
+  "followupReminder": zod.string().optional()
 })
 
 export const UpdateSmsTemplatesResponse = zod.object({
@@ -1098,13 +1125,17 @@ export const UpdateSmsTemplatesResponse = zod.object({
   "birthday": zod.string(),
   "survey": zod.string(),
   "recipientWelcome": zod.string(),
+  "appointmentReminder": zod.string(),
+  "followupReminder": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
   "commission": zod.string(),
   "birthday": zod.string(),
   "survey": zod.string(),
-  "recipientWelcome": zod.string()
+  "recipientWelcome": zod.string(),
+  "appointmentReminder": zod.string(),
+  "followupReminder": zod.string()
 })
 })
 

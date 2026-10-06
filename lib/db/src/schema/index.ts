@@ -25,3 +25,4 @@ export * from "./sms-saved-patterns";
 export * from "./waiting-list";
 export * from "./surveys";
 export * from "./loyalty";
+export * from "./scheduled-sms";

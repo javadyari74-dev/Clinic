@@ -17,6 +17,11 @@ export interface SmsSettingsInput {
   enabledRecipientWelcome?: boolean;
   enabledSurvey?: boolean;
   surveyThrottleDays?: number;
+  enabledAppointmentReminder?: boolean;
+  enabledFollowupReminder?: boolean;
+  enabledBirthdayAuto?: boolean;
+  appointmentReminderHour?: number;
+  dailyAutoHour?: number;
   sendMode?: SmsSettingsInputSendMode;
   bodyIdAppointment?: string;
   bodyIdPayment?: string;
@@ -24,4 +29,6 @@ export interface SmsSettingsInput {
   bodyIdBirthday?: string;
   bodyIdSurvey?: string;
   bodyIdRecipientWelcome?: string;
+  bodyIdAppointmentReminder?: string;
+  bodyIdFollowupReminder?: string;
 }

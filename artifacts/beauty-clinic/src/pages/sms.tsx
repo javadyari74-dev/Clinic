@@ -53,6 +53,7 @@ function SettingsTab() {
   const [creditEnabled, setCreditEnabled] = useState(false);
   const [patternDraft, setPatternDraft] = useState<Record<string, string>>({});
   const [throttleDraft, setThrottleDraft] = useState<string | null>(null);
+  const [hourDraft, setHourDraft] = useState<Partial<Record<"appointmentReminderHour" | "dailyAutoHour", string>>>({});
 
   const { data: credit, isFetching: creditFetching } = useGetSmsCredit({
     query: { enabled: creditEnabled, queryKey: getGetSmsCreditQueryKey() },
@@ -114,6 +115,16 @@ function SettingsTab() {
     }
   }
 
+  function saveHour(key: "appointmentReminderHour" | "dailyAutoHour") {
+    const draft = hourDraft[key];
+    if (draft === undefined) return;
+    setHourDraft((prev) => ({ ...prev, [key]: undefined }));
+    const n = parseInt(draft, 10);
+    if (Number.isFinite(n) && n !== settings?.[key]) {
+      update.mutate({ data: { [key]: Math.min(Math.max(n, 0), 23) } });
+    }
+  }
+
   function savePattern() {
     update.mutate({
       data: {
@@ -123,6 +134,8 @@ function SettingsTab() {
         bodyIdBirthday: patternDraft.bodyIdBirthday ?? settings?.bodyIdBirthday ?? "",
         bodyIdSurvey: patternDraft.bodyIdSurvey ?? settings?.bodyIdSurvey ?? "",
         bodyIdRecipientWelcome: patternDraft.bodyIdRecipientWelcome ?? settings?.bodyIdRecipientWelcome ?? "",
+        bodyIdAppointmentReminder: patternDraft.bodyIdAppointmentReminder ?? settings?.bodyIdAppointmentReminder ?? "",
+        bodyIdFollowupReminder: patternDraft.bodyIdFollowupReminder ?? settings?.bodyIdFollowupReminder ?? "",
       },
     });
   }
@@ -134,6 +147,8 @@ function SettingsTab() {
     { key: "bodyIdBirthday", label: "کد متن تولد" },
     { key: "bodyIdSurvey", label: "کد متن نظرسنجی" },
     { key: "bodyIdRecipientWelcome", label: "کد متن خوش‌آمد معرف" },
+    { key: "bodyIdAppointmentReminder", label: "کد متن یادآوری نوبت (روز قبل)" },
+    { key: "bodyIdFollowupReminder", label: "کد متن یادآوری برگشت" },
   ] as const;
 
   return (
@@ -309,6 +324,92 @@ function SettingsTab() {
         </CardContent>
       </Card>
 
+      {/* Scheduled SMS */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle>پیامک‌های زمان‌بندی‌شده</CardTitle>
+          <CardDescription>
+            این پیامک‌ها بدون نیاز به کاری از طرف شما، سر وقت خودشان فرستاده می‌شوند (تا وقتی برنامه روی کامپیوتر مطب باز است). اگر برنامه سر ساعت باز نباشد، با باز شدن برنامه فرستاده می‌شوند. هیچ پیامکی دوبار فرستاده نمی‌شود و همه در «تاریخچه» ثبت می‌شوند.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">یادآوری نوبت (یک روز قبل)</div>
+              <div className="text-sm text-muted-foreground">
+                برای نوبت‌های «رزرو شده» و «تایید شده»؛ نوبت لغوشده یادآوری نمی‌شود و اگر نوبت جابه‌جا شود، برای تاریخ جدید دوباره یادآوری می‌شود
+              </div>
+            </div>
+            <Switch
+              checked={settings.enabledAppointmentReminder}
+              onCheckedChange={(v) => toggleFlag("enabledAppointmentReminder", v)}
+              data-testid="switch-sms-appointment-reminder"
+            />
+          </div>
+          {settings.enabledAppointmentReminder && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/40 p-3">
+              <Label htmlFor="sms-appointment-reminder-hour" className="text-sm font-normal leading-6">
+                ساعت ارسال در روز قبل از نوبت (۰ تا ۲۳)
+              </Label>
+              <Input
+                id="sms-appointment-reminder-hour"
+                dir="ltr"
+                inputMode="numeric"
+                className="w-24 shrink-0"
+                value={hourDraft.appointmentReminderHour ?? String(settings.appointmentReminderHour)}
+                onChange={(e) => setHourDraft((prev) => ({ ...prev, appointmentReminderHour: e.target.value.replace(/[^0-9]/g, "") }))}
+                onBlur={() => saveHour("appointmentReminderHour")}
+                data-testid="input-appointment-reminder-hour"
+              />
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">یادآوری برگشت مراجع</div>
+              <div className="text-sm text-muted-foreground">
+                در روز سررسید یادآوری‌های «پیگیری» (مثل یادآوری‌ای که هنگام پرداخت در صندوق برای دور بعدی تعیین می‌کنید)
+              </div>
+            </div>
+            <Switch
+              checked={settings.enabledFollowupReminder}
+              onCheckedChange={(v) => toggleFlag("enabledFollowupReminder", v)}
+              data-testid="switch-sms-followup-reminder"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">تبریک تولد خودکار</div>
+              <div className="text-sm text-muted-foreground">در روز تولد مراجعینی که تاریخ تولدشان ثبت شده است</div>
+            </div>
+            <Switch
+              checked={settings.enabledBirthdayAuto}
+              onCheckedChange={(v) => toggleFlag("enabledBirthdayAuto", v)}
+              data-testid="switch-sms-birthday-auto"
+            />
+          </div>
+          {(settings.enabledFollowupReminder || settings.enabledBirthdayAuto) && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/40 p-3">
+              <Label htmlFor="sms-daily-auto-hour" className="text-sm font-normal leading-6">
+                ساعت ارسال یادآوری برگشت و تبریک تولد (۰ تا ۲۳)
+              </Label>
+              <Input
+                id="sms-daily-auto-hour"
+                dir="ltr"
+                inputMode="numeric"
+                className="w-24 shrink-0"
+                value={hourDraft.dailyAutoHour ?? String(settings.dailyAutoHour)}
+                onChange={(e) => setHourDraft((prev) => ({ ...prev, dailyAutoHour: e.target.value.replace(/[^0-9]/g, "") }))}
+                onBlur={() => saveHour("dailyAutoHour")}
+                data-testid="input-daily-auto-hour"
+              />
+            </div>
+          )}
+          {!settings.hasPassword && (
+            <p className="text-sm text-amber-700">ابتدا اتصال به پنل ملی‌پیامک را تنظیم کنید؛ بدون آن پیامکی فرستاده نمی‌شود.</p>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Pattern (service) send */}
       <Card className="lg:col-span-2">
         <CardHeader>
@@ -336,6 +437,8 @@ function SettingsTab() {
               <div>• تولد: {"{0}"} نام</div>
               <div>• نظرسنجی: {"{0}"} نام — {"{1}"} خدمت</div>
               <div>• خوش‌آمد معرف: {"{0}"} نام</div>
+              <div>• یادآوری نوبت (روز قبل): {"{0}"} نام — {"{1}"} تاریخ — {"{2}"} ساعت</div>
+              <div>• یادآوری برگشت: {"{0}"} نام</div>
               <div className="pt-1">
                 نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم. www.drjavadyari.ir»
               </div>
@@ -381,6 +484,8 @@ const TEMPLATE_DEFS = [
   { key: "birthday", title: "تبریک تولد", vars: ["{نام}"] },
   { key: "survey", title: "نظرسنجی پس از مراجعه", vars: ["{نام}", "{خدمت}"] },
   { key: "recipientWelcome", title: "خوش‌آمد معرف جدید", vars: ["{نام}"] },
+  { key: "appointmentReminder", title: "یادآوری نوبت (یک روز قبل)", vars: ["{نام}", "{تاریخ}", "{ساعت}", "{خدمت}"] },
+  { key: "followupReminder", title: "یادآوری برگشت مراجع", vars: ["{نام}", "{تاریخ}"] },
 ] as const;
 
 type TemplateKey = (typeof TEMPLATE_DEFS)[number]["key"];
@@ -1096,6 +1201,8 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   manual: "دستی",
   waiting_list: "لیست انتظار",
   recipient_welcome: "ثبت معرف",
+  appointment_reminder: "یادآوری نوبت",
+  followup_reminder: "یادآوری برگشت",
 };
 
 function LogsTab() {

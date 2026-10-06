@@ -39,6 +39,7 @@ import {
   mergeRestore,
   MergeError,
   buildBackupData,
+  BACKUP_MIRROR_DIR_KEY,
 } from "../lib/backup-service";
 
 const router: IRouter = Router();
@@ -219,7 +220,36 @@ router.get("/backup/settings", async (_req, res): Promise<void> => {
     backupDir,
     defaultDir: getDefaultBackupDir(),
     isDefault: !configured || configured.trim().length === 0,
+    mirrorDir: (await getSetting(BACKUP_MIRROR_DIR_KEY)) ?? "",
   });
+});
+
+// PUT /api/backup/mirror — پوشهٔ نسخهٔ دوم بکاپ خودکار (خالی = غیرفعال)
+router.put("/backup/mirror", async (req, res): Promise<void> => {
+  const dir = String(req.body?.mirrorDir ?? "").trim();
+  if (dir) {
+    const valid = validateBackupDir(dir);
+    if (!valid.ok) {
+      res.status(400).json({ error: valid.error ?? "مسیر انتخاب‌شده معتبر نیست" });
+      return;
+    }
+  }
+  await setSetting(BACKUP_MIRROR_DIR_KEY, dir);
+  res.json({
+    ok: true,
+    mirrorDir: dir,
+    message: dir ? "پوشهٔ نسخهٔ دوم ذخیره شد" : "نسخهٔ دوم غیرفعال شد",
+  });
+});
+
+// POST /api/backup/run — همین الان یک بکاپ در پوشهٔ بکاپ (و پوشهٔ دوم) بگیر
+router.post("/backup/run", async (_req, res): Promise<void> => {
+  const result = await runAutoBackup({ reason: "manual", force: true });
+  if (!result.ok) {
+    res.status(500).json({ error: result.error ?? "بکاپ ناموفق بود" });
+    return;
+  }
+  res.json(result);
 });
 
 router.put("/backup/settings", async (req, res): Promise<void> => {
@@ -296,6 +326,7 @@ internalBackupRouter.post("/backup/auto", async (req, res): Promise<void> => {
     return;
   }
   const reason = typeof req.body?.reason === "string" ? req.body.reason : "auto";
-  const result = await runAutoBackup({ reason });
+  // هنگام بستن برنامه همیشه بکاپ گرفته می‌شود (بدون محدودیت ۱۵ دقیقه‌ای)
+  const result = await runAutoBackup({ reason, force: reason === "shutdown" });
   res.json(result);
 });

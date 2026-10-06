@@ -221,3 +221,61 @@ describe("mergeRestore covers the newly ported domains", () => {
     expect(second.report.loyaltyTransactions).toMatchObject({ added: 0, skipped: 1 });
   });
 });
+
+describe("automatic backups: second copy, daily backup and retention", () => {
+  it("copies each auto backup into the mirror folder and logs it", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "backup-mirror-test-"));
+    const main = path.join(root, "main");
+    const mirror = path.join(root, "usb");
+    await backupService.setSetting("backup_dir", main);
+    await backupService.setSetting(backupService.BACKUP_MIRROR_DIR_KEY, mirror);
+
+    const r = await backupService.runAutoBackup({ reason: "manual", force: true });
+    expect(r.ok).toBe(true);
+    expect(fs.existsSync(path.join(main, r.filename!))).toBe(true);
+    expect(fs.readFileSync(path.join(mirror, r.filename!), "utf8")).toBe(
+      fs.readFileSync(path.join(main, r.filename!), "utf8"),
+    );
+    const logs = await backupService.getBackupLogs(5);
+    expect(logs.some((l) => l.kind === "mirror" && l.status === "success" && l.filename === r.filename)).toBe(true);
+  });
+
+  it("keeps the main backup and logs an error when the mirror folder is unusable", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "backup-mirror-bad-"));
+    const blocker = path.join(root, "not-a-folder");
+    fs.writeFileSync(blocker, "x");
+    await backupService.setSetting("backup_dir", path.join(root, "main"));
+    await backupService.setSetting(backupService.BACKUP_MIRROR_DIR_KEY, path.join(blocker, "sub"));
+
+    const r = await backupService.runAutoBackup({ reason: "manual", force: true });
+    expect(r.ok).toBe(true);
+    const logs = await backupService.getBackupLogs(5);
+    expect(logs.some((l) => l.kind === "mirror" && l.status === "error")).toBe(true);
+    await backupService.setSetting(backupService.BACKUP_MIRROR_DIR_KEY, "");
+  });
+
+  it("takes the daily backup only when the last one is 24 hours old", async () => {
+    await backupService.setSetting("backup_dir", fs.mkdtempSync(path.join(os.tmpdir(), "backup-daily-")));
+    await backupService.setSetting("last_auto_backup_at", String(Date.now() - 2 * 3600_000));
+    expect(await backupService.runDailyBackupIfDue()).toBeNull();
+    await backupService.setSetting("last_auto_backup_at", String(Date.now() - 25 * 3600_000));
+    const r = await backupService.runDailyBackupIfDue();
+    expect(r?.ok).toBe(true);
+    expect(r?.skipped).toBe(false);
+  });
+
+  it("retention keeps the 20 newest, then one per day, up to 50", () => {
+    // ۴ بکاپ در روز برای ۴۰ روز، تازه‌ترین اول
+    const files: string[] = [];
+    for (let day = 0; day < 40; day++) {
+      const d = new Date(Date.UTC(2026, 9, 30) - day * 86_400_000).toISOString().slice(0, 10);
+      for (const t of ["20-00-00", "14-00-00", "10-00-00", "08-00-00"]) files.push(`auto-${d}_${t}.json`);
+    }
+    const kept = backupService.selectAutoBackupsToKeep(files, 50, 20);
+    expect(kept.size).toBe(50);
+    expect(files.slice(0, 20).every((f) => kept.has(f))).toBe(true);
+    // ۲۰ تای اول = ۵ روز؛ بقیه یکی در روز → ۵ + ۳۰ = ۳۵ روز سابقه
+    const days = new Set([...kept].map((f) => f.slice(5, 15)));
+    expect(days.size).toBe(35);
+  });
+});

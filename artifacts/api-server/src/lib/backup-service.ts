@@ -38,8 +38,14 @@ import { logger } from "./logger";
 export const BACKUP_VERSION = 4;
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_AUTO_BACKUPS = 50;
+// از ۵۰ بکاپ نگه‌داشته‌شده، این تعداد تازه‌ترین‌ها همگی می‌مانند و بقیه فقط
+// یکی برای هر روز — تا هم چند نسخهٔ اخیر و هم حدود یک ماه سابقهٔ روزانه داشته باشیم.
+const KEEP_ALL_RECENT = 20;
 const BACKUP_DIR_KEY = "backup_dir";
+// پوشهٔ نسخهٔ دوم (مثلاً فلش یا پوشهٔ همگام‌شده با Google Drive)؛ خالی = غیرفعال
+export const BACKUP_MIRROR_DIR_KEY = "backup_mirror_dir";
 const LAST_AUTO_BACKUP_KEY = "last_auto_backup_at";
 
 function nowSeconds(): number {
@@ -213,6 +219,22 @@ async function writeBackupFile(dir: string, prefix: string): Promise<string> {
   return filename;
 }
 
+// از فهرست نام فایل‌های بکاپ خودکار (تازه‌ترین اول)، کدام‌ها نگه داشته شوند:
+// keepAllRecent تای اول همه، سپس فقط تازه‌ترینِ هر روز، تا سقف keep فایل.
+export function selectAutoBackupsToKeep(newestFirst: string[], keep: number, keepAllRecent: number): Set<string> {
+  const kept = new Set<string>();
+  const days = new Set<string>();
+  for (const f of newestFirst) {
+    if (kept.size >= keep) break;
+    const day = f.slice("auto-".length, "auto-".length + 10); // YYYY-MM-DD
+    if (kept.size < keepAllRecent || !days.has(day)) {
+      kept.add(f);
+      days.add(day);
+    }
+  }
+  return kept;
+}
+
 // فقط بکاپ‌های خودکار (پیشوند auto-) هرس می‌شوند؛ بکاپ‌های دستی کاربر دست‌نخورده می‌مانند.
 function pruneAutoBackups(dir: string, keep: number): void {
   try {
@@ -221,7 +243,8 @@ function pruneAutoBackups(dir: string, keep: number): void {
       .filter((f) => f.startsWith("auto-") && f.endsWith(".json"))
       .map((f) => ({ f, t: fs.statSync(path.join(dir, f)).mtimeMs }))
       .sort((a, b) => b.t - a.t);
-    for (const { f } of files.slice(keep)) {
+    const kept = selectAutoBackupsToKeep(files.map((x) => x.f), keep, KEEP_ALL_RECENT);
+    for (const { f } of files.filter((x) => !kept.has(x.f))) {
       try {
         fs.unlinkSync(path.join(dir, f));
       } catch {
@@ -282,11 +305,34 @@ export async function runAutoBackup(
     await setSetting(LAST_AUTO_BACKUP_KEY, String(Date.now()));
     const kind = reason === "pre-merge" ? "pre-merge" : "auto";
     await logBackup(kind, filename, "success", reason);
+    await copyToMirror(dir, filename);
     return { ok: true, skipped: false, filename };
   } catch (err) {
     await logBackup("auto", null, "error", String(err));
     return { ok: false, skipped: false, error: String(err) };
   }
+}
+
+// نسخهٔ دوم: همان فایل در پوشهٔ دوم کپی می‌شود (با همان قاعدهٔ هرس). خطا در این
+// مرحله بکاپ اصلی را ناموفق نمی‌کند؛ فقط در گزارش بکاپ ثبت می‌شود.
+async function copyToMirror(dir: string, filename: string): Promise<void> {
+  const mirror = (await getSetting(BACKUP_MIRROR_DIR_KEY))?.trim();
+  if (!mirror || path.resolve(mirror) === path.resolve(dir)) return;
+  try {
+    fs.mkdirSync(mirror, { recursive: true });
+    fs.copyFileSync(path.join(dir, filename), path.join(mirror, filename));
+    pruneAutoBackups(mirror, MAX_AUTO_BACKUPS);
+    await logBackup("mirror", filename, "success", mirror);
+  } catch (err) {
+    await logBackup("mirror", filename, "error", `کپی در پوشهٔ دوم ناموفق بود: ${describeFsError(err)}`);
+  }
+}
+
+/** بکاپ روزانه: اگر از آخرین بکاپ خودکار ۲۴ ساعت گذشته باشد. */
+export async function runDailyBackupIfDue(): Promise<AutoBackupResult | null> {
+  const last = Number(await getSetting(LAST_AUTO_BACKUP_KEY)) || 0;
+  if (last > 0 && Date.now() - last < DAY_MS) return null;
+  return runAutoBackup({ reason: "daily", force: true });
 }
 
 export async function getBackupLogs(limit = 50) {

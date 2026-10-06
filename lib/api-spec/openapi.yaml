@@ -2118,7 +2118,7 @@ components:
     # ── SMS ───────────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder]
       properties:
         username: { type: string }
         from: { type: string }
@@ -2129,6 +2129,13 @@ components:
         enabledRecipientWelcome: { type: boolean }
         enabledSurvey: { type: boolean }
         surveyThrottleDays: { type: integer }
+        # پیامک‌های زمان‌بندی‌شده (یادآوری نوبت روز قبل، یادآوری برگشت، تبریک تولد)
+        enabledAppointmentReminder: { type: boolean }
+        enabledFollowupReminder: { type: boolean }
+        enabledBirthdayAuto: { type: boolean }
+        # ساعت ارسال (۰ تا ۲۳، به وقت تهران)
+        appointmentReminderHour: { type: integer }
+        dailyAutoHour: { type: integer }
         sendMode: { type: string, enum: [normal, pattern] }
         bodyIdAppointment: { type: string }
         bodyIdPayment: { type: string }
@@ -2136,6 +2143,8 @@ components:
         bodyIdBirthday: { type: string }
         bodyIdSurvey: { type: string }
         bodyIdRecipientWelcome: { type: string }
+        bodyIdAppointmentReminder: { type: string }
+        bodyIdFollowupReminder: { type: string }
 
     SmsSettingsInput:
       type: object
@@ -2149,6 +2158,13 @@ components:
         enabledRecipientWelcome: { type: boolean }
         enabledSurvey: { type: boolean }
         surveyThrottleDays: { type: integer }
+        # پیامک‌های زمان‌بندی‌شده (یادآوری نوبت روز قبل، یادآوری برگشت، تبریک تولد)
+        enabledAppointmentReminder: { type: boolean }
+        enabledFollowupReminder: { type: boolean }
+        enabledBirthdayAuto: { type: boolean }
+        # ساعت ارسال (۰ تا ۲۳، به وقت تهران)
+        appointmentReminderHour: { type: integer }
+        dailyAutoHour: { type: integer }
         sendMode: { type: string, enum: [normal, pattern] }
         bodyIdAppointment: { type: string }
         bodyIdPayment: { type: string }
@@ -2156,10 +2172,12 @@ components:
         bodyIdBirthday: { type: string }
         bodyIdSurvey: { type: string }
         bodyIdRecipientWelcome: { type: string }
+        bodyIdAppointmentReminder: { type: string }
+        bodyIdFollowupReminder: { type: string }
 
     SmsTemplates:
       type: object
-      required: [appointment, payment, commission, birthday, survey, recipientWelcome, defaults]
+      required: [appointment, payment, commission, birthday, survey, recipientWelcome, appointmentReminder, followupReminder, defaults]
       properties:
         appointment: { type: string }
         payment: { type: string }
@@ -2167,9 +2185,11 @@ components:
         birthday: { type: string }
         survey: { type: string }
         recipientWelcome: { type: string }
+        appointmentReminder: { type: string }
+        followupReminder: { type: string }
         defaults:
           type: object
-          required: [appointment, payment, commission, birthday, survey, recipientWelcome]
+          required: [appointment, payment, commission, birthday, survey, recipientWelcome, appointmentReminder, followupReminder]
           properties:
             appointment: { type: string }
             payment: { type: string }
@@ -2177,6 +2197,8 @@ components:
             birthday: { type: string }
             survey: { type: string }
             recipientWelcome: { type: string }
+            appointmentReminder: { type: string }
+            followupReminder: { type: string }
 
     SmsTemplatesInput:
       type: object
@@ -2187,6 +2209,8 @@ components:
         birthday: { type: string }
         survey: { type: string }
         recipientWelcome: { type: string }
+        appointmentReminder: { type: string }
+        followupReminder: { type: string }
 
     SmsCredit:
       type: object

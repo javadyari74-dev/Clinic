@@ -13,4 +13,6 @@ export type SmsTemplatesDefaults = {
   birthday: string;
   survey: string;
   recipientWelcome: string;
+  appointmentReminder: string;
+  followupReminder: string;
 };

@@ -20,6 +20,9 @@ import {
   getSmsTemplates,
   setAppSetting,
   clampSurveyThrottleDays,
+  clampHour,
+  APPOINTMENT_REMINDER_DEFAULT_HOUR,
+  DAILY_AUTO_DEFAULT_HOUR,
   getPanelCredit,
   sendSms,
   renderTemplate,
@@ -50,6 +53,13 @@ function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
     bodyIdBirthday: s.bodyIdBirthday,
     bodyIdSurvey: s.bodyIdSurvey,
     bodyIdRecipientWelcome: s.bodyIdRecipientWelcome,
+    enabledAppointmentReminder: s.enabledAppointmentReminder,
+    enabledFollowupReminder: s.enabledFollowupReminder,
+    enabledBirthdayAuto: s.enabledBirthdayAuto,
+    appointmentReminderHour: s.appointmentReminderHour,
+    dailyAutoHour: s.dailyAutoHour,
+    bodyIdAppointmentReminder: s.bodyIdAppointmentReminder,
+    bodyIdFollowupReminder: s.bodyIdFollowupReminder,
   };
 }
 
@@ -74,6 +84,16 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
   if (b.enabledCommission !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledCommission, String(b.enabledCommission));
   if (b.enabledRecipientWelcome !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledRecipientWelcome, String(b.enabledRecipientWelcome));
   if (b.enabledSurvey !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledSurvey, String(b.enabledSurvey));
+  if (b.enabledAppointmentReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointmentReminder, String(b.enabledAppointmentReminder));
+  if (b.enabledFollowupReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledFollowupReminder, String(b.enabledFollowupReminder));
+  if (b.enabledBirthdayAuto !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledBirthdayAuto, String(b.enabledBirthdayAuto));
+  // ساعت ارسال: عدد صحیح ۰ تا ۲۳
+  if (b.appointmentReminderHour !== undefined) {
+    await setAppSetting(SMS_SETTING_KEYS.appointmentReminderHour, String(clampHour(b.appointmentReminderHour, APPOINTMENT_REMINDER_DEFAULT_HOUR)));
+  }
+  if (b.dailyAutoHour !== undefined) {
+    await setAppSetting(SMS_SETTING_KEYS.dailyAutoHour, String(clampHour(b.dailyAutoHour, DAILY_AUTO_DEFAULT_HOUR)));
+  }
   // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
   if (b.surveyThrottleDays !== undefined) {
     await setAppSetting(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
@@ -86,6 +106,8 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     ["bodyIdBirthday", SMS_SETTING_KEYS.bodyIdBirthday],
     ["bodyIdSurvey", SMS_SETTING_KEYS.bodyIdSurvey],
     ["bodyIdRecipientWelcome", SMS_SETTING_KEYS.bodyIdRecipientWelcome],
+    ["bodyIdAppointmentReminder", SMS_SETTING_KEYS.bodyIdAppointmentReminder],
+    ["bodyIdFollowupReminder", SMS_SETTING_KEYS.bodyIdFollowupReminder],
   ] as const;
   for (const [field] of bodyIdFields) {
     const value = b[field];

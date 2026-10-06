@@ -674,6 +674,11 @@ export interface SmsSettings {
   enabledRecipientWelcome: boolean;
   enabledSurvey: boolean;
   surveyThrottleDays: number;
+  enabledAppointmentReminder: boolean;
+  enabledFollowupReminder: boolean;
+  enabledBirthdayAuto: boolean;
+  appointmentReminderHour: number;
+  dailyAutoHour: number;
   sendMode: SmsSettingsSendMode;
   bodyIdAppointment: string;
   bodyIdPayment: string;
@@ -681,6 +686,8 @@ export interface SmsSettings {
   bodyIdBirthday: string;
   bodyIdSurvey: string;
   bodyIdRecipientWelcome: string;
+  bodyIdAppointmentReminder: string;
+  bodyIdFollowupReminder: string;
 }
 
 export type SmsSettingsInputSendMode = typeof SmsSettingsInputSendMode[keyof typeof SmsSettingsInputSendMode];
@@ -701,6 +708,11 @@ export interface SmsSettingsInput {
   enabledRecipientWelcome?: boolean;
   enabledSurvey?: boolean;
   surveyThrottleDays?: number;
+  enabledAppointmentReminder?: boolean;
+  enabledFollowupReminder?: boolean;
+  enabledBirthdayAuto?: boolean;
+  appointmentReminderHour?: number;
+  dailyAutoHour?: number;
   sendMode?: SmsSettingsInputSendMode;
   bodyIdAppointment?: string;
   bodyIdPayment?: string;
@@ -708,6 +720,8 @@ export interface SmsSettingsInput {
   bodyIdBirthday?: string;
   bodyIdSurvey?: string;
   bodyIdRecipientWelcome?: string;
+  bodyIdAppointmentReminder?: string;
+  bodyIdFollowupReminder?: string;
 }
 
 export type SmsTemplatesDefaults = {
@@ -717,6 +731,8 @@ export type SmsTemplatesDefaults = {
   birthday: string;
   survey: string;
   recipientWelcome: string;
+  appointmentReminder: string;
+  followupReminder: string;
 };
 
 export interface SmsTemplates {
@@ -726,6 +742,8 @@ export interface SmsTemplates {
   birthday: string;
   survey: string;
   recipientWelcome: string;
+  appointmentReminder: string;
+  followupReminder: string;
   defaults: SmsTemplatesDefaults;
 }
 
@@ -736,6 +754,8 @@ export interface SmsTemplatesInput {
   birthday?: string;
   survey?: string;
   recipientWelcome?: string;
+  appointmentReminder?: string;
+  followupReminder?: string;
 }
 
 export interface SmsCredit {
