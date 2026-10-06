@@ -47,9 +47,13 @@ export interface ServiceProfit {
 }
 
 export interface ChartPoint {
+  /** روز محلی، میلادی YYYY-MM-DD */
   date: string;
   revenue: number;
+  serviceCosts: number;
   expenses: number;
+  commissions: number;
+  totalCosts: number;
   profit: number;
 }
 
@@ -73,26 +77,34 @@ export interface CreateExpenseInput {
   staffId?: number;
 }
 
-export type Period = "today" | "month" | "year" | "all";
+/** بازهٔ گزارش به ثانیهٔ یونیکس؛ to انحصاری است (ابتدای روزِ بعد از آخرین روز). */
+export interface DateRange {
+  from: number;
+  to: number;
+}
 
-export function useAccountingSummary(period: Period = "month") {
+const rangeQuery = (r: DateRange) => `from=${r.from}&to=${r.to}`;
+
+export function useAccountingSummary(range: DateRange) {
   return useQuery<AccountingSummary>({
-    queryKey: ["accounting", "summary", period],
-    queryFn: () => apiFetch(`/api/accounting/summary?period=${period}`),
+    queryKey: ["accounting", "summary", range.from, range.to],
+    queryFn: () => apiFetch(`/api/accounting/summary?${rangeQuery(range)}`),
   });
 }
 
-export function useAccountingByService(period: Period = "month") {
+export function useAccountingByService(range: DateRange) {
   return useQuery<ServiceProfit[]>({
-    queryKey: ["accounting", "by-service", period],
-    queryFn: () => apiFetch(`/api/accounting/by-service?period=${period}`),
+    queryKey: ["accounting", "by-service", range.from, range.to],
+    queryFn: () => apiFetch(`/api/accounting/by-service?${rangeQuery(range)}`),
   });
 }
 
-export function useAccountingChart(period: "month" | "year" = "month") {
+export function useAccountingChart(range: DateRange) {
+  // مرز روزها بر اساس منطقهٔ زمانی همین دستگاه (دقیقه، شرق UTC مثبت)
+  const tz = -new Date().getTimezoneOffset();
   return useQuery<ChartPoint[]>({
-    queryKey: ["accounting", "chart", period],
-    queryFn: () => apiFetch(`/api/accounting/chart?period=${period}`),
+    queryKey: ["accounting", "chart", range.from, range.to, tz],
+    queryFn: () => apiFetch(`/api/accounting/chart?${rangeQuery(range)}&tz=${tz}`),
   });
 }
 
@@ -110,10 +122,18 @@ export function useRevenueRange(from: number | null, to: number | null) {
   });
 }
 
-export function useExpenses(category?: string) {
+export function useExpenses(range?: DateRange, category?: string) {
+  const params = new URLSearchParams();
+  if (range) {
+    params.set("from", String(range.from));
+    params.set("to", String(range.to));
+    params.set("limit", "500");
+  }
+  if (category) params.set("category", category);
+  const qs = params.toString();
   return useQuery<Expense[]>({
-    queryKey: ["accounting", "expenses", category],
-    queryFn: () => apiFetch(`/api/accounting/expenses${category ? `?category=${category}` : ""}`),
+    queryKey: ["accounting", "expenses", range?.from, range?.to, category],
+    queryFn: () => apiFetch(`/api/accounting/expenses${qs ? `?${qs}` : ""}`),
   });
 }
 

@@ -344,8 +344,8 @@ const accountingByService = [
 ];
 
 const accountingChart = [
-  { date: "2026-06-28", revenue: 800_000, expenses: 100_000, profit: 700_000 },
-  { date: "2026-06-29", revenue: 1_200_000, expenses: 200_000, profit: 1_000_000 },
+  { date: "2026-06-28", revenue: 800_000, serviceCosts: 150_000, expenses: 100_000, commissions: 0, totalCosts: 250_000, profit: 550_000 },
+  { date: "2026-06-29", revenue: 1_200_000, serviceCosts: 0, expenses: 200_000, commissions: 120_000, totalCosts: 320_000, profit: 880_000 },
 ];
 
 const expenses = [

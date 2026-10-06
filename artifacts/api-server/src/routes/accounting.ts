@@ -23,10 +23,27 @@ function periodBounds(period: string): { start: number; end: number } {
   return { start: 0, end: Math.floor(Date.now() / 1000) + 1 };
 }
 
+// بازهٔ گزارش: اگر from/to (ثانیه یونیکس، to انحصاری) داده شود همان استفاده می‌شود؛
+// فرانت‌اند مرزهای روز/ماه/سال شمسی را در منطقهٔ زمانی کاربر حساب می‌کند و همین را می‌فرستد.
+// در غیر این صورت برای سازگاری با نسخه‌های قدیمی، period پذیرفته می‌شود.
+type RangeResult = { start: number; end: number } | { error: string };
+function resolveRange(query: Record<string, unknown>): RangeResult {
+  const hasFrom = query.from !== undefined && query.from !== "";
+  const hasTo = query.to !== undefined && query.to !== "";
+  if (!hasFrom && !hasTo) return periodBounds(String(query.period ?? "month"));
+  const start = Number(query.from);
+  const end = Number(query.to);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start) {
+    return { error: "بازهٔ زمانی نامعتبر است (from و to به ثانیه و from < to)" };
+  }
+  return { start, end };
+}
+
 // GET /api/accounting/summary?period=today|month|year|all
 router.get("/accounting/summary", async (req, res): Promise<void> => {
-  const period = String(req.query.period ?? "month");
-  const { start, end } = periodBounds(period);
+  const range = resolveRange(req.query);
+  if ("error" in range) { res.status(400).json({ error: range.error }); return; }
+  const { start, end } = range;
 
   const [{ revenue }] = await db
     .select({ revenue: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)` })
@@ -86,8 +103,9 @@ router.get("/accounting/summary", async (req, res): Promise<void> => {
 
 // GET /api/accounting/by-service?period=month|year|all
 router.get("/accounting/by-service", async (req, res): Promise<void> => {
-  const period = String(req.query.period ?? "month");
-  const { start, end } = periodBounds(period);
+  const range = resolveRange(req.query);
+  if ("error" in range) { res.status(400).json({ error: range.error }); return; }
+  const { start, end } = range;
 
   // همه خدمات (شامل غیرفعال‌هایی که در این بازه پرداخت داشته‌اند) تا تفکیک با هزینه خدمات کل (summary) همخوان بماند؛
   // فیلتر نهایی revenue/completedCount خدمات بدون فعالیت را حذف می‌کند.
@@ -173,50 +191,92 @@ router.get("/accounting/revenue-range", async (req, res): Promise<void> => {
   res.json({ revenue: Number(revenue), from, to });
 });
 
-// GET /api/accounting/chart?period=month|year
+// GET /api/accounting/chart?from=<unix>&to=<unix>&tz=<minutes east of UTC>
+// ارقام روزانهٔ بازه، با همان تعاریف /summary تا جمع روزها دقیقاً با کارت‌های خلاصه یکی باشد:
+//   سود = درآمد − هزینه خدمات − هزینه‌های ثابت − پورسانت
+// مرز روزها با منطقهٔ زمانی کاربر (tz) حساب می‌شود، نه UTC؛ وگرنه پرداخت‌های بامداد و
+// هزینه‌هایی که با «نیمه‌شب محلی» ثبت شده‌اند در روز قبل نمایش داده می‌شوند.
+// روزهای بدون داده برگردانده نمی‌شوند؛ فرانت‌اند خالی‌ها را پر و در صورت نیاز ماهانه (شمسی) گروه می‌کند.
+// برای سازگاری، period=month|year (۳۰/۳۶۵ روز گذشته) هم پذیرفته می‌شود.
 router.get("/accounting/chart", async (req, res): Promise<void> => {
-  const period = String(req.query.period ?? "month");
-  const days = period === "year" ? 365 : 30;
-  const since = Math.floor(Date.now() / 1000) - days * 86400;
-
-  const revenueRows = await db
-    .select({
-      day: sql<number>`floor(${paymentsTable.paidAt} / 86400) * 86400`,
-      revenue: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)`,
-    })
-    .from(paymentsTable)
-    .where(gte(paymentsTable.paidAt, since))
-    .groupBy(sql`floor(${paymentsTable.paidAt} / 86400) * 86400`)
-    .orderBy(sql`floor(${paymentsTable.paidAt} / 86400) * 86400`);
-
-  const expenseRows = await db
-    .select({
-      day: sql<number>`floor(${expensesTable.date} / 86400) * 86400`,
-      expenses: sql<number>`coalesce(sum(${expensesTable.amount}), 0)`,
-    })
-    .from(expensesTable)
-    .where(gte(expensesTable.date, since))
-    .groupBy(sql`floor(${expensesTable.date} / 86400) * 86400`)
-    .orderBy(sql`floor(${expensesTable.date} / 86400) * 86400`);
-
-  const revMap: Record<string, number> = {};
-  for (const r of revenueRows) {
-    const date = new Date(Number(r.day) * 1000).toISOString().split("T")[0];
-    revMap[date] = Number(r.revenue);
+  let start: number;
+  let end: number;
+  if (req.query.from === undefined && req.query.to === undefined) {
+    const days = String(req.query.period ?? "month") === "year" ? 365 : 30;
+    end = Math.floor(Date.now() / 1000) + 1;
+    start = end - days * 86400;
+  } else {
+    const range = resolveRange(req.query);
+    if ("error" in range) { res.status(400).json({ error: range.error }); return; }
+    ({ start, end } = range);
   }
-  const expMap: Record<string, number> = {};
-  for (const r of expenseRows) {
-    const date = new Date(Number(r.day) * 1000).toISOString().split("T")[0];
-    expMap[date] = Number(r.expenses);
+  const tzMinutes = req.query.tz === undefined ? 0 : Number(req.query.tz);
+  if (!Number.isInteger(tzMinutes) || Math.abs(tzMinutes) > 14 * 60) {
+    res.status(400).json({ error: "منطقهٔ زمانی نامعتبر است" });
+    return;
   }
+  const tz = tzMinutes * 60;
+  const dayOf = (col: unknown) => sql<number>`cast((${col} + ${tz}) / 86400 as integer)`;
 
-  const allDates = Array.from(new Set([...Object.keys(revMap), ...Object.keys(expMap)])).sort();
-  const chart = allDates.map(date => ({
-    date,
-    revenue: revMap[date] ?? 0,
-    expenses: expMap[date] ?? 0,
-    profit: (revMap[date] ?? 0) - (expMap[date] ?? 0),
-  }));
+  const [revenueRows, expenseRows, commissionRows, serviceCostRows] = await Promise.all([
+    db
+      .select({ day: dayOf(paymentsTable.paidAt), amount: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)` })
+      .from(paymentsTable)
+      .where(and(gte(paymentsTable.paidAt, start), lt(paymentsTable.paidAt, end)))
+      .groupBy(sql`1`),
+    db
+      .select({ day: dayOf(expensesTable.date), amount: sql<number>`coalesce(sum(${expensesTable.amount}), 0)` })
+      .from(expensesTable)
+      .where(and(gte(expensesTable.date, start), lt(expensesTable.date, end)))
+      .groupBy(sql`1`),
+    db
+      .select({ day: dayOf(commissionsTable.createdAt), amount: sql<number>`coalesce(sum(${commissionsTable.amount}), 0)` })
+      .from(commissionsTable)
+      .where(and(gte(commissionsTable.createdAt, start), lt(commissionsTable.createdAt, end)))
+      .groupBy(sql`1`),
+    // هزینه خدمت هر نوبت یک‌بار، در روزِ اولین پرداخت غیربیعانهٔ آن نوبت در این بازه (همان قاعدهٔ /summary)
+    db.all<{ day: number; amount: number }>(sql`
+      SELECT cast((first_paid + ${tz}) / 86400 as integer) AS day, coalesce(sum(cost), 0) AS amount
+      FROM (
+        SELECT
+          (SELECT min(p.paid_at) FROM payments p
+             WHERE p.appointment_id = a.id AND p.paid_at >= ${start} AND p.paid_at < ${end}
+               AND coalesce(p.notes, '') <> 'بیعانه') AS first_paid,
+          (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN s.doctor_fee * coalesce(a.units_used, s.unit_count, 1) ELSE s.doctor_fee END) +
+          (CASE WHEN s.material_cost_mode = 'per_unit' THEN s.material_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.material_cost END) +
+          (CASE WHEN s.other_cost_mode = 'per_unit' THEN s.other_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.other_cost END) AS cost
+        FROM appointments a
+        INNER JOIN services s ON s.id = a.service_id
+      )
+      WHERE first_paid IS NOT NULL
+      GROUP BY 1
+    `),
+  ]);
+
+  type Point = { revenue: number; serviceCosts: number; expenses: number; commissions: number };
+  const days = new Map<number, Point>();
+  const point = (day: number) => {
+    let p = days.get(day);
+    if (!p) { p = { revenue: 0, serviceCosts: 0, expenses: 0, commissions: 0 }; days.set(day, p); }
+    return p;
+  };
+  for (const r of revenueRows) point(Number(r.day)).revenue += Number(r.amount);
+  for (const r of serviceCostRows) point(Number(r.day)).serviceCosts += Number(r.amount);
+  for (const r of expenseRows) point(Number(r.day)).expenses += Number(r.amount);
+  for (const r of commissionRows) point(Number(r.day)).commissions += Number(r.amount);
+
+  const chart = [...days.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([day, p]) => {
+      const totalCosts = p.serviceCosts + p.expenses + p.commissions;
+      return {
+        // تاریخ میلادی روز محلی (YYYY-MM-DD)
+        date: new Date(day * 86400 * 1000).toISOString().slice(0, 10),
+        ...p,
+        totalCosts,
+        profit: p.revenue - totalCosts,
+      };
+    });
 
   res.json(chart);
 });
@@ -227,8 +287,16 @@ router.get("/accounting/expenses", async (req, res): Promise<void> => {
   const limit = Number(req.query.limit ?? 50);
   const offset = Number(req.query.offset ?? 0);
 
+  // from/to اختیاری: فقط هزینه‌های بازهٔ انتخاب‌شده در صفحهٔ حسابداری
+  const conditions = [];
+  if (category) conditions.push(eq(expensesTable.category, category));
+  if (req.query.from !== undefined || req.query.to !== undefined) {
+    const range = resolveRange(req.query);
+    if ("error" in range) { res.status(400).json({ error: range.error }); return; }
+    conditions.push(gte(expensesTable.date, range.start), lt(expensesTable.date, range.end));
+  }
   let query = db.select().from(expensesTable).orderBy(desc(expensesTable.date)).$dynamic();
-  if (category) query = query.where(eq(expensesTable.category, category));
+  if (conditions.length) query = query.where(and(...conditions));
   const rows = await query.limit(limit).offset(offset);
   res.json(rows);
 });
