@@ -52,7 +52,8 @@ const SECTION_LABELS: Record<string, string> = {
 export default function Backup() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [resetStep, setResetStep] = useState<ResetStep>("idle");
   const [confirmInput, setConfirmInput] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -350,6 +351,9 @@ export default function Backup() {
           </CardContent>
         </Card>
 
+        {/* بازیابی کامل و ادغامی فقط برای مدیر؛ سرور هم برای سایر کاربران رد می‌کند */}
+        {isAdmin && (
+        <>
         <Card className="border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -411,6 +415,8 @@ export default function Backup() {
             </Button>
           </CardContent>
         </Card>
+        </>
+        )}
 
         <Card>
           <CardHeader>
@@ -493,7 +499,8 @@ export default function Backup() {
         </CardContent>
       </Card>
 
-      {/* Danger Zone */}
+      {/* Danger Zone — فقط مدیر؛ سرور هم برای سایر کاربران رد می‌کند */}
+      {isAdmin && (
       <Card className="border-destructive/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-destructive">
@@ -516,6 +523,7 @@ export default function Backup() {
           </Button>
         </CardContent>
       </Card>
+      )}
 
       {/* مرحله اول — هشدار پشتیبان */}
       <Dialog open={resetStep === "warn"} onOpenChange={(o) => !o && closeReset()}>

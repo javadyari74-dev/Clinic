@@ -6,6 +6,10 @@ import { signToken, requireAuth, requireAdmin } from "../lib/auth";
 
 const router = Router();
 
+const ROLES = ["admin", "staff", "laser_operator"] as const;
+type Role = (typeof ROLES)[number];
+const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);
+
 router.post("/auth/login", async (req, res) => {
   const { username, password } = req.body ?? {};
   if (!username || !password) {
@@ -58,6 +62,10 @@ router.post("/users", requireAdmin, async (req, res) => {
     res.status(400).json({ message: "نام کاربری و رمز عبور الزامی است" });
     return;
   }
+  if (role !== undefined && !isRole(role)) {
+    res.status(400).json({ message: "نقش کاربر نامعتبر است" });
+    return;
+  }
   const normalizedUsername = String(username).toLowerCase();
   const existing = await db.select({ id: usersTable.id }).from(usersTable).where(eq(usersTable.username, normalizedUsername)).get();
   if (existing) { res.status(409).json({ message: "این نام کاربری قبلاً استفاده شده است" }); return; }
@@ -78,6 +86,15 @@ router.put("/users/:id", requireAdmin, async (req, res) => {
   const { username, password, role, staffId, permissions, isActive } = req.body ?? {};
   const existing = await db.select().from(usersTable).where(eq(usersTable.id, id)).get();
   if (!existing) { res.status(404).json({ message: "کاربر یافت نشد" }); return; }
+  if (role !== undefined && !isRole(role)) {
+    res.status(400).json({ message: "نقش کاربر نامعتبر است" });
+    return;
+  }
+  // مدیر نباید بتواند خودش را از دسترسی مدیریت خارج یا غیرفعال کند
+  if (req.jwtUser!.sub === id && ((role !== undefined && role !== "admin") || isActive === false)) {
+    res.status(400).json({ message: "نمی‌توانید نقش خود را تغییر دهید یا حساب خود را غیرفعال کنید" });
+    return;
+  }
   const updates: Partial<typeof usersTable.$inferInsert> = {};
   if (username !== undefined) updates.username = String(username).toLowerCase();
   if (role !== undefined) updates.role = role;

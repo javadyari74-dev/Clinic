@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
-import { eq, getTableColumns } from "drizzle-orm";
+import { eq, or, getTableColumns } from "drizzle-orm";
 import {
   db,
   patientsTable,
@@ -57,35 +57,39 @@ router.get("/backup/download", async (_req, res): Promise<void> => {
   res.send(json);
 });
 
+// همهٔ پاک‌سازی/درج‌ها داخل یک تراکنش انجام می‌شود تا خطا در میانهٔ کار
+// (مثلاً فایل پشتیبان ناسازگار) به از دست رفتن داده‌های فعلی منجر نشود.
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // حذف تمام داده‌های مطب (فرزند → والد). کاربران و بخش لیزر دست‌نخورده می‌مانند.
-async function wipeClinicData(): Promise<void> {
-  await db.delete(loyaltyTransactionsTable);
-  await db.delete(surveysTable);
-  await db.delete(waitingListTable);
-  await db.delete(smsLogTable);
-  await db.delete(patientAccountTransactionsTable);
-  await db.delete(patientNotesTable);
-  await db.delete(remindersTable);
-  await db.delete(activityLogTable);
-  await db.delete(commissionsTable);
-  await db.delete(paymentsTable);
-  await db.delete(appointmentsTable);
-  await db.delete(expensesTable);
-  await db.delete(inventoryTable);
-  await db.delete(discountsTable);
-  await db.delete(commissionRecipientsTable);
-  await db.delete(staffTable);
-  await db.delete(servicesTable);
-  await db.delete(patientsTable);
+async function wipeClinicData(tx: Tx): Promise<void> {
+  await tx.delete(loyaltyTransactionsTable);
+  await tx.delete(surveysTable);
+  await tx.delete(waitingListTable);
+  await tx.delete(smsLogTable);
+  await tx.delete(patientAccountTransactionsTable);
+  await tx.delete(patientNotesTable);
+  await tx.delete(remindersTable);
+  await tx.delete(activityLogTable);
+  await tx.delete(commissionsTable);
+  await tx.delete(paymentsTable);
+  await tx.delete(appointmentsTable);
+  await tx.delete(expensesTable);
+  await tx.delete(inventoryTable);
+  await tx.delete(discountsTable);
+  await tx.delete(commissionRecipientsTable);
+  await tx.delete(staffTable);
+  await tx.delete(servicesTable);
+  await tx.delete(patientsTable);
 }
 
 // حذف تمام داده‌های بخش لیزر (فرزند → والد). فقط در بازیابی استفاده می‌شود، نه در /reset.
-async function wipeLaserData(): Promise<void> {
-  await db.delete(laserPaymentsTable);
-  await db.delete(laserAppointmentsTable);
-  await db.delete(laserClientsTable);
-  await db.delete(laserServicesTable);
-  await db.delete(laserSettingsTable);
+async function wipeLaserData(tx: Tx): Promise<void> {
+  await tx.delete(laserPaymentsTable);
+  await tx.delete(laserAppointmentsTable);
+  await tx.delete(laserClientsTable);
+  await tx.delete(laserServicesTable);
+  await tx.delete(laserSettingsTable);
 }
 
 // تبدیل مقادیر ستون‌های تاریخ (در فایل پشتیبان به‌صورت رشتهٔ ISO ذخیره شده‌اند)
@@ -103,19 +107,19 @@ function coerceDateColumns(table: any, row: Record<string, unknown>): Record<str
 }
 
 // درج دسته‌ای با حفظ شناسه‌ها — تکه‌تکه تا از سقف پارامترهای SQLite عبور نکند
-async function restoreRows(table: any, rows: unknown): Promise<void> {
+async function restoreRows(tx: Tx, table: any, rows: unknown): Promise<void> {
   if (!Array.isArray(rows) || rows.length === 0) return;
   const prepared = (rows as Record<string, unknown>[]).map((r) => coerceDateColumns(table, r));
   const CHUNK = 100;
   for (let i = 0; i < prepared.length; i += CHUNK) {
-    await db.insert(table).values(prepared.slice(i, i + CHUNK));
+    await tx.insert(table).values(prepared.slice(i, i + CHUNK));
   }
 }
 
 // DELETE /api/reset — حذف کامل تمام داده‌های مطب (کاربران و بخش لیزر حفظ می‌شوند)
 router.delete("/reset", async (_req, res): Promise<void> => {
   try {
-    await wipeClinicData();
+    await db.transaction((tx) => wipeClinicData(tx));
     res.json({ ok: true, message: "تمام داده‌ها پاک شدند" });
   } catch (err) {
     res.status(500).json({ error: "خطا در پاک‌سازی اطلاعات", detail: String(err) });
@@ -141,51 +145,60 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
     "laserPayments" in data;
 
   try {
-    // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)
-    await wipeClinicData();
-    if (hasLaserData) await wipeLaserData();
+    await db.transaction(async (tx) => {
+      // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)
+      await wipeClinicData(tx);
+      if (hasLaserData) await wipeLaserData(tx);
 
-    // ۲) درج مجدد (والد → فرزند) با حفظ شناسه‌ها
-    await restoreRows(patientsTable, data.patients);
-    await restoreRows(servicesTable, data.services);
-    await restoreRows(staffTable, data.staff);
-    await restoreRows(discountsTable, data.discounts);
-    await restoreRows(commissionRecipientsTable, data.recipients);
-    await restoreRows(inventoryTable, data.inventory);
-    await restoreRows(expensesTable, data.expenses);
-    await restoreRows(appointmentsTable, data.appointments);
-    await restoreRows(paymentsTable, data.payments);
-    await restoreRows(commissionsTable, data.commissions);
-    await restoreRows(remindersTable, data.reminders);
-    await restoreRows(patientNotesTable, data.notes);
-    await restoreRows(activityLogTable, data.activityLog);
+      // ۲) درج مجدد (والد → فرزند) با حفظ شناسه‌ها
+      await restoreRows(tx, patientsTable, data.patients);
+      await restoreRows(tx, servicesTable, data.services);
+      await restoreRows(tx, staffTable, data.staff);
+      await restoreRows(tx, discountsTable, data.discounts);
+      await restoreRows(tx, commissionRecipientsTable, data.recipients);
+      await restoreRows(tx, inventoryTable, data.inventory);
+      await restoreRows(tx, expensesTable, data.expenses);
+      await restoreRows(tx, appointmentsTable, data.appointments);
+      await restoreRows(tx, paymentsTable, data.payments);
+      await restoreRows(tx, commissionsTable, data.commissions);
+      await restoreRows(tx, remindersTable, data.reminders);
+      await restoreRows(tx, patientNotesTable, data.notes);
+      await restoreRows(tx, activityLogTable, data.activityLog);
 
-    // ۲-الف) بخش‌های جدید (نسخه ۴) — فایل‌های قدیمی این بخش‌ها را ندارند و رد می‌شوند
-    await restoreRows(patientAccountTransactionsTable, data.accountTransactions);
-    await restoreRows(waitingListTable, data.waitingList);
-    await restoreRows(surveysTable, data.surveys);
-    await restoreRows(smsLogTable, data.smsLog);
-    await restoreRows(loyaltyTransactionsTable, data.loyaltyTransactions);
+      // ۲-الف) بخش‌های جدید (نسخه ۴) — فایل‌های قدیمی این بخش‌ها را ندارند و رد می‌شوند
+      await restoreRows(tx, patientAccountTransactionsTable, data.accountTransactions);
+      await restoreRows(tx, waitingListTable, data.waitingList);
+      await restoreRows(tx, surveysTable, data.surveys);
+      await restoreRows(tx, smsLogTable, data.smsLog);
+      await restoreRows(tx, loyaltyTransactionsTable, data.loyaltyTransactions);
 
-    // ۲-ب) بخش لیزر (والد → فرزند) با حفظ شناسه‌ها
-    await restoreRows(laserClientsTable, data.laserClients);
-    await restoreRows(laserServicesTable, data.laserServices);
-    await restoreRows(laserSettingsTable, data.laserSettings);
-    await restoreRows(laserAppointmentsTable, data.laserAppointments);
-    await restoreRows(laserPaymentsTable, data.laserPayments);
+      // ۲-ب) بخش لیزر (والد → فرزند) با حفظ شناسه‌ها
+      await restoreRows(tx, laserClientsTable, data.laserClients);
+      await restoreRows(tx, laserServicesTable, data.laserServices);
+      await restoreRows(tx, laserSettingsTable, data.laserSettings);
+      await restoreRows(tx, laserAppointmentsTable, data.laserAppointments);
+      await restoreRows(tx, laserPaymentsTable, data.laserPayments);
 
-    // ۳) کاربران — فقط افزودن نام‌های کاربری جدید تا کاربر فعلی از سیستم خارج نشود
-    if (Array.isArray(data.users)) {
-      for (const u of data.users) {
-        if (!u?.username) continue;
-        const exists = await db
-          .select({ id: usersTable.id })
-          .from(usersTable)
-          .where(eq(usersTable.username, u.username))
-          .get();
-        if (!exists) await db.insert(usersTable).values(u);
+      // ۳) کاربران — فقط افزودن نام‌های کاربری جدید تا کاربر فعلی از سیستم خارج نشود.
+      // شناسهٔ قدیمی کنار گذاشته می‌شود تا با کاربران فعلی تداخل نکند (این مسیر فقط برای مدیر باز است).
+      if (Array.isArray(data.users)) {
+        for (const u of data.users) {
+          if (!u?.username) continue;
+          const exists = await tx
+            .select({ id: usersTable.id })
+            .from(usersTable)
+            .where(
+              u.uuid
+                ? or(eq(usersTable.username, u.username), eq(usersTable.uuid, u.uuid))
+                : eq(usersTable.username, u.username),
+            )
+            .get();
+          if (exists) continue;
+          const { id: _oldId, ...row } = coerceDateColumns(usersTable, u);
+          await tx.insert(usersTable).values(row as typeof usersTable.$inferInsert);
+        }
       }
-    }
+    });
 
     // تضمین وجود حساب مدیر تا امکان ورود همیشه باقی بماند
     await seedAdminUser();

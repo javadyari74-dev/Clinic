@@ -1,5 +1,5 @@
-import { Router, type IRouter } from "express";
-import { requireAuth } from "../lib/auth";
+import { Router, type IRouter, type RequestHandler } from "express";
+import { requireAuth, requireAdmin, requirePermission } from "../lib/auth";
 import healthRouter from "./health";
 import authRouter from "./auth";
 import clientErrorsRouter from "./client-errors";
@@ -35,6 +35,31 @@ router.use(clientErrorsRouter);
 router.use(internalBackupRouter);
 
 router.use(requireAuth);
+
+// کنترل دسترسی سمت سرور برای بخش‌های حساس. محدودیت منوی فرانت‌اند به‌تنهایی
+// کافی نیست چون هر کاربر واردشده می‌تواند مستقیم API را صدا بزند.
+// اولین قاعده‌ای که مسیر با آن شروع شود اعمال می‌شود (ترتیب مهم است).
+const routeAccessRules: Array<{ prefix: string; check: RequestHandler }> = [
+  // عملیات مخرب پشتیبان‌گیری فقط برای مدیر
+  { prefix: "/reset", check: requireAdmin },
+  { prefix: "/backup/restore", check: requireAdmin },
+  { prefix: "/backup/merge", check: requireAdmin },
+  { prefix: "/backup", check: requirePermission("backup") },
+  // صفحهٔ کارمندان هم از revenue-range استفاده می‌کند
+  { prefix: "/accounting/revenue-range", check: requirePermission("accounting", "staff") },
+  { prefix: "/accounting", check: requirePermission("accounting") },
+  { prefix: "/reports", check: requirePermission("reports") },
+  { prefix: "/sms", check: requirePermission("sms") },
+  { prefix: "/laser", check: requirePermission("laser") },
+];
+
+router.use((req, res, next) => {
+  // مسیریابی Express به حروف بزرگ/کوچک حساس نیست؛ پس مقایسه هم باید نباشد
+  const p = req.path.toLowerCase();
+  const rule = routeAccessRules.find((r) => p === r.prefix || p.startsWith(`${r.prefix}/`));
+  if (rule) rule.check(req, res, next);
+  else next();
+});
 
 router.use(patientsRouter);
 router.use(servicesRouter);
