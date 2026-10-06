@@ -11,4 +11,13 @@ export interface LoyaltySettings {
   earnAmount: number;
   redeemValue: number;
   minRedeem: number;
+  silverMin: number;
+  goldMin: number;
+  diamondMin: number;
+  silverRate: number;
+  goldRate: number;
+  diamondRate: number;
+  expiryMonths: number;
+  birthdayBonus: number;
+  referralBonus: number;
 }

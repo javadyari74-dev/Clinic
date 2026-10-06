@@ -51,6 +51,8 @@ const routeAccessRules: Array<{ prefix: string; check: RequestHandler }> = [
   { prefix: "/reports", check: requirePermission("reports") },
   { prefix: "/sms", check: requirePermission("sms") },
   { prefix: "/laser", check: requirePermission("laser") },
+  // صفحهٔ باشگاه؛ وضعیت امتیاز هر مراجع (/patients/:id/loyalty) برای صندوق آزاد است
+  { prefix: "/loyalty", check: requirePermission("loyalty") },
 ];
 
 router.use((req, res, next) => {

@@ -37,8 +37,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquare, PlugZap, FileText, Send, History, Zap,
   CheckCircle2, XCircle, RotateCcw, Cake, Plus, Trash2,
-  BookmarkPlus, Pencil, Check, X,
+  BookmarkPlus, Pencil, Check, X, Award,
 } from "lucide-react";
+import { LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTierKey } from "@/components/loyalty-tier-badge";
 
 // ─── Settings tab ──────────────────────────────────────────────────────────────
 
@@ -136,6 +137,11 @@ function SettingsTab() {
         bodyIdRecipientWelcome: patternDraft.bodyIdRecipientWelcome ?? settings?.bodyIdRecipientWelcome ?? "",
         bodyIdAppointmentReminder: patternDraft.bodyIdAppointmentReminder ?? settings?.bodyIdAppointmentReminder ?? "",
         bodyIdFollowupReminder: patternDraft.bodyIdFollowupReminder ?? settings?.bodyIdFollowupReminder ?? "",
+        bodyIdLoyaltyWelcome: patternDraft.bodyIdLoyaltyWelcome ?? settings?.bodyIdLoyaltyWelcome ?? "",
+        bodyIdLoyaltyTierUp: patternDraft.bodyIdLoyaltyTierUp ?? settings?.bodyIdLoyaltyTierUp ?? "",
+        bodyIdLoyaltyExpiry: patternDraft.bodyIdLoyaltyExpiry ?? settings?.bodyIdLoyaltyExpiry ?? "",
+        bodyIdLoyaltyReferral: patternDraft.bodyIdLoyaltyReferral ?? settings?.bodyIdLoyaltyReferral ?? "",
+        bodyIdPaymentLoyalty: patternDraft.bodyIdPaymentLoyalty ?? settings?.bodyIdPaymentLoyalty ?? "",
       },
     });
   }
@@ -149,6 +155,11 @@ function SettingsTab() {
     { key: "bodyIdRecipientWelcome", label: "کد متن خوش‌آمد معرف" },
     { key: "bodyIdAppointmentReminder", label: "کد متن یادآوری نوبت (روز قبل)" },
     { key: "bodyIdFollowupReminder", label: "کد متن یادآوری برگشت" },
+    { key: "bodyIdPaymentLoyalty", label: "کد متن پرداخت همراه با امتیاز باشگاه (اختیاری)" },
+    { key: "bodyIdLoyaltyWelcome", label: "کد متن خوش‌آمد باشگاه" },
+    { key: "bodyIdLoyaltyTierUp", label: "کد متن ارتقای سطح باشگاه" },
+    { key: "bodyIdLoyaltyExpiry", label: "کد متن هشدار انقضای امتیاز" },
+    { key: "bodyIdLoyaltyReferral", label: "کد متن امتیاز معرفی دوست" },
   ] as const;
 
   return (
@@ -410,6 +421,36 @@ function SettingsTab() {
         </CardContent>
       </Card>
 
+      {/* Loyalty club SMS */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Award className="size-5 text-amber-600" /> پیامک‌های باشگاه مشتریان</CardTitle>
+          <CardDescription>
+            فقط وقتی باشگاه مشتریان فعال است فرستاده می‌شوند. امتیاز هر خرید و موجودی، داخل همان پیامک پرداخت گفته می‌شود (متغیر {"{باشگاه}"} در قالب پرداخت). مراجعینی که هنگام فعال‌سازی باشگاه یک‌جا عضو می‌شوند پیامک خوش‌آمد نمی‌گیرند.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 sm:grid-cols-2">
+          {([
+            ["enabledLoyaltyWelcome", "خوش‌آمد عضویت", "وقتی مراجع با اولین پرداختش عضو باشگاه می‌شود"],
+            ["enabledLoyaltyTierUp", "ارتقای سطح", "وقتی سطح عضو (نقره‌ای، طلایی، الماسی) بالا می‌رود"],
+            ["enabledLoyaltyExpiry", "هشدار انقضای امتیاز", "یک هفته پیش از منقضی شدن امتیاز، در ساعت ارسال روزانه"],
+            ["enabledLoyaltyReferral", "امتیاز معرفی دوست", "به معرف، وقتی دوستش اولین پرداخت را انجام می‌دهد"],
+          ] as const).map(([key, title, desc]) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <div>
+                <div className="font-medium">{title}</div>
+                <div className="text-sm text-muted-foreground">{desc}</div>
+              </div>
+              <Switch
+                checked={settings[key]}
+                onCheckedChange={(v) => toggleFlag(key, v)}
+                data-testid={`switch-sms-${key}`}
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Pattern (service) send */}
       <Card className="lg:col-span-2">
         <CardHeader>
@@ -439,6 +480,11 @@ function SettingsTab() {
               <div>• خوش‌آمد معرف: {"{0}"} نام</div>
               <div>• یادآوری نوبت (روز قبل): {"{0}"} نام — {"{1}"} تاریخ — {"{2}"} ساعت</div>
               <div>• یادآوری برگشت: {"{0}"} نام</div>
+              <div>• پرداخت همراه با امتیاز: {"{0}"} نام — {"{1}"} مبلغ — {"{2}"} خدمت — {"{3}"} امتیاز این خرید — {"{4}"} موجودی (اگر خالی بماند، پترن پرداخت معمولی استفاده می‌شود)</div>
+              <div>• خوش‌آمد باشگاه: {"{0}"} نام — {"{1}"} موجودی</div>
+              <div>• ارتقای سطح: {"{0}"} نام — {"{1}"} سطح</div>
+              <div>• هشدار انقضا: {"{0}"} نام — {"{1}"} امتیاز — {"{2}"} تاریخ</div>
+              <div>• امتیاز معرفی: {"{0}"} نام — {"{1}"} امتیاز — {"{2}"} موجودی</div>
               <div className="pt-1">
                 نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم. www.drjavadyari.ir»
               </div>
@@ -479,13 +525,17 @@ function SettingsTab() {
 
 const TEMPLATE_DEFS = [
   { key: "appointment", title: "تأیید نوبت", vars: ["{نام}", "{تاریخ}", "{ساعت}", "{خدمت}"] },
-  { key: "payment", title: "رسید پرداخت", vars: ["{نام}", "{مبلغ}", "{خدمت}"] },
+  { key: "payment", title: "رسید پرداخت", vars: ["{نام}", "{مبلغ}", "{خدمت}", "{باشگاه}", "{امتیاز}", "{موجودی}", "{سطح}"] },
   { key: "commission", title: "پورسانت معرف", vars: ["{نام}", "{پورسانت}", "{درصد}", "{مبلغ}"] },
-  { key: "birthday", title: "تبریک تولد", vars: ["{نام}"] },
+  { key: "birthday", title: "تبریک تولد", vars: ["{نام}", "{هدیه_باشگاه}"] },
   { key: "survey", title: "نظرسنجی پس از مراجعه", vars: ["{نام}", "{خدمت}"] },
   { key: "recipientWelcome", title: "خوش‌آمد معرف جدید", vars: ["{نام}"] },
   { key: "appointmentReminder", title: "یادآوری نوبت (یک روز قبل)", vars: ["{نام}", "{تاریخ}", "{ساعت}", "{خدمت}"] },
   { key: "followupReminder", title: "یادآوری برگشت مراجع", vars: ["{نام}", "{تاریخ}"] },
+  { key: "loyaltyWelcome", title: "باشگاه: خوش‌آمد عضویت", vars: ["{نام}", "{موجودی}"] },
+  { key: "loyaltyTierUp", title: "باشگاه: ارتقای سطح", vars: ["{نام}", "{سطح}"] },
+  { key: "loyaltyExpiry", title: "باشگاه: هشدار انقضای امتیاز", vars: ["{نام}", "{امتیاز}", "{تاریخ}"] },
+  { key: "loyaltyReferral", title: "باشگاه: امتیاز معرفی دوست", vars: ["{نام}", "{امتیاز}", "{موجودی}"] },
 ] as const;
 
 type TemplateKey = (typeof TEMPLATE_DEFS)[number]["key"];
@@ -787,7 +837,9 @@ function SavedPatternsPicker({
 function SendTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"manual" | "birthday" | "pattern">("manual");
+  const [mode, setMode] = useState<"manual" | "birthday" | "pattern" | "members">("manual");
+  // اعضای باشگاه: سطح‌های انتخاب‌شده (خالی = همهٔ اعضا)
+  const [memberTiers, setMemberTiers] = useState<LoyaltyTierKey[]>([]);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Map<number, string>>(new Map());
@@ -877,6 +929,8 @@ function SendTab() {
         return;
       }
       send.mutate({ data: { message, patientIds: Array.from(selected.keys()) } });
+    } else if (mode === "members") {
+      send.mutate({ data: { message, loyaltyTiers: memberTiers } });
     } else {
       const days = Math.max(0, parseInt(birthdayDays, 10) || 0);
       send.mutate({ data: { message, birthdayDays: days, eventType: "birthday" } });
@@ -896,7 +950,7 @@ function SendTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={mode === "manual" ? "default" : "outline"}
               size="sm"
@@ -914,6 +968,15 @@ function SendTab() {
             >
               <Cake className="size-4" />
               تبریک تولد
+            </Button>
+            <Button
+              variant={mode === "members" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("members")}
+              data-testid="button-mode-members"
+            >
+              <Award className="size-4" />
+              اعضای باشگاه
             </Button>
             <Button
               variant={mode === "pattern" ? "default" : "outline"}
@@ -950,6 +1013,33 @@ function SendTab() {
                   استفاده از قالب تبریک تولد
                 </Button>
               )}
+            </div>
+          )}
+
+          {mode === "members" && (
+            <div className="space-y-2">
+              <Label>ارسال به اعضای کدام سطح‌ها؟</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant={memberTiers.length === 0 ? "default" : "outline"} onClick={() => setMemberTiers([])}>
+                  همهٔ اعضا
+                </Button>
+                {LOYALTY_TIER_KEYS.map((t) => (
+                  <Button
+                    key={t}
+                    size="sm"
+                    variant={memberTiers.includes(t) ? "default" : "outline"}
+                    onClick={() =>
+                      setMemberTiers((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
+                    }
+                    data-testid={`button-member-tier-${t}`}
+                  >
+                    {LOYALTY_TIER_META[t].emoji} {LOYALTY_TIER_META[t].label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                در متن می‌توانید از {"{نام}"}، {"{امتیاز}"} (موجودی امتیاز هر نفر) و {"{سطح}"} استفاده کنید؛ مثلاً برای پیشنهاد ویژهٔ اعضای طلایی و الماسی.
+              </p>
             </div>
           )}
 
@@ -1087,7 +1177,13 @@ function SendTab() {
           {mode !== "pattern" && (
             <Button onClick={handleSend} disabled={send.isPending} data-testid="button-send-sms">
               {send.isPending ? <Spinner className="size-4" /> : <Send className="size-4" />}
-              {mode === "birthday" ? "ارسال تبریک تولد" : `ارسال به ${toPersianDigits(selected.size)} نفر`}
+              {mode === "birthday"
+                ? "ارسال تبریک تولد"
+                : mode === "members"
+                  ? memberTiers.length === 0
+                    ? "ارسال به همهٔ اعضای باشگاه"
+                    : `ارسال به اعضای ${memberTiers.map((t) => LOYALTY_TIER_META[t].label).join("، ")}`
+                  : `ارسال به ${toPersianDigits(selected.size)} نفر`}
             </Button>
           )}
         </CardContent>
@@ -1203,6 +1299,11 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   recipient_welcome: "ثبت معرف",
   appointment_reminder: "یادآوری نوبت",
   followup_reminder: "یادآوری برگشت",
+  loyalty_welcome: "خوش‌آمد باشگاه",
+  loyalty_tier_up: "ارتقای سطح",
+  loyalty_expiry: "انقضای امتیاز",
+  loyalty_referral: "معرفی دوست",
+  loyalty_bulk: "گروهی باشگاه",
 };
 
 function LogsTab() {

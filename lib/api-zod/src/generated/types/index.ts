@@ -7,6 +7,8 @@
  */
 
 export * from './activityLogEntry';
+export * from './adjustLoyaltyInput';
+export * from './adjustLoyaltyPoints200';
 export * from './appointment';
 export * from './appointmentInput';
 export * from './appointmentUpdate';
@@ -42,8 +44,10 @@ export * from './listSmsLogsParams';
 export * from './listSurveysParams';
 export * from './listSurveysStatus';
 export * from './listWaitingListParams';
+export * from './loyaltyMember';
+export * from './loyaltyMemberTier';
 export * from './loyaltyOverview';
-export * from './loyaltyOverviewTopPatientsItem';
+export * from './loyaltyOverviewMembersByTier';
 export * from './loyaltySettings';
 export * from './loyaltySettingsInput';
 export * from './loyaltyTransaction';
@@ -58,6 +62,7 @@ export * from './patientAccountTransactionInput';
 export * from './patientInput';
 export * from './patientList';
 export * from './patientLoyalty';
+export * from './patientLoyaltyMember';
 export * from './patientNote';
 export * from './patientNoteInput';
 export * from './patientUpdate';

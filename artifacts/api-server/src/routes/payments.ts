@@ -16,7 +16,13 @@ import {
   applyLoyaltyOnPayment,
   reverseLoyaltyForPayment,
   LOYALTY_ERRORS,
+  getMemberTier,
+  tierRate,
+  updateMembershipAfterPayment,
+  TIER_LABELS,
+  type MembershipUpdate,
 } from "../lib/loyalty";
+import { fireLoyaltyWelcomeSms, fireLoyaltyTierUpSms, fireLoyaltyReferralSms } from "../lib/loyalty-sms";
 
 const router: IRouter = Router();
 
@@ -114,6 +120,7 @@ router.post("/payments", async (req, res): Promise<void> => {
   // جزئیات کامل پرداخت (مراجع، خدمت، شماره جلسه، تخفیف، بیعانه و...) روی همین ردیف ذخیره می‌شود
   // تا هر تراکنش به‌صورت دائمی و کامل در صندوق ثبت بماند و در پشتیبان‌گیری بیاید
   // ثبت پرداخت و کسر موجودی اکانت در یک تراکنش انجام می‌شود تا اتمیک بماند
+  let membership: (MembershipUpdate & { earned: number }) | null = null;
   const payment = await db.transaction(async (tx) => {
     const [created] = await tx.insert(paymentsTable).values({ ...paymentValues, paidAt }).returning();
 
@@ -141,14 +148,30 @@ router.post("/payments", async (req, res): Promise<void> => {
 
     // باشگاه مشتریان: خرج امتیاز (در صورت درخواست) و کسب امتیاز از همین پرداخت
     if (loyaltyPatientId) {
-      await applyLoyaltyOnPayment(tx, {
+      // ضریب امتیاز بر اساس سطح فعلی عضو (قبل از این پرداخت)
+      const ratePercent = loyaltySettings.enabled
+        ? tierRate(await getMemberTier(tx, loyaltyPatientId), loyaltySettings)
+        : 100;
+      const applied = await applyLoyaltyOnPayment(tx, {
         patientId: loyaltyPatientId,
         paymentId: created.id,
         amountPaid: created.amount,
         redeemPoints: pointsToRedeem,
         settings: loyaltySettings,
         serviceName: created.serviceName,
+        ratePercent,
       });
+      // عضویت خودکار، ارتقای سطح و امتیاز معرفی — داخل همین تراکنش
+      if (loyaltySettings.enabled) {
+        const m = await updateMembershipAfterPayment(tx, {
+          patientId: loyaltyPatientId,
+          paymentId: created.id,
+          settings: loyaltySettings,
+          nowSec: paidAt,
+          patientName: created.patientName,
+        });
+        membership = { ...m, earned: applied.earned };
+      }
     }
 
     return created;
@@ -256,6 +279,20 @@ router.post("/payments", async (req, res): Promise<void> => {
     }
   }
 
+  // باشگاه مشتریان: امتیاز این پرداخت و موجودی (برای پیامک پرداخت) + پیامک‌های عضویت/ارتقا/معرفی
+  const loyaltyResult = membership as (MembershipUpdate & { earned: number }) | null;
+  let loyaltySms: { earned: number; balance: number; tierLabel: string } | null = null;
+  if (loyaltyResult && loyaltyPatientId) {
+    loyaltySms = {
+      earned: loyaltyResult.earned,
+      balance: await getLoyaltyBalance(db, loyaltyPatientId),
+      tierLabel: TIER_LABELS[loyaltyResult.tier],
+    };
+    if (loyaltyResult.joined) fireLoyaltyWelcomeSms(loyaltyPatientId);
+    if (loyaltyResult.tierUp) fireLoyaltyTierUpSms(loyaltyPatientId, loyaltyResult.tier);
+    if (loyaltyResult.referral) fireLoyaltyReferralSms(loyaltyResult.referral.referrerId, loyaltyResult.referral.points);
+  }
+
   // پیامک اطلاع پرداخت برای بیمار — آتش و فراموش؛ خطای پیامک ثبت پرداخت را مختل نمی‌کند
   firePaymentSms({
     patientId: paymentPatient?.id ?? null,
@@ -263,6 +300,7 @@ router.post("/payments", async (req, res): Promise<void> => {
     phone: paymentPatient?.phone ?? null,
     amount: payment.amount,
     serviceName: payment.serviceName ?? null,
+    loyalty: loyaltySms,
   });
 
   // پیامک نظرسنجی پس از مراجعه — فقط وقتی بیمارِ پرداخت مشخص است؛ محدودیت تکرار

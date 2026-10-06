@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { logger } from "./logger";
 import { gregorianToJalali } from "./shamsi";
+import { getTodaysBirthdayBonus } from "./loyalty";
 import {
   getSmsSettings,
   getSmsTemplates,
@@ -72,7 +73,7 @@ function tehranDayStart(ms: number): number {
 // زمان نوبت‌ها گاهی میلی‌ثانیه و گاهی ثانیه ذخیره شده است
 const toMs = (ts: number) => (ts > 100_000_000_000 ? ts : ts * 1000);
 
-function shamsiDateText(ms: number): string {
+export function shamsiDateText(ms: number): string {
   const p = tehranParts(ms);
   const [jy, jm, jd] = gregorianToJalali(p.y, p.m, p.d);
   return `${toPersianDigits(jd)} ${SHAMSI_MONTHS[jm - 1]} ${toPersianDigits(jy)}`;
@@ -107,7 +108,7 @@ export function birthShamsiMonthDay(birthdate: string | null | undefined): { m: 
 
 // ── رزرو و ثبت نتیجه برای جلوگیری از ارسال تکراری ─────────────────────────────
 
-async function claim(key: string, kind: string, nowSec: number): Promise<boolean> {
+export async function claimScheduledSms(key: string, kind: string, nowSec: number): Promise<boolean> {
   const existing = await db.select().from(scheduledSmsTable).where(eq(scheduledSmsTable.key, key)).get();
   if (!existing) {
     await db
@@ -127,7 +128,7 @@ async function claim(key: string, kind: string, nowSec: number): Promise<boolean
   return true;
 }
 
-async function finish(key: string, ok: boolean): Promise<void> {
+export async function finishScheduledSms(key: string, ok: boolean): Promise<void> {
   await db.update(scheduledSmsTable).set({ status: ok ? "sent" : "failed" }).where(eq(scheduledSmsTable.key, key));
 }
 
@@ -169,7 +170,7 @@ async function sendAppointmentReminders(settings: SmsSettings, nowMs: number): P
     if (!normalizePhone(r.phone)) continue;
     // نوبتِ جابه‌جاشده کلید تازه می‌گیرد و دوباره یادآوری می‌شود
     const key = `appointment:${r.id}:${r.scheduledAt}`;
-    if (!(await claim(key, "appointment_reminder", nowSec))) continue;
+    if (!(await claimScheduledSms(key, "appointment_reminder", nowSec))) continue;
     const name = r.name ?? "";
     const date = shamsiDateText(at);
     const time = timeText(at);
@@ -183,7 +184,7 @@ async function sendAppointmentReminders(settings: SmsSettings, nowMs: number): P
         ? { bodyId: settings.bodyIdAppointmentReminder, args: [name, date, time] }
         : undefined,
     });
-    await finish(key, result.ok);
+    await finishScheduledSms(key, result.ok);
     if (result.ok) sent++;
   }
   return sent;
@@ -219,7 +220,7 @@ async function sendFollowupReminders(settings: SmsSettings, nowMs: number): Prom
   for (const r of rows) {
     if (!normalizePhone(r.phone)) continue;
     const key = `followup:${r.id}:${r.dueAt}`;
-    if (!(await claim(key, "followup_reminder", nowSec))) continue;
+    if (!(await claimScheduledSms(key, "followup_reminder", nowSec))) continue;
     const name = r.name ?? "";
     const result = await sendSms({
       to: r.phone,
@@ -231,7 +232,7 @@ async function sendFollowupReminders(settings: SmsSettings, nowMs: number): Prom
         ? { bodyId: settings.bodyIdFollowupReminder, args: [name] }
         : undefined,
     });
-    await finish(key, result.ok);
+    await finishScheduledSms(key, result.ok);
     if (result.ok) sent++;
   }
   return sent;
@@ -254,17 +255,22 @@ async function sendBirthdayGreetings(settings: SmsSettings, nowMs: number): Prom
     if (!b || b.m !== jm || b.d !== jd) continue;
     if (!normalizePhone(r.phone)) continue;
     const key = `birthday:${r.id}:${jy}`;
-    if (!(await claim(key, "birthday", nowSec))) continue;
+    if (!(await claimScheduledSms(key, "birthday", nowSec))) continue;
     const name = r.name ?? "";
+    // اگر امروز امتیاز هدیهٔ تولد باشگاه داده شده، در همین پیامک گفته می‌شود
+    const bonus = await getTodaysBirthdayBonus(r.id, nowSec);
     const result = await sendSms({
       to: r.phone,
-      text: renderTemplate(templates.birthday, { "نام": name }),
+      text: renderTemplate(templates.birthday, {
+        "نام": name,
+        "هدیه_باشگاه": bonus > 0 ? ` ${toPersianDigits(bonus)} امتیاز هدیه هم به حساب باشگاه مشتریان شما اضافه شد.` : "",
+      }),
       eventType: "birthday",
       recipientName: r.name,
       patientId: r.id,
       pattern: settings.sendMode === "pattern" ? { bodyId: settings.bodyIdBirthday, args: [name] } : undefined,
     });
-    await finish(key, result.ok);
+    await finishScheduledSms(key, result.ok);
     if (result.ok) sent++;
   }
   return sent;

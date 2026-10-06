@@ -1020,6 +1020,10 @@ export const GetSmsSettingsResponse = zod.object({
   "enabledBirthdayAuto": zod.boolean(),
   "appointmentReminderHour": zod.number(),
   "dailyAutoHour": zod.number(),
+  "enabledLoyaltyWelcome": zod.boolean(),
+  "enabledLoyaltyTierUp": zod.boolean(),
+  "enabledLoyaltyExpiry": zod.boolean(),
+  "enabledLoyaltyReferral": zod.boolean(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
@@ -1028,7 +1032,12 @@ export const GetSmsSettingsResponse = zod.object({
   "bodyIdSurvey": zod.string(),
   "bodyIdRecipientWelcome": zod.string(),
   "bodyIdAppointmentReminder": zod.string(),
-  "bodyIdFollowupReminder": zod.string()
+  "bodyIdFollowupReminder": zod.string(),
+  "bodyIdLoyaltyWelcome": zod.string(),
+  "bodyIdLoyaltyTierUp": zod.string(),
+  "bodyIdLoyaltyExpiry": zod.string(),
+  "bodyIdLoyaltyReferral": zod.string(),
+  "bodyIdPaymentLoyalty": zod.string()
 })
 
 
@@ -1047,6 +1056,10 @@ export const UpdateSmsSettingsBody = zod.object({
   "enabledBirthdayAuto": zod.boolean().optional(),
   "appointmentReminderHour": zod.number().optional(),
   "dailyAutoHour": zod.number().optional(),
+  "enabledLoyaltyWelcome": zod.boolean().optional(),
+  "enabledLoyaltyTierUp": zod.boolean().optional(),
+  "enabledLoyaltyExpiry": zod.boolean().optional(),
+  "enabledLoyaltyReferral": zod.boolean().optional(),
   "sendMode": zod.enum(['normal', 'pattern']).optional(),
   "bodyIdAppointment": zod.string().optional(),
   "bodyIdPayment": zod.string().optional(),
@@ -1055,7 +1068,12 @@ export const UpdateSmsSettingsBody = zod.object({
   "bodyIdSurvey": zod.string().optional(),
   "bodyIdRecipientWelcome": zod.string().optional(),
   "bodyIdAppointmentReminder": zod.string().optional(),
-  "bodyIdFollowupReminder": zod.string().optional()
+  "bodyIdFollowupReminder": zod.string().optional(),
+  "bodyIdLoyaltyWelcome": zod.string().optional(),
+  "bodyIdLoyaltyTierUp": zod.string().optional(),
+  "bodyIdLoyaltyExpiry": zod.string().optional(),
+  "bodyIdLoyaltyReferral": zod.string().optional(),
+  "bodyIdPaymentLoyalty": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1073,6 +1091,10 @@ export const UpdateSmsSettingsResponse = zod.object({
   "enabledBirthdayAuto": zod.boolean(),
   "appointmentReminderHour": zod.number(),
   "dailyAutoHour": zod.number(),
+  "enabledLoyaltyWelcome": zod.boolean(),
+  "enabledLoyaltyTierUp": zod.boolean(),
+  "enabledLoyaltyExpiry": zod.boolean(),
+  "enabledLoyaltyReferral": zod.boolean(),
   "sendMode": zod.enum(['normal', 'pattern']),
   "bodyIdAppointment": zod.string(),
   "bodyIdPayment": zod.string(),
@@ -1081,7 +1103,12 @@ export const UpdateSmsSettingsResponse = zod.object({
   "bodyIdSurvey": zod.string(),
   "bodyIdRecipientWelcome": zod.string(),
   "bodyIdAppointmentReminder": zod.string(),
-  "bodyIdFollowupReminder": zod.string()
+  "bodyIdFollowupReminder": zod.string(),
+  "bodyIdLoyaltyWelcome": zod.string(),
+  "bodyIdLoyaltyTierUp": zod.string(),
+  "bodyIdLoyaltyExpiry": zod.string(),
+  "bodyIdLoyaltyReferral": zod.string(),
+  "bodyIdPaymentLoyalty": zod.string()
 })
 
 
@@ -1094,6 +1121,10 @@ export const GetSmsTemplatesResponse = zod.object({
   "recipientWelcome": zod.string(),
   "appointmentReminder": zod.string(),
   "followupReminder": zod.string(),
+  "loyaltyWelcome": zod.string(),
+  "loyaltyTierUp": zod.string(),
+  "loyaltyExpiry": zod.string(),
+  "loyaltyReferral": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
@@ -1102,7 +1133,11 @@ export const GetSmsTemplatesResponse = zod.object({
   "survey": zod.string(),
   "recipientWelcome": zod.string(),
   "appointmentReminder": zod.string(),
-  "followupReminder": zod.string()
+  "followupReminder": zod.string(),
+  "loyaltyWelcome": zod.string(),
+  "loyaltyTierUp": zod.string(),
+  "loyaltyExpiry": zod.string(),
+  "loyaltyReferral": zod.string()
 })
 })
 
@@ -1115,7 +1150,11 @@ export const UpdateSmsTemplatesBody = zod.object({
   "survey": zod.string().optional(),
   "recipientWelcome": zod.string().optional(),
   "appointmentReminder": zod.string().optional(),
-  "followupReminder": zod.string().optional()
+  "followupReminder": zod.string().optional(),
+  "loyaltyWelcome": zod.string().optional(),
+  "loyaltyTierUp": zod.string().optional(),
+  "loyaltyExpiry": zod.string().optional(),
+  "loyaltyReferral": zod.string().optional()
 })
 
 export const UpdateSmsTemplatesResponse = zod.object({
@@ -1127,6 +1166,10 @@ export const UpdateSmsTemplatesResponse = zod.object({
   "recipientWelcome": zod.string(),
   "appointmentReminder": zod.string(),
   "followupReminder": zod.string(),
+  "loyaltyWelcome": zod.string(),
+  "loyaltyTierUp": zod.string(),
+  "loyaltyExpiry": zod.string(),
+  "loyaltyReferral": zod.string(),
   "defaults": zod.object({
   "appointment": zod.string(),
   "payment": zod.string(),
@@ -1135,7 +1178,11 @@ export const UpdateSmsTemplatesResponse = zod.object({
   "survey": zod.string(),
   "recipientWelcome": zod.string(),
   "appointmentReminder": zod.string(),
-  "followupReminder": zod.string()
+  "followupReminder": zod.string(),
+  "loyaltyWelcome": zod.string(),
+  "loyaltyTierUp": zod.string(),
+  "loyaltyExpiry": zod.string(),
+  "loyaltyReferral": zod.string()
 })
 })
 
@@ -1151,6 +1198,7 @@ export const SendManualSmsBody = zod.object({
   "message": zod.string(),
   "patientIds": zod.array(zod.number()).optional(),
   "birthdayDays": zod.number().optional(),
+  "loyaltyTiers": zod.array(zod.string()).optional(),
   "eventType": zod.string().optional()
 })
 
@@ -1430,7 +1478,16 @@ export const GetLoyaltySettingsResponse = zod.object({
   "enabled": zod.boolean(),
   "earnAmount": zod.number(),
   "redeemValue": zod.number(),
-  "minRedeem": zod.number()
+  "minRedeem": zod.number(),
+  "silverMin": zod.number(),
+  "goldMin": zod.number(),
+  "diamondMin": zod.number(),
+  "silverRate": zod.number(),
+  "goldRate": zod.number(),
+  "diamondRate": zod.number(),
+  "expiryMonths": zod.number(),
+  "birthdayBonus": zod.number(),
+  "referralBonus": zod.number()
 })
 
 
@@ -1439,47 +1496,108 @@ export const updateLoyaltySettingsBodyEarnAmountMin = 1000;
 export const updateLoyaltySettingsBodyRedeemValueMin = 1000;
 
 
+export const updateLoyaltySettingsBodySilverMinMin = 0;
+
+export const updateLoyaltySettingsBodyGoldMinMin = 0;
+
+export const updateLoyaltySettingsBodyDiamondMinMin = 0;
+
+export const updateLoyaltySettingsBodySilverRateMin = 100;
+
+export const updateLoyaltySettingsBodyGoldRateMin = 100;
+
+export const updateLoyaltySettingsBodyDiamondRateMin = 100;
+
+export const updateLoyaltySettingsBodyExpiryMonthsMin = 0;
+
+export const updateLoyaltySettingsBodyBirthdayBonusMin = 0;
+
+export const updateLoyaltySettingsBodyReferralBonusMin = 0;
+
 
 
 export const UpdateLoyaltySettingsBody = zod.object({
   "enabled": zod.boolean(),
   "earnAmount": zod.number().min(updateLoyaltySettingsBodyEarnAmountMin),
   "redeemValue": zod.number().min(updateLoyaltySettingsBodyRedeemValueMin),
-  "minRedeem": zod.number().min(1)
+  "minRedeem": zod.number().min(1),
+  "silverMin": zod.number().min(updateLoyaltySettingsBodySilverMinMin).optional(),
+  "goldMin": zod.number().min(updateLoyaltySettingsBodyGoldMinMin).optional(),
+  "diamondMin": zod.number().min(updateLoyaltySettingsBodyDiamondMinMin).optional(),
+  "silverRate": zod.number().min(updateLoyaltySettingsBodySilverRateMin).optional(),
+  "goldRate": zod.number().min(updateLoyaltySettingsBodyGoldRateMin).optional(),
+  "diamondRate": zod.number().min(updateLoyaltySettingsBodyDiamondRateMin).optional(),
+  "expiryMonths": zod.number().min(updateLoyaltySettingsBodyExpiryMonthsMin).optional(),
+  "birthdayBonus": zod.number().min(updateLoyaltySettingsBodyBirthdayBonusMin).optional(),
+  "referralBonus": zod.number().min(updateLoyaltySettingsBodyReferralBonusMin).optional()
 })
 
 export const UpdateLoyaltySettingsResponse = zod.object({
   "enabled": zod.boolean(),
   "earnAmount": zod.number(),
   "redeemValue": zod.number(),
-  "minRedeem": zod.number()
+  "minRedeem": zod.number(),
+  "silverMin": zod.number(),
+  "goldMin": zod.number(),
+  "diamondMin": zod.number(),
+  "silverRate": zod.number(),
+  "goldRate": zod.number(),
+  "diamondRate": zod.number(),
+  "expiryMonths": zod.number(),
+  "birthdayBonus": zod.number(),
+  "referralBonus": zod.number()
 })
 
 
 export const GetLoyaltyOverviewResponse = zod.object({
   "totalMembers": zod.number(),
+  "membersByTier": zod.object({
+  "bronze": zod.number(),
+  "silver": zod.number(),
+  "gold": zod.number(),
+  "diamond": zod.number()
+}),
   "totalEarned": zod.number(),
   "totalRedeemed": zod.number(),
+  "totalExpired": zod.number(),
   "totalOutstanding": zod.number(),
-  "topPatients": zod.array(zod.object({
-  "patientId": zod.number(),
-  "patientName": zod.string(),
-  "fileNumber": zod.string().nullish(),
-  "phone": zod.string().nullish(),
-  "balance": zod.number(),
-  "earnedTotal": zod.number()
-})),
+  "expiringSoonPoints": zod.number(),
+  "expiringSoonMembers": zod.number(),
   "recent": zod.array(zod.object({
   "id": zod.number(),
   "patientId": zod.number(),
   "paymentId": zod.number().nullish(),
   "delta": zod.number(),
   "amount": zod.number(),
-  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust']),
   "description": zod.string().nullish(),
   "createdAt": zod.number(),
   "patientName": zod.string().nullish()
 }))
+})
+
+
+export const ListLoyaltyMembersResponseItem = zod.object({
+  "patientId": zod.number(),
+  "tier": zod.enum(['bronze', 'silver', 'gold', 'diamond']),
+  "joinedAt": zod.number(),
+  "patientName": zod.string(),
+  "fileNumber": zod.string().nullish(),
+  "phone": zod.string().nullish(),
+  "balance": zod.number(),
+  "spend12m": zod.number()
+})
+export const ListLoyaltyMembersResponse = zod.array(ListLoyaltyMembersResponseItem)
+
+
+export const AdjustLoyaltyPointsBody = zod.object({
+  "patientId": zod.number(),
+  "points": zod.number(),
+  "description": zod.string().optional()
+})
+
+export const AdjustLoyaltyPointsResponse = zod.object({
+  "balance": zod.number()
 })
 
 
@@ -1489,11 +1607,30 @@ export const GetPatientLoyaltyParams = zod.object({
 
 export const GetPatientLoyaltyResponse = zod.object({
   "balance": zod.number(),
+  "member": zod.object({
+  "tier": zod.enum(['bronze', 'silver', 'gold', 'diamond']),
+  "joinedAt": zod.number(),
+  "spend12m": zod.number(),
+  "nextTier": zod.object({
+  "tier": zod.string(),
+  "min": zod.number(),
+  "remaining": zod.number()
+}).nullable()
+}).nullable(),
   "settings": zod.object({
   "enabled": zod.boolean(),
   "earnAmount": zod.number(),
   "redeemValue": zod.number(),
-  "minRedeem": zod.number()
+  "minRedeem": zod.number(),
+  "silverMin": zod.number(),
+  "goldMin": zod.number(),
+  "diamondMin": zod.number(),
+  "silverRate": zod.number(),
+  "goldRate": zod.number(),
+  "diamondRate": zod.number(),
+  "expiryMonths": zod.number(),
+  "birthdayBonus": zod.number(),
+  "referralBonus": zod.number()
 }),
   "transactions": zod.array(zod.object({
   "id": zod.number(),
@@ -1501,7 +1638,7 @@ export const GetPatientLoyaltyResponse = zod.object({
   "paymentId": zod.number().nullish(),
   "delta": zod.number(),
   "amount": zod.number(),
-  "type": zod.enum(['earn', 'redeem', 'reverse']),
+  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust']),
   "description": zod.string().nullish(),
   "createdAt": zod.number(),
   "patientName": zod.string().nullish()

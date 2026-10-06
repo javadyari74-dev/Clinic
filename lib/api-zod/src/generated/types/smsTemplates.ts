@@ -16,5 +16,9 @@ export interface SmsTemplates {
   recipientWelcome: string;
   appointmentReminder: string;
   followupReminder: string;
+  loyaltyWelcome: string;
+  loyaltyTierUp: string;
+  loyaltyExpiry: string;
+  loyaltyReferral: string;
   defaults: SmsTemplatesDefaults;
 }

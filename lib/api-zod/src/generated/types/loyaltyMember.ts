@@ -5,14 +5,17 @@
  * Beauty Clinic Management API
  * OpenAPI spec version: 0.1.0
  */
+import type { LoyaltyMemberTier } from './loyaltyMemberTier';
 
-export type LoyaltyOverviewTopPatientsItem = {
+export interface LoyaltyMember {
   patientId: number;
+  tier: LoyaltyMemberTier;
+  joinedAt: number;
   patientName: string;
   /** @nullable */
   fileNumber?: string | null;
   /** @nullable */
   phone?: string | null;
   balance: number;
-  earnedTotal: number;
-};
+  spend12m: number;
+}

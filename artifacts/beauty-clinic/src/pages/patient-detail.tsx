@@ -8,7 +8,9 @@ import {
   useCreateAppointment, getListAppointmentsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
   useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
+  useGetPatientLoyalty,
 } from "@workspace/api-client-react";
+import { LoyaltyTierBadge, loyaltyTierLabel } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award
 } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -78,6 +80,7 @@ export default function PatientDetail() {
   const [reminderDate, setReminderDate] = useState("");
 
   const { data: patient, isLoading, isError, refetch } = useGetPatient(id);
+  const { data: loyalty } = useGetPatientLoyalty(id);
   const { data: appointments } = useListPatientAppointments(id);
   const { data: notes } = useListPatientNotes(id);
   const { data: services } = useListServices();
@@ -506,6 +509,68 @@ export default function PatientDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Loyalty Card */}
+      {loyalty?.settings?.enabled && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Award className="h-4 w-4 text-amber-600" />
+              باشگاه مشتریان
+              {loyalty.member && <LoyaltyTierBadge tier={loyalty.member.tier} />}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!loyalty.member ? (
+              <p className="text-sm text-muted-foreground">هنوز عضو نیست — با اولین پرداخت خودکار عضو می‌شود.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-muted-foreground text-xs">موجودی امتیاز</div>
+                    <div className="text-xl font-bold text-amber-700">{toPersianDigits(loyalty.balance)}</div>
+                    <div className="text-xs text-muted-foreground">{formatCurrency(loyalty.balance * loyalty.settings.redeemValue)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs">خرید ۱۲ ماه اخیر</div>
+                    <div className="font-bold">{formatCurrency(loyalty.member.spend12m)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs">عضویت از</div>
+                    <div className="font-bold">{formatShamsiDate(loyalty.member.joinedAt)}</div>
+                  </div>
+                </div>
+                {loyalty.member.nextTier && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>تا سطح {loyaltyTierLabel(loyalty.member.nextTier.tier)}</span>
+                      <span>{formatCurrency(loyalty.member.nextTier.remaining)} خرید دیگر</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className="h-2 rounded-full bg-amber-500"
+                        style={{ width: `${Math.min(100, Math.round((loyalty.member.spend12m / loyalty.member.nextTier.min) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {loyalty.transactions.length > 0 && (
+                  <div className="divide-y rounded-md border text-sm">
+                    {loyalty.transactions.slice(0, 5).map((t) => (
+                      <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                        <span className="truncate text-muted-foreground">{t.description ?? "—"}</span>
+                        <span className={`font-mono font-bold shrink-0 ${t.delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                          {t.delta > 0 ? "+" : "−"}{toPersianDigits(Math.abs(t.delta))}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Notes Card */}
       <Card>

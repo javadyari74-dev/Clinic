@@ -49,6 +49,17 @@ export const SMS_SETTING_KEYS = {
   dailyAutoHour: "sms_daily_auto_hour",
   bodyIdAppointmentReminder: "sms_bodyid_appointment_reminder",
   bodyIdFollowupReminder: "sms_bodyid_followup_reminder",
+  // ── باشگاه مشتریان (فقط وقتی باشگاه فعال است؛ هر کدام جدا قابل خاموش کردن) ──
+  enabledLoyaltyWelcome: "sms_enabled_loyalty_welcome",
+  enabledLoyaltyTierUp: "sms_enabled_loyalty_tier_up",
+  enabledLoyaltyExpiry: "sms_enabled_loyalty_expiry",
+  enabledLoyaltyReferral: "sms_enabled_loyalty_referral",
+  bodyIdLoyaltyWelcome: "sms_bodyid_loyalty_welcome",
+  bodyIdLoyaltyTierUp: "sms_bodyid_loyalty_tier_up",
+  bodyIdLoyaltyExpiry: "sms_bodyid_loyalty_expiry",
+  bodyIdLoyaltyReferral: "sms_bodyid_loyalty_referral",
+  // پترن پرداخت همراه با امتیاز (اختیاری): اگر خالی باشد پترن پرداخت عادی استفاده می‌شود
+  bodyIdPaymentLoyalty: "sms_bodyid_payment_loyalty",
 } as const;
 
 export type SmsSendMode = "normal" | "pattern";
@@ -62,6 +73,10 @@ export const SMS_TEMPLATE_KEYS = {
   recipientWelcome: "sms_template_recipient_welcome",
   appointmentReminder: "sms_template_appointment_reminder",
   followupReminder: "sms_template_followup_reminder",
+  loyaltyWelcome: "sms_template_loyalty_welcome",
+  loyaltyTierUp: "sms_template_loyalty_tier_up",
+  loyaltyExpiry: "sms_template_loyalty_expiry",
+  loyaltyReferral: "sms_template_loyalty_referral",
 } as const;
 
 export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
@@ -70,12 +85,14 @@ export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
 export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
   appointment:
     "{نام} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {تاریخ} ساعت {ساعت} ثبت شد. منتظر حضور شما هستیم.\nwww.drjavadyari.ir",
+  // {باشگاه}: اگر باشگاه فعال باشد «امتیاز این خرید: … — موجودی باشگاه: … امتیاز»، وگرنه خالی
   payment:
-    "{نام} عزیز، مبلغ {مبلغ} تومان بابت {خدمت} در مطب زیبایی دکتر یاری پرداخت شد. از اعتماد شما سپاسگزاریم.\nwww.drjavadyari.ir",
+    "{نام} عزیز، مبلغ {مبلغ} تومان بابت {خدمت} در مطب زیبایی دکتر یاری پرداخت شد. از اعتماد شما سپاسگزاریم.{باشگاه}\nwww.drjavadyari.ir",
   commission:
     "{نام} عزیز، بابت معرفی، مبلغ {پورسانت} تومان ({درصد}٪ از {مبلغ} تومان) به حساب شما در مطب زیبایی دکتر یاری منظور شد.\nwww.drjavadyari.ir",
+  // {هدیه_باشگاه}: اگر امروز امتیاز هدیهٔ تولد داده شده، جملهٔ آن؛ وگرنه خالی
   birthday:
-    "{نام} عزیز، تولدتان مبارک! 🎉 به همین مناسبت از طرف مطب زیبایی دکتر یاری تخفیف ویژه‌ای برای شما در نظر گرفته شده است.\nwww.drjavadyari.ir",
+    "{نام} عزیز، تولدتان مبارک! 🎉 به همین مناسبت از طرف مطب زیبایی دکتر یاری تخفیف ویژه‌ای برای شما در نظر گرفته شده است.{هدیه_باشگاه}\nwww.drjavadyari.ir",
   survey:
     "{نام} عزیز، از مراجعه شما به مطب زیبایی دکتر یاری سپاسگزاریم. خوشحال می‌شویم میزان رضایت خود از {خدمت} را با عددی از ۱ تا ۵ در پاسخ به تماس همکاران ما اعلام کنید.\nwww.drjavadyari.ir",
   recipientWelcome:
@@ -84,6 +101,14 @@ export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
     "{نام} عزیز، یادآوری می‌کنیم نوبت شما در مطب زیبایی دکتر یاری {تاریخ} ساعت {ساعت} است. در صورت عدم امکان حضور، لطفاً به ما اطلاع دهید.\nwww.drjavadyari.ir",
   followupReminder:
     "{نام} عزیز، زمان جلسهٔ بعدی شما در مطب زیبایی دکتر یاری فرا رسیده است. برای رزرو نوبت با ما تماس بگیرید.\nwww.drjavadyari.ir",
+  loyaltyWelcome:
+    "{نام} عزیز، به باشگاه مشتریان مطب زیبایی دکتر یاری خوش آمدید! از این پس با هر پرداخت امتیاز می‌گیرید و می‌توانید از آن در مراجعه‌های بعدی استفاده کنید. موجودی شما: {موجودی} امتیاز.\nwww.drjavadyari.ir",
+  loyaltyTierUp:
+    "{نام} عزیز، تبریک! سطح شما در باشگاه مشتریان مطب زیبایی دکتر یاری به «{سطح}» ارتقا یافت و از این پس با هر پرداخت امتیاز بیشتری می‌گیرید.\nwww.drjavadyari.ir",
+  loyaltyExpiry:
+    "{نام} عزیز، {امتیاز} امتیاز باشگاه مشتریان شما در مطب زیبایی دکتر یاری تا {تاریخ} منقضی می‌شود. برای استفاده از آن نوبت بگیرید.\nwww.drjavadyari.ir",
+  loyaltyReferral:
+    "{نام} عزیز، از معرفی دوستتان سپاسگزاریم! {امتیاز} امتیاز هدیه به حساب باشگاه شما در مطب زیبایی دکتر یاری اضافه شد. موجودی: {موجودی} امتیاز.\nwww.drjavadyari.ir",
 };
 
 // ── ابزارهای قالب و قالب‌بندی ─────────────────────────────────────────────────
@@ -204,6 +229,15 @@ export interface SmsSettings {
   dailyAutoHour: number;
   bodyIdAppointmentReminder: string;
   bodyIdFollowupReminder: string;
+  enabledLoyaltyWelcome: boolean;
+  enabledLoyaltyTierUp: boolean;
+  enabledLoyaltyExpiry: boolean;
+  enabledLoyaltyReferral: boolean;
+  bodyIdLoyaltyWelcome: string;
+  bodyIdLoyaltyTierUp: string;
+  bodyIdLoyaltyExpiry: string;
+  bodyIdLoyaltyReferral: string;
+  bodyIdPaymentLoyalty: string;
 }
 
 // حداقل فاصله نظرسنجی: عدد صحیح بین ۰ تا ۳۶۵ روز (پیش‌فرض ۳۰)
@@ -265,6 +299,16 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     dailyAutoHour: clampHour(map.get(SMS_SETTING_KEYS.dailyAutoHour), DAILY_AUTO_DEFAULT_HOUR),
     bodyIdAppointmentReminder: (map.get(SMS_SETTING_KEYS.bodyIdAppointmentReminder) ?? "").trim(),
     bodyIdFollowupReminder: (map.get(SMS_SETTING_KEYS.bodyIdFollowupReminder) ?? "").trim(),
+    // پیامک‌های باشگاه فقط وقتی باشگاه روشن است فرستاده می‌شوند؛ خودشان پیش‌فرض روشن‌اند
+    enabledLoyaltyWelcome: flag(SMS_SETTING_KEYS.enabledLoyaltyWelcome),
+    enabledLoyaltyTierUp: flag(SMS_SETTING_KEYS.enabledLoyaltyTierUp),
+    enabledLoyaltyExpiry: flag(SMS_SETTING_KEYS.enabledLoyaltyExpiry),
+    enabledLoyaltyReferral: flag(SMS_SETTING_KEYS.enabledLoyaltyReferral),
+    bodyIdLoyaltyWelcome: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyWelcome) ?? "").trim(),
+    bodyIdLoyaltyTierUp: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyTierUp) ?? "").trim(),
+    bodyIdLoyaltyExpiry: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyExpiry) ?? "").trim(),
+    bodyIdLoyaltyReferral: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyReferral) ?? "").trim(),
+    bodyIdPaymentLoyalty: (map.get(SMS_SETTING_KEYS.bodyIdPaymentLoyalty) ?? "").trim(),
   };
 }
 
@@ -362,6 +406,11 @@ function describePatternFailure(resp: MelipayamakResponse): string {
 //   recipientWelcome: {0}=نام
 //   appointmentReminder: {0}=نام  {1}=تاریخ  {2}=ساعت
 //   followupReminder: {0}=نام
+//   loyaltyWelcome:  {0}=نام  {1}=موجودی
+//   loyaltyTierUp:   {0}=نام  {1}=سطح
+//   loyaltyExpiry:   {0}=نام  {1}=امتیاز  {2}=تاریخ
+//   loyaltyReferral: {0}=نام  {1}=امتیاز  {2}=موجودی
+//   پرداخت با امتیاز (کد جدا): {0}=نام  {1}=مبلغ  {2}=خدمت  {3}=امتیاز  {4}=موجودی
 export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   appointment: ["نام", "تاریخ", "ساعت"],
   payment: ["نام", "مبلغ", "خدمت"],
@@ -371,6 +420,10 @@ export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   recipientWelcome: ["نام"],
   appointmentReminder: ["نام", "تاریخ", "ساعت"],
   followupReminder: ["نام"],
+  loyaltyWelcome: ["نام", "موجودی"],
+  loyaltyTierUp: ["نام", "سطح"],
+  loyaltyExpiry: ["نام", "امتیاز", "تاریخ"],
+  loyaltyReferral: ["نام", "امتیاز", "موجودی"],
 };
 
 // متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
@@ -389,7 +442,8 @@ export interface SendSmsInput {
   text: string;
   eventType:
     | "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey" | "recipient_welcome"
-    | "appointment_reminder" | "followup_reminder";
+    | "appointment_reminder" | "followup_reminder"
+    | "loyalty_welcome" | "loyalty_tier_up" | "loyalty_expiry" | "loyalty_referral" | "loyalty_bulk";
   recipientName?: string | null;
   patientId?: number | null;
   // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.
@@ -549,6 +603,8 @@ export function firePaymentSms(args: {
   phone: string | null;
   amount: number;
   serviceName?: string | null;
+  /** اگر باشگاه فعال و مراجع عضو است: امتیاز این پرداخت، موجودی و سطح */
+  loyalty?: { earned: number; balance: number; tierLabel: string } | null;
 }): void {
   void (async () => {
     try {
@@ -559,21 +615,34 @@ export function firePaymentSms(args: {
       const name = args.patientName ?? "";
       const amount = formatToman(args.amount);
       const service = args.serviceName || "خدمات";
+      const loyalty = args.loyalty ?? null;
+      const points = loyalty ? toPersianDigits(loyalty.earned) : "";
+      const balance = loyalty ? toPersianDigits(loyalty.balance) : "";
       const text = renderTemplate(templates.payment, {
         "نام": name,
         "مبلغ": amount,
         "خدمت": service,
+        "امتیاز": points,
+        "موجودی": balance,
+        "سطح": loyalty?.tierLabel ?? "",
+        "باشگاه": loyalty
+          ? ` امتیاز این خرید: ${points} — موجودی باشگاه: ${balance} امتیاز.`
+          : "",
       });
+      // پترن پرداختِ همراه با امتیاز فقط وقتی کدش تنظیم شده؛ وگرنه همان پترن پرداخت عادی
+      const usePaymentLoyaltyPattern = !!loyalty && settings.bodyIdPaymentLoyalty !== "";
       await sendSms({
         to: args.phone ?? "",
         text,
         eventType: "payment",
         recipientName: args.patientName,
         patientId: args.patientId ?? null,
-        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment (+ امتیاز و موجودی در پترن باشگاهی)
         pattern:
           settings.sendMode === "pattern"
-            ? { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
+            ? usePaymentLoyaltyPattern
+              ? { bodyId: settings.bodyIdPaymentLoyalty, args: [name, amount, service, points, balance] }
+              : { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
             : undefined,
       });
     } catch (err) {

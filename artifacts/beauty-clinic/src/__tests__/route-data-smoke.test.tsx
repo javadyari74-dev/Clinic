@@ -75,6 +75,8 @@ const routes: RouteCase[] = [
   { path: "/accounting", marker: /اجاره/ },
   { path: "/users", marker: USER_NAME },
   { path: "/backup", marker: "پشتیبان‌گیری", role: "heading" },
+  // باشگاه: تب پیش‌فرض «نمای کلی» آخرین تراکنش‌ها را با نام مراجع نشان می‌دهد
+  { path: "/loyalty", marker: PATIENT_ONE_NAME },
 ];
 
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -182,6 +184,7 @@ const resilienceRoutes: ResilienceCase[] = [
   { path: "/reminders", emptyMarker: "یادآوری‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/accounting", emptyMarker: "حسابداری و سود و زیان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/users", emptyMarker: "مدیریت کاربران", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/loyalty", emptyMarker: "باشگاه مشتریان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   // backup loads no data on mount, so an all-500 backend produces no error
   // notice — it still renders its static heading.
   { path: "/backup", emptyMarker: "پشتیبان‌گیری", errorMarker: "پشتیبان‌گیری", by: "heading", errorBy: "heading" },

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { desc, sql, inArray, eq } from "drizzle-orm";
-import { db, smsLogTable, patientsTable, smsSavedPatternsTable } from "@workspace/db";
+import { db, smsLogTable, patientsTable, smsSavedPatternsTable, loyaltyMembersTable } from "@workspace/db";
+import { getLoyaltyBalance, isLoyaltyTier, TIER_LABELS } from "../lib/loyalty";
 import {
   UpdateSmsSettingsBody,
   UpdateSmsTemplatesBody,
@@ -27,6 +28,7 @@ import {
   sendSms,
   renderTemplate,
   normalizePhone,
+  toPersianDigits,
 } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
 
@@ -60,6 +62,15 @@ function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
     dailyAutoHour: s.dailyAutoHour,
     bodyIdAppointmentReminder: s.bodyIdAppointmentReminder,
     bodyIdFollowupReminder: s.bodyIdFollowupReminder,
+    enabledLoyaltyWelcome: s.enabledLoyaltyWelcome,
+    enabledLoyaltyTierUp: s.enabledLoyaltyTierUp,
+    enabledLoyaltyExpiry: s.enabledLoyaltyExpiry,
+    enabledLoyaltyReferral: s.enabledLoyaltyReferral,
+    bodyIdLoyaltyWelcome: s.bodyIdLoyaltyWelcome,
+    bodyIdLoyaltyTierUp: s.bodyIdLoyaltyTierUp,
+    bodyIdLoyaltyExpiry: s.bodyIdLoyaltyExpiry,
+    bodyIdLoyaltyReferral: s.bodyIdLoyaltyReferral,
+    bodyIdPaymentLoyalty: s.bodyIdPaymentLoyalty,
   };
 }
 
@@ -87,6 +98,10 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
   if (b.enabledAppointmentReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointmentReminder, String(b.enabledAppointmentReminder));
   if (b.enabledFollowupReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledFollowupReminder, String(b.enabledFollowupReminder));
   if (b.enabledBirthdayAuto !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledBirthdayAuto, String(b.enabledBirthdayAuto));
+  if (b.enabledLoyaltyWelcome !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyWelcome, String(b.enabledLoyaltyWelcome));
+  if (b.enabledLoyaltyTierUp !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyTierUp, String(b.enabledLoyaltyTierUp));
+  if (b.enabledLoyaltyExpiry !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyExpiry, String(b.enabledLoyaltyExpiry));
+  if (b.enabledLoyaltyReferral !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyReferral, String(b.enabledLoyaltyReferral));
   // ساعت ارسال: عدد صحیح ۰ تا ۲۳
   if (b.appointmentReminderHour !== undefined) {
     await setAppSetting(SMS_SETTING_KEYS.appointmentReminderHour, String(clampHour(b.appointmentReminderHour, APPOINTMENT_REMINDER_DEFAULT_HOUR)));
@@ -108,6 +123,11 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     ["bodyIdRecipientWelcome", SMS_SETTING_KEYS.bodyIdRecipientWelcome],
     ["bodyIdAppointmentReminder", SMS_SETTING_KEYS.bodyIdAppointmentReminder],
     ["bodyIdFollowupReminder", SMS_SETTING_KEYS.bodyIdFollowupReminder],
+    ["bodyIdLoyaltyWelcome", SMS_SETTING_KEYS.bodyIdLoyaltyWelcome],
+    ["bodyIdLoyaltyTierUp", SMS_SETTING_KEYS.bodyIdLoyaltyTierUp],
+    ["bodyIdLoyaltyExpiry", SMS_SETTING_KEYS.bodyIdLoyaltyExpiry],
+    ["bodyIdLoyaltyReferral", SMS_SETTING_KEYS.bodyIdLoyaltyReferral],
+    ["bodyIdPaymentLoyalty", SMS_SETTING_KEYS.bodyIdPaymentLoyalty],
   ] as const;
   for (const [field] of bodyIdFields) {
     const value = b[field];
@@ -168,17 +188,29 @@ router.post("/sms/send", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { message, patientIds, birthdayDays } = parsed.data;
+  const { message, patientIds, birthdayDays, loyaltyTiers } = parsed.data;
   if (!message.trim()) {
     res.status(400).json({ error: "متن پیام خالی است" });
     return;
   }
 
-  const eventType = parsed.data.eventType === "birthday" ? "birthday" as const : "manual" as const;
+  const eventType =
+    parsed.data.eventType === "birthday" ? "birthday" as const
+    : loyaltyTiers !== undefined ? "loyalty_bulk" as const
+    : "manual" as const;
 
-  // گیرندگان: یا از روی شناسه بیماران، یا بیماران دارای تولد در N روز آینده
+  // گیرندگان: بیماران انتخابی، بیماران دارای تولد در N روز آینده، یا اعضای باشگاه
+  // (loyaltyTiers: فهرست سطح‌ها؛ آرایهٔ خالی = همهٔ اعضا)
   let recipients: { id: number; name: string; phone: string }[] = [];
-  if (birthdayDays !== undefined) {
+  if (loyaltyTiers !== undefined) {
+    const tiers = loyaltyTiers.filter(isLoyaltyTier);
+    const rows = await db
+      .select({ id: patientsTable.id, name: patientsTable.name, phone: patientsTable.phone })
+      .from(loyaltyMembersTable)
+      .innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId))
+      .where(tiers.length > 0 ? inArray(loyaltyMembersTable.tier, tiers) : undefined);
+    recipients = rows;
+  } else if (birthdayDays !== undefined) {
     const upcoming = await getUpcomingBirthdays(Math.min(Math.max(birthdayDays, 0), 90));
     recipients = upcoming.map((b) => ({ id: b.patientId, name: b.name, phone: b.phone }));
   } else if (patientIds && patientIds.length > 0) {
@@ -202,8 +234,24 @@ router.post("/sms/send", async (req, res): Promise<void> => {
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
+  // متغیرهای باشگاه برای هر گیرنده: {امتیاز} = موجودی، {سطح}
+  const usesLoyaltyVars = /\{\s*(امتیاز|سطح)\s*\}/.test(message);
+  const memberTiers = new Map<number, string>();
+  if (usesLoyaltyVars) {
+    const rows = await db.select().from(loyaltyMembersTable)
+      .where(inArray(loyaltyMembersTable.patientId, recipients.map((r) => r.id)));
+    for (const m of rows) memberTiers.set(m.patientId, m.tier);
+  }
   for (const r of recipients) {
-    const text = renderTemplate(message, { "نام": r.name });
+    const tier = memberTiers.get(r.id);
+    const text = renderTemplate(message, {
+      "نام": r.name,
+      "امتیاز": usesLoyaltyVars ? toPersianDigits(await getLoyaltyBalance(db, r.id)) : "",
+      "سطح": tier && isLoyaltyTier(tier) ? TIER_LABELS[tier] : "",
+      // جای‌نگهدارهای پیامک‌های خودکار، در ارسال دستی خالی می‌شوند
+      "هدیه_باشگاه": "",
+      "باشگاه": "",
+    });
     const result = await sendSms({
       to: r.phone,
       text,
@@ -219,7 +267,8 @@ router.post("/sms/send", async (req, res): Promise<void> => {
     }
   }
 
-  await logActivity("create", "sms", 0, `ارسال پیامک ${eventType === "birthday" ? "تبریک تولد" : "دستی"}: ${sent} موفق، ${failed} ناموفق`);
+  const label = eventType === "birthday" ? "تبریک تولد" : eventType === "loyalty_bulk" ? "گروهی به اعضای باشگاه" : "دستی";
+  await logActivity("create", "sms", 0, `ارسال پیامک ${label}: ${sent} موفق، ${failed} ناموفق`);
   res.json({ total: recipients.length, sent, failed, errors });
 });
 

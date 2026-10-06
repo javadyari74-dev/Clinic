@@ -8,7 +8,9 @@ import {
   useListPatients, getListPatientsQueryKey,
   useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
   getGetPaymentQueryOptions,
+  useGetPatientLoyalty, getGetPatientLoyaltyQueryKey,
 } from "@workspace/api-client-react";
+import { LoyaltyTierBadge } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,7 +24,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits, gregorianDateToUnix } from "@/lib/format";
-import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell } from "lucide-react";
+import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Award } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -236,6 +238,10 @@ export default function Payments() {
   const [discountEnabled, setDiscountEnabled] = useState(false);
   const [selectedDiscountId, setSelectedDiscountId] = useState<number | null>(null);
 
+  // باشگاه مشتریان: استفاده از امتیاز در این پرداخت
+  const [redeemEnabled, setRedeemEnabled] = useState(false);
+  const [redeemInput, setRedeemInput] = useState("");
+
   // Receipt dialog state
   const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
   const [receiptOpen, setReceiptOpen] = useState(false);
@@ -261,6 +267,14 @@ export default function Payments() {
   const isPerUnit = selectedAppt?.priceMode === "per_unit";
   const selectedPatientId = ((selectedAppt as any)?.patientId ?? null) as number | null;
   const selectedPatient = selectedAppt ? { id: selectedPatientId, name: selectedAppt.patientName } : null;
+
+  // وضعیت باشگاه مراجعِ نوبت انتخاب‌شده
+  const { data: patientLoyalty } = useGetPatientLoyalty(selectedPatientId ?? 0, {
+    query: { enabled: !!selectedPatientId, queryKey: getGetPatientLoyaltyQueryKey(selectedPatientId ?? 0) },
+  });
+  const loyaltyOn = !!patientLoyalty?.settings?.enabled;
+  const loyaltyBalance = patientLoyalty?.balance ?? 0;
+  const pointValue = patientLoyalty?.settings?.redeemValue ?? 0;
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
   useEffect(() => {
@@ -292,35 +306,39 @@ export default function Payments() {
     form.setValue("originalAmount", (selectedAppt.unitPrice ?? 0) * u);
   }, [unitsUsed, selectedAppt]);
 
-  // وقتی چک‌باکس «مبلغ کامل» تغییر می‌کنه
-  useEffect(() => {
-    if (fullAmountChecked) {
-      form.setValue("amount", Math.max(0, (originalAmount || 0) - currentDeposit));
-    }
-  }, [fullAmountChecked, originalAmount, currentDeposit]);
-
   const selectedDiscount = useMemo(
     () => discounts?.find(d => d.id === selectedDiscountId) ?? null,
     [discounts, selectedDiscountId]
   );
 
-  // محاسبه مبلغ پس از تخفیف و کسر بیعانه
-  useEffect(() => {
+  // مبلغ پس از تخفیف
+  const afterDiscount = useMemo(() => {
     const base = originalAmount || 0;
-    let afterDiscount: number;
-    if (discountEnabled && selectedDiscount) {
-      if (selectedDiscount.type === "percentage") {
-        afterDiscount = Math.round(base * (1 - selectedDiscount.value / 100));
-      } else {
-        afterDiscount = Math.max(0, base - selectedDiscount.value);
-      }
-      form.setValue("discountId", selectedDiscount.id);
-    } else {
-      afterDiscount = base;
-      form.setValue("discountId", undefined);
-    }
-    form.setValue("amount", Math.max(0, afterDiscount - currentDeposit));
-  }, [discountEnabled, selectedDiscount, originalAmount, currentDeposit]);
+    if (!(discountEnabled && selectedDiscount)) return base;
+    return selectedDiscount.type === "percentage"
+      ? Math.round(base * (1 - selectedDiscount.value / 100))
+      : Math.max(0, base - selectedDiscount.value);
+  }, [discountEnabled, selectedDiscount, originalAmount]);
+
+  // امتیاز باشگاه: حداکثر به اندازهٔ موجودی و مبلغ باقی‌مانده (پس از تخفیف و بیعانه)
+  const dueBeforePoints = Math.max(0, afterDiscount - currentDeposit);
+  const maxRedeemPoints = loyaltyOn && pointValue > 0
+    ? Math.min(loyaltyBalance, Math.floor(dueBeforePoints / pointValue))
+    : 0;
+  const redeemPoints = redeemEnabled
+    ? Math.min(Math.max(0, Number.parseInt(redeemInput || "0", 10) || 0), maxRedeemPoints)
+    : 0;
+  const redeemToman = redeemPoints * pointValue;
+
+  useEffect(() => {
+    form.setValue("discountId", discountEnabled && selectedDiscount ? selectedDiscount.id : undefined);
+  }, [discountEnabled, selectedDiscount]);
+
+  // مبلغ پرداختی = پس از تخفیف − بیعانه − ارزش امتیاز استفاده‌شده
+  // (با تغییر هر کدام، یا وقتی «مبلغ کامل» تیک می‌خورد، دوباره حساب می‌شود)
+  useEffect(() => {
+    form.setValue("amount", Math.max(0, dueBeforePoints - redeemToman));
+  }, [dueBeforePoints, redeemToman, fullAmountChecked]);
 
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
@@ -354,6 +372,8 @@ export default function Payments() {
     mutation: {
       onSuccess: (payment) => {
         queryClient.invalidateQueries({ queryKey: getListPaymentsQueryKey() });
+        // امتیاز و سطح باشگاه مراجع عوض شده است
+        if (selectedPatientId) queryClient.invalidateQueries({ queryKey: getGetPatientLoyaltyQueryKey(selectedPatientId) });
 
         // وقتی پرداخت ثبت شد، نوبت مرتبط به «تکمیل شده» تبدیل می‌شود
         const apptIdForComplete = form.getValues("appointmentId");
@@ -511,10 +531,17 @@ export default function Payments() {
     setSvcReminderEnabled(false);
     setSvcReminderType("followup");
     setSvcReminderDate("");
+    setRedeemEnabled(false);
+    setRedeemInput("");
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     const appt = selectedAppt;
+    const minRedeem = patientLoyalty?.settings.minRedeem ?? 1;
+    if (redeemPoints > 0 && redeemPoints < minRedeem) {
+      toast({ title: `حداقل امتیاز قابل استفاده ${toPersianDigits(minRedeem)} است`, variant: "destructive" });
+      return;
+    }
     // مبلغ تخفیف اعمال‌شده تا روی ردیف پرداخت ذخیره و در رسید نمایش داده شود
     const discountAmt = discountEnabled && selectedDiscount
       ? selectedDiscount.type === "percentage"
@@ -536,6 +563,7 @@ export default function Payments() {
         discountName: discountEnabled && selectedDiscount ? selectedDiscount.name : undefined,
         discountAmount: discountAmt > 0 ? discountAmt : undefined,
         depositAmount: currentDeposit > 0 ? currentDeposit : undefined,
+        redeemPoints: redeemPoints > 0 ? redeemPoints : undefined,
       },
     });
   }
@@ -823,6 +851,67 @@ export default function Payments() {
               </div>
 
               <Separator />
+
+              {/* Loyalty Section */}
+              {selectedPatientId && loyaltyOn && (
+                <>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 font-medium">
+                        <Award className="h-4 w-4 text-amber-600" />
+                        باشگاه مشتریان
+                        {patientLoyalty?.member
+                          ? <LoyaltyTierBadge tier={patientLoyalty.member.tier} />
+                          : <span className="text-xs font-normal text-muted-foreground">با این پرداخت عضو می‌شود</span>}
+                      </div>
+                      <span className="text-sm">
+                        موجودی: <span className="font-bold">{toPersianDigits(loyaltyBalance)}</span> امتیاز
+                        <span className="text-muted-foreground"> ({formatCurrency(loyaltyBalance * pointValue)})</span>
+                      </span>
+                    </div>
+                    {loyaltyBalance >= (patientLoyalty?.settings.minRedeem ?? 1) && maxRedeemPoints > 0 && (
+                      <div className="rounded-lg border p-3 bg-amber-50/50 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <Label className="cursor-pointer text-sm" htmlFor="redeem-toggle">
+                            استفاده از امتیاز در این پرداخت
+                          </Label>
+                          <Switch
+                            id="redeem-toggle"
+                            checked={redeemEnabled}
+                            onCheckedChange={(v) => {
+                              setRedeemEnabled(v);
+                              setRedeemInput(v ? String(maxRedeemPoints) : "");
+                            }}
+                          />
+                        </div>
+                        {redeemEnabled && (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              className="w-28 h-8"
+                              dir="ltr"
+                              inputMode="numeric"
+                              value={redeemInput}
+                              onChange={(e) => setRedeemInput(e.target.value.replace(/[^\d]/g, ""))}
+                              data-testid="input-redeem-points"
+                            />
+                            <span className="text-sm text-muted-foreground">امتیاز</span>
+                            <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setRedeemInput(String(maxRedeemPoints))}>
+                              همه ({toPersianDigits(maxRedeemPoints)})
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {redeemPoints > 0 && (
+                      <div className="text-sm bg-amber-50 rounded-md p-2 text-amber-900 flex justify-between">
+                        <span>کسر بابت {toPersianDigits(redeemPoints)} امتیاز:</span>
+                        <span className="font-bold">{formatCurrency(redeemToman)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <Separator />
+                </>
+              )}
 
               {/* Discount Section */}
               <div className="space-y-3">

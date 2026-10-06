@@ -22,6 +22,10 @@ export interface SmsSettingsInput {
   enabledBirthdayAuto?: boolean;
   appointmentReminderHour?: number;
   dailyAutoHour?: number;
+  enabledLoyaltyWelcome?: boolean;
+  enabledLoyaltyTierUp?: boolean;
+  enabledLoyaltyExpiry?: boolean;
+  enabledLoyaltyReferral?: boolean;
   sendMode?: SmsSettingsInputSendMode;
   bodyIdAppointment?: string;
   bodyIdPayment?: string;
@@ -31,4 +35,9 @@ export interface SmsSettingsInput {
   bodyIdRecipientWelcome?: string;
   bodyIdAppointmentReminder?: string;
   bodyIdFollowupReminder?: string;
+  bodyIdLoyaltyWelcome?: string;
+  bodyIdLoyaltyTierUp?: string;
+  bodyIdLoyaltyExpiry?: string;
+  bodyIdLoyaltyReferral?: string;
+  bodyIdPaymentLoyalty?: string;
 }

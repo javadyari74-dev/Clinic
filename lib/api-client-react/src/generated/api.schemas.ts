@@ -679,6 +679,10 @@ export interface SmsSettings {
   enabledBirthdayAuto: boolean;
   appointmentReminderHour: number;
   dailyAutoHour: number;
+  enabledLoyaltyWelcome: boolean;
+  enabledLoyaltyTierUp: boolean;
+  enabledLoyaltyExpiry: boolean;
+  enabledLoyaltyReferral: boolean;
   sendMode: SmsSettingsSendMode;
   bodyIdAppointment: string;
   bodyIdPayment: string;
@@ -688,6 +692,11 @@ export interface SmsSettings {
   bodyIdRecipientWelcome: string;
   bodyIdAppointmentReminder: string;
   bodyIdFollowupReminder: string;
+  bodyIdLoyaltyWelcome: string;
+  bodyIdLoyaltyTierUp: string;
+  bodyIdLoyaltyExpiry: string;
+  bodyIdLoyaltyReferral: string;
+  bodyIdPaymentLoyalty: string;
 }
 
 export type SmsSettingsInputSendMode = typeof SmsSettingsInputSendMode[keyof typeof SmsSettingsInputSendMode];
@@ -713,6 +722,10 @@ export interface SmsSettingsInput {
   enabledBirthdayAuto?: boolean;
   appointmentReminderHour?: number;
   dailyAutoHour?: number;
+  enabledLoyaltyWelcome?: boolean;
+  enabledLoyaltyTierUp?: boolean;
+  enabledLoyaltyExpiry?: boolean;
+  enabledLoyaltyReferral?: boolean;
   sendMode?: SmsSettingsInputSendMode;
   bodyIdAppointment?: string;
   bodyIdPayment?: string;
@@ -722,6 +735,11 @@ export interface SmsSettingsInput {
   bodyIdRecipientWelcome?: string;
   bodyIdAppointmentReminder?: string;
   bodyIdFollowupReminder?: string;
+  bodyIdLoyaltyWelcome?: string;
+  bodyIdLoyaltyTierUp?: string;
+  bodyIdLoyaltyExpiry?: string;
+  bodyIdLoyaltyReferral?: string;
+  bodyIdPaymentLoyalty?: string;
 }
 
 export type SmsTemplatesDefaults = {
@@ -733,6 +751,10 @@ export type SmsTemplatesDefaults = {
   recipientWelcome: string;
   appointmentReminder: string;
   followupReminder: string;
+  loyaltyWelcome: string;
+  loyaltyTierUp: string;
+  loyaltyExpiry: string;
+  loyaltyReferral: string;
 };
 
 export interface SmsTemplates {
@@ -744,6 +766,10 @@ export interface SmsTemplates {
   recipientWelcome: string;
   appointmentReminder: string;
   followupReminder: string;
+  loyaltyWelcome: string;
+  loyaltyTierUp: string;
+  loyaltyExpiry: string;
+  loyaltyReferral: string;
   defaults: SmsTemplatesDefaults;
 }
 
@@ -756,6 +782,10 @@ export interface SmsTemplatesInput {
   recipientWelcome?: string;
   appointmentReminder?: string;
   followupReminder?: string;
+  loyaltyWelcome?: string;
+  loyaltyTierUp?: string;
+  loyaltyExpiry?: string;
+  loyaltyReferral?: string;
 }
 
 export interface SmsCredit {
@@ -768,6 +798,7 @@ export interface ManualSmsInput {
   message: string;
   patientIds?: number[];
   birthdayDays?: number;
+  loyaltyTiers?: string[];
   eventType?: string;
 }
 
@@ -977,6 +1008,15 @@ export interface LoyaltySettings {
   earnAmount: number;
   redeemValue: number;
   minRedeem: number;
+  silverMin: number;
+  goldMin: number;
+  diamondMin: number;
+  silverRate: number;
+  goldRate: number;
+  diamondRate: number;
+  expiryMonths: number;
+  birthdayBonus: number;
+  referralBonus: number;
 }
 
 export interface LoyaltySettingsInput {
@@ -987,6 +1027,24 @@ export interface LoyaltySettingsInput {
   redeemValue: number;
   /** @minimum 1 */
   minRedeem: number;
+  /** @minimum 0 */
+  silverMin?: number;
+  /** @minimum 0 */
+  goldMin?: number;
+  /** @minimum 0 */
+  diamondMin?: number;
+  /** @minimum 100 */
+  silverRate?: number;
+  /** @minimum 100 */
+  goldRate?: number;
+  /** @minimum 100 */
+  diamondRate?: number;
+  /** @minimum 0 */
+  expiryMonths?: number;
+  /** @minimum 0 */
+  birthdayBonus?: number;
+  /** @minimum 0 */
+  referralBonus?: number;
 }
 
 export type LoyaltyTransactionType = typeof LoyaltyTransactionType[keyof typeof LoyaltyTransactionType];
@@ -996,6 +1054,10 @@ export const LoyaltyTransactionType = {
   earn: 'earn',
   redeem: 'redeem',
   reverse: 'reverse',
+  expire: 'expire',
+  birthday: 'birthday',
+  referral: 'referral',
+  adjust: 'adjust',
 } as const;
 
 export interface LoyaltyTransaction {
@@ -1013,28 +1075,73 @@ export interface LoyaltyTransaction {
   patientName?: string | null;
 }
 
-export type LoyaltyOverviewTopPatientsItem = {
+export type LoyaltyOverviewMembersByTier = {
+  bronze: number;
+  silver: number;
+  gold: number;
+  diamond: number;
+};
+
+export interface LoyaltyOverview {
+  totalMembers: number;
+  membersByTier: LoyaltyOverviewMembersByTier;
+  totalEarned: number;
+  totalRedeemed: number;
+  totalExpired: number;
+  totalOutstanding: number;
+  expiringSoonPoints: number;
+  expiringSoonMembers: number;
+  recent: LoyaltyTransaction[];
+}
+
+export type LoyaltyMemberTier = typeof LoyaltyMemberTier[keyof typeof LoyaltyMemberTier];
+
+
+export const LoyaltyMemberTier = {
+  bronze: 'bronze',
+  silver: 'silver',
+  gold: 'gold',
+  diamond: 'diamond',
+} as const;
+
+export interface LoyaltyMember {
   patientId: number;
+  tier: LoyaltyMemberTier;
+  joinedAt: number;
   patientName: string;
   /** @nullable */
   fileNumber?: string | null;
   /** @nullable */
   phone?: string | null;
   balance: number;
-  earnedTotal: number;
-};
-
-export interface LoyaltyOverview {
-  totalMembers: number;
-  totalEarned: number;
-  totalRedeemed: number;
-  totalOutstanding: number;
-  topPatients: LoyaltyOverviewTopPatientsItem[];
-  recent: LoyaltyTransaction[];
+  spend12m: number;
 }
+
+export interface AdjustLoyaltyInput {
+  patientId: number;
+  points: number;
+  description?: string;
+}
+
+/**
+ * @nullable
+ */
+export type PatientLoyaltyMember = {
+  tier: 'bronze' | 'silver' | 'gold' | 'diamond';
+  joinedAt: number;
+  spend12m: number;
+  /** @nullable */
+  nextTier: {
+  tier: string;
+  min: number;
+  remaining: number;
+} | null;
+} | null;
 
 export interface PatientLoyalty {
   balance: number;
+  /** @nullable */
+  member: PatientLoyaltyMember;
   settings: LoyaltySettings;
   transactions: LoyaltyTransaction[];
 }
@@ -1102,5 +1209,9 @@ export const ListSurveysStatus = {
 export type GetSurveyStatsParams = {
 from?: number;
 to?: number;
+};
+
+export type AdjustLoyaltyPoints200 = {
+  balance: number;
 };
 

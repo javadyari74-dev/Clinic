@@ -7,9 +7,12 @@
  */
 import type { LoyaltySettings } from './loyaltySettings';
 import type { LoyaltyTransaction } from './loyaltyTransaction';
+import type { PatientLoyaltyMember } from './patientLoyaltyMember';
 
 export interface PatientLoyalty {
   balance: number;
+  /** @nullable */
+  member: PatientLoyaltyMember;
   settings: LoyaltySettings;
   transactions: LoyaltyTransaction[];
 }

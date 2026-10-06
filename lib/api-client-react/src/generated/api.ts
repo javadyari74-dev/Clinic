@@ -21,6 +21,8 @@ import type {
 
 import type {
   ActivityLogEntry,
+  AdjustLoyaltyInput,
+  AdjustLoyaltyPoints200,
   AppointmentInput,
   AppointmentUpdate,
   AppointmentWithDetails,
@@ -52,6 +54,7 @@ import type {
   ListSmsLogsParams,
   ListSurveysParams,
   ListWaitingListParams,
+  LoyaltyMember,
   LoyaltyOverview,
   LoyaltySettings,
   LoyaltySettingsInput,
@@ -5802,6 +5805,142 @@ export function useGetLoyaltyOverview<TData = Awaited<ReturnType<typeof getLoyal
 
 
 
+
+export const getListLoyaltyMembersUrl = () => {
+
+
+
+
+  return `/api/loyalty/members`
+}
+
+export const listLoyaltyMembers = async ( options?: RequestInit): Promise<LoyaltyMember[]> => {
+
+  return customFetch<LoyaltyMember[]>(getListLoyaltyMembersUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListLoyaltyMembersQueryKey = () => {
+    return [
+    `/api/loyalty/members`
+    ] as const;
+    }
+
+
+export const getListLoyaltyMembersQueryOptions = <TData = Awaited<ReturnType<typeof listLoyaltyMembers>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLoyaltyMembers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListLoyaltyMembersQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listLoyaltyMembers>>> = ({ signal }) => listLoyaltyMembers({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listLoyaltyMembers>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListLoyaltyMembersQueryResult = NonNullable<Awaited<ReturnType<typeof listLoyaltyMembers>>>
+export type ListLoyaltyMembersQueryError = ErrorType<unknown>
+
+
+
+export function useListLoyaltyMembers<TData = Awaited<ReturnType<typeof listLoyaltyMembers>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listLoyaltyMembers>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListLoyaltyMembersQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getAdjustLoyaltyPointsUrl = () => {
+
+
+
+
+  return `/api/loyalty/adjust`
+}
+
+export const adjustLoyaltyPoints = async (adjustLoyaltyInput: AdjustLoyaltyInput, options?: RequestInit): Promise<AdjustLoyaltyPoints200> => {
+
+  return customFetch<AdjustLoyaltyPoints200>(getAdjustLoyaltyPointsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      adjustLoyaltyInput,)
+  }
+);}
+
+
+
+
+export const getAdjustLoyaltyPointsMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adjustLoyaltyPoints>>, TError,{data: BodyType<AdjustLoyaltyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof adjustLoyaltyPoints>>, TError,{data: BodyType<AdjustLoyaltyInput>}, TContext> => {
+
+const mutationKey = ['adjustLoyaltyPoints'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof adjustLoyaltyPoints>>, {data: BodyType<AdjustLoyaltyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  adjustLoyaltyPoints(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AdjustLoyaltyPointsMutationResult = NonNullable<Awaited<ReturnType<typeof adjustLoyaltyPoints>>>
+    export type AdjustLoyaltyPointsMutationBody = BodyType<AdjustLoyaltyInput>
+    export type AdjustLoyaltyPointsMutationError = ErrorType<unknown>
+
+    export const useAdjustLoyaltyPoints = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof adjustLoyaltyPoints>>, TError,{data: BodyType<AdjustLoyaltyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof adjustLoyaltyPoints>>,
+        TError,
+        {data: BodyType<AdjustLoyaltyInput>},
+        TContext
+      > => {
+      return useMutation(getAdjustLoyaltyPointsMutationOptions(options));
+    }
 
 export const getGetPatientLoyaltyUrl = (id: number,) => {
 

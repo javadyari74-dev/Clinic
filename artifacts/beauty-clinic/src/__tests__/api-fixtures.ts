@@ -462,6 +462,31 @@ const laserReminders = [
 
 const laserSettings = { id: 1, commissionRate: 15 };
 
+// ── باشگاه مشتریان ──
+export const LOYALTY_MEMBER_NAME = PATIENT_ONE_NAME;
+const loyaltySettings = {
+  enabled: true, earnAmount: 100_000, redeemValue: 10_000, minRedeem: 10,
+  silverMin: 20_000_000, goldMin: 50_000_000, diamondMin: 100_000_000,
+  silverRate: 120, goldRate: 150, diamondRate: 200,
+  expiryMonths: 12, birthdayBonus: 20, referralBonus: 50,
+};
+const loyaltyTxn = {
+  id: 1, patientId: 1, paymentId: 1, delta: 12, amount: 1_200_000, type: "earn",
+  description: "کسب ۱۲ امتیاز از پرداخت", createdAt: NOW - DAY, patientName: PATIENT_ONE_NAME,
+};
+const loyaltyOverview = {
+  totalMembers: 1, membersByTier: { bronze: 0, silver: 1, gold: 0, diamond: 0 },
+  totalEarned: 12, totalRedeemed: 0, totalExpired: 0, totalOutstanding: 12,
+  expiringSoonPoints: 0, expiringSoonMembers: 0, recent: [loyaltyTxn],
+};
+const loyaltyMembers = [
+  { patientId: 1, tier: "silver", joinedAt: NOW - 30 * DAY, patientName: PATIENT_ONE_NAME, fileNumber: "1001", phone: "09120000000", balance: 12, spend12m: 25_000_000 },
+];
+const patientLoyalty = {
+  balance: 12, settings: loyaltySettings, transactions: [loyaltyTxn],
+  member: { tier: "silver", joinedAt: NOW - 30 * DAY, spend12m: 25_000_000, nextTier: { tier: "gold", min: 50_000_000, remaining: 25_000_000 } },
+};
+
 type Handler = () => unknown;
 
 // Empty equivalents, matching the *shape* the API uses when there are no rows:
@@ -496,6 +521,10 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/patients\/\d+\/appointments$/, () => appointmentsList, emptyList],
   [/\/api\/patients\/\d+\/account-transactions$/, emptyArr, emptyArr],
   [/\/api\/patients\/\d+\/notes$/, emptyArr, emptyArr],
+  [/\/api\/patients\/\d+\/loyalty$/, () => patientLoyalty, () => ({ ...patientLoyalty, balance: 0, transactions: [], member: null })],
+  [/\/api\/loyalty\/settings$/, () => loyaltySettings, () => loyaltySettings],
+  [/\/api\/loyalty\/overview$/, () => loyaltyOverview, () => ({ ...loyaltyOverview, totalMembers: 0, recent: [] })],
+  [/\/api\/loyalty\/members$/, () => loyaltyMembers, emptyArr],
   [/\/api\/patients\/\d+$/, () => patientOne, () => patientOne],
   [/\/api\/patients$/, () => patientsList, emptyList],
   [/\/api\/appointments\/today\/waiting-list$/, () => appointmentsList, emptyList],

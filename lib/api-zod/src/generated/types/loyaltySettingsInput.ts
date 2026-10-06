@@ -14,4 +14,22 @@ export interface LoyaltySettingsInput {
   redeemValue: number;
   /** @minimum 1 */
   minRedeem: number;
+  /** @minimum 0 */
+  silverMin?: number;
+  /** @minimum 0 */
+  goldMin?: number;
+  /** @minimum 0 */
+  diamondMin?: number;
+  /** @minimum 100 */
+  silverRate?: number;
+  /** @minimum 100 */
+  goldRate?: number;
+  /** @minimum 100 */
+  diamondRate?: number;
+  /** @minimum 0 */
+  expiryMonths?: number;
+  /** @minimum 0 */
+  birthdayBonus?: number;
+  /** @minimum 0 */
+  referralBonus?: number;
 }

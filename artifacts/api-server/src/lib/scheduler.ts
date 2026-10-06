@@ -1,6 +1,8 @@
 import { logger } from "./logger";
 import { runAutoBackup, runDailyBackupIfDue } from "./backup-service";
 import { runScheduledSms } from "./scheduled-sms";
+import { runLoyaltyDaily } from "./loyalty-sms";
+import { backfillLoyaltyMembers } from "./loyalty";
 
 // کارهای زمان‌بندی‌شدهٔ سرور (تا وقتی برنامه باز است):
 // - بکاپ خودکار: هنگام شروع، و هر ساعت بررسی «بکاپ روزانه» (۲۴ ساعت از آخرین بکاپ).
@@ -16,6 +18,9 @@ async function smsTick(): Promise<void> {
   if (smsRunning) return; // دور قبلی هنوز تمام نشده (مثلاً اینترنت کند)
   smsRunning = true;
   try {
+    // اول کارهای روزانهٔ باشگاه (امتیاز هدیهٔ تولد باید پیش از پیامک تبریک داده شود)
+    const l = await runLoyaltyDaily();
+    if (l.ran || l.warnings) logger.info(l, "Loyalty daily run");
     const r = await runScheduledSms();
     if (r.appointmentReminders || r.followupReminders || r.birthdays) {
       logger.info(r, "Scheduled SMS sent");
@@ -35,6 +40,13 @@ async function backupTick(): Promise<void> {
 }
 
 export function startSchedulers(): void {
+  // عضویت یک‌جای مراجعینِ دارای پرداخت (اگر باشگاه فعال است) — بدون پیامک
+  void backfillLoyaltyMembers(Math.floor(Date.now() / 1000))
+    .then((n) => {
+      if (n > 0) logger.info({ members: n }, "Loyalty members backfilled");
+    })
+    .catch((err) => logger.warn({ err }, "Loyalty backfill failed"));
+
   void runAutoBackup({ reason: "startup" })
     .then((r) => {
       if (!r.ok) logger.warn({ error: r.error }, "Startup backup failed");
