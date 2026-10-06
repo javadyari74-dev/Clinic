@@ -1486,6 +1486,7 @@ export const GetLoyaltySettingsResponse = zod.object({
   "goldRate": zod.number(),
   "diamondRate": zod.number(),
   "expiryMonths": zod.number(),
+  "profitRewardPercent": zod.number(),
   "birthdayBonus": zod.number(),
   "referralBonus": zod.number()
 })
@@ -1510,6 +1511,9 @@ export const updateLoyaltySettingsBodyDiamondRateMin = 100;
 
 export const updateLoyaltySettingsBodyExpiryMonthsMin = 0;
 
+export const updateLoyaltySettingsBodyProfitRewardPercentMin = 0;
+export const updateLoyaltySettingsBodyProfitRewardPercentMax = 100;
+
 export const updateLoyaltySettingsBodyBirthdayBonusMin = 0;
 
 export const updateLoyaltySettingsBodyReferralBonusMin = 0;
@@ -1528,6 +1532,7 @@ export const UpdateLoyaltySettingsBody = zod.object({
   "goldRate": zod.number().min(updateLoyaltySettingsBodyGoldRateMin).optional(),
   "diamondRate": zod.number().min(updateLoyaltySettingsBodyDiamondRateMin).optional(),
   "expiryMonths": zod.number().min(updateLoyaltySettingsBodyExpiryMonthsMin).optional(),
+  "profitRewardPercent": zod.number().min(updateLoyaltySettingsBodyProfitRewardPercentMin).max(updateLoyaltySettingsBodyProfitRewardPercentMax).optional(),
   "birthdayBonus": zod.number().min(updateLoyaltySettingsBodyBirthdayBonusMin).optional(),
   "referralBonus": zod.number().min(updateLoyaltySettingsBodyReferralBonusMin).optional()
 })
@@ -1544,6 +1549,7 @@ export const UpdateLoyaltySettingsResponse = zod.object({
   "goldRate": zod.number(),
   "diamondRate": zod.number(),
   "expiryMonths": zod.number(),
+  "profitRewardPercent": zod.number(),
   "birthdayBonus": zod.number(),
   "referralBonus": zod.number()
 })
@@ -1561,7 +1567,9 @@ export const GetLoyaltyOverviewResponse = zod.object({
   "totalRedeemed": zod.number(),
   "totalExpired": zod.number(),
   "totalOutstanding": zod.number(),
-  "expiringSoonPoints": zod.number(),
+  "totalRewards": zod.number(),
+  "walletTotal": zod.number(),
+  "expiringSoonAmount": zod.number(),
   "expiringSoonMembers": zod.number(),
   "recent": zod.array(zod.object({
   "id": zod.number(),
@@ -1569,7 +1577,7 @@ export const GetLoyaltyOverviewResponse = zod.object({
   "paymentId": zod.number().nullish(),
   "delta": zod.number(),
   "amount": zod.number(),
-  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust']),
+  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust', 'cashback']),
   "description": zod.string().nullish(),
   "createdAt": zod.number(),
   "patientName": zod.string().nullish()
@@ -1585,14 +1593,16 @@ export const ListLoyaltyMembersResponseItem = zod.object({
   "fileNumber": zod.string().nullish(),
   "phone": zod.string().nullish(),
   "balance": zod.number(),
-  "spend12m": zod.number()
+  "spend12m": zod.number(),
+  "walletBalance": zod.number(),
+  "totalRewards": zod.number()
 })
 export const ListLoyaltyMembersResponse = zod.array(ListLoyaltyMembersResponseItem)
 
 
 export const AdjustLoyaltyPointsBody = zod.object({
   "patientId": zod.number(),
-  "points": zod.number(),
+  "amount": zod.number(),
   "description": zod.string().optional()
 })
 
@@ -1607,6 +1617,8 @@ export const GetPatientLoyaltyParams = zod.object({
 
 export const GetPatientLoyaltyResponse = zod.object({
   "balance": zod.number(),
+  "walletBalance": zod.number(),
+  "totalRewards": zod.number(),
   "member": zod.object({
   "tier": zod.enum(['bronze', 'silver', 'gold', 'diamond']),
   "joinedAt": zod.number(),
@@ -1629,6 +1641,7 @@ export const GetPatientLoyaltyResponse = zod.object({
   "goldRate": zod.number(),
   "diamondRate": zod.number(),
   "expiryMonths": zod.number(),
+  "profitRewardPercent": zod.number(),
   "birthdayBonus": zod.number(),
   "referralBonus": zod.number()
 }),
@@ -1638,7 +1651,7 @@ export const GetPatientLoyaltyResponse = zod.object({
   "paymentId": zod.number().nullish(),
   "delta": zod.number(),
   "amount": zod.number(),
-  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust']),
+  "type": zod.enum(['earn', 'redeem', 'reverse', 'expire', 'birthday', 'referral', 'adjust', 'cashback']),
   "description": zod.string().nullish(),
   "createdAt": zod.number(),
   "patientName": zod.string().nullish()

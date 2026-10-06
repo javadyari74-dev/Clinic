@@ -241,6 +241,9 @@ export default function Payments() {
   // باشگاه مشتریان: استفاده از امتیاز در این پرداخت
   const [redeemEnabled, setRedeemEnabled] = useState(false);
   const [redeemInput, setRedeemInput] = useState("");
+  // کیف پول مراجع (اعتبار سود خدمت، هدیه‌ها و شارژ): استفاده در این پرداخت
+  const [walletEnabled, setWalletEnabled] = useState(false);
+  const [walletInput, setWalletInput] = useState("");
 
   // Receipt dialog state
   const [activeReceipt, setActiveReceipt] = useState<ReceiptData | null>(null);
@@ -275,6 +278,7 @@ export default function Payments() {
   const loyaltyOn = !!patientLoyalty?.settings?.enabled;
   const loyaltyBalance = patientLoyalty?.balance ?? 0;
   const pointValue = patientLoyalty?.settings?.redeemValue ?? 0;
+  const walletBalance = patientLoyalty?.walletBalance ?? 0;
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
   useEffect(() => {
@@ -330,15 +334,21 @@ export default function Payments() {
     : 0;
   const redeemToman = redeemPoints * pointValue;
 
+  // کیف پول: حداکثر به اندازهٔ موجودی و مبلغ باقی‌مانده پس از امتیاز
+  const maxWallet = Math.max(0, Math.min(walletBalance, dueBeforePoints - redeemToman));
+  const walletApplied = walletEnabled
+    ? Math.min(Math.max(0, Number.parseInt(walletInput || "0", 10) || 0), maxWallet)
+    : 0;
+
   useEffect(() => {
     form.setValue("discountId", discountEnabled && selectedDiscount ? selectedDiscount.id : undefined);
   }, [discountEnabled, selectedDiscount]);
 
-  // مبلغ پرداختی = پس از تخفیف − بیعانه − ارزش امتیاز استفاده‌شده
+  // مبلغ پرداختی (نقدی) = پس از تخفیف − بیعانه − ارزش امتیاز − مبلغ پرداخت‌شده از کیف پول
   // (با تغییر هر کدام، یا وقتی «مبلغ کامل» تیک می‌خورد، دوباره حساب می‌شود)
   useEffect(() => {
-    form.setValue("amount", Math.max(0, dueBeforePoints - redeemToman));
-  }, [dueBeforePoints, redeemToman, fullAmountChecked]);
+    form.setValue("amount", Math.max(0, dueBeforePoints - redeemToman - walletApplied));
+  }, [dueBeforePoints, redeemToman, walletApplied, fullAmountChecked]);
 
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
@@ -365,8 +375,6 @@ export default function Payments() {
   const updateAppointment = useUpdateAppointment();
 
   const createAccountTxn = useCreatePatientAccountTransaction();
-  const [balanceApplyEnabled] = useState(false);
-  const [balanceApplied] = useState(0);
 
   const createPayment = useCreatePayment({
     mutation: {
@@ -450,7 +458,7 @@ export default function Payments() {
 
         // کسر موجودی اکانت اکنون سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
         // پس فقط کش مربوط به موجودی/تراکنش‌های مراجع را تازه می‌کنیم
-        if (balanceApplyEnabled && balanceApplied > 0 && selectedPatientId) {
+        if (selectedPatientId) {
           queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(selectedPatientId) });
           queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(selectedPatientId) });
@@ -533,6 +541,8 @@ export default function Payments() {
     setSvcReminderDate("");
     setRedeemEnabled(false);
     setRedeemInput("");
+    setWalletEnabled(false);
+    setWalletInput("");
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -564,6 +574,8 @@ export default function Payments() {
         discountAmount: discountAmt > 0 ? discountAmt : undefined,
         depositAmount: currentDeposit > 0 ? currentDeposit : undefined,
         redeemPoints: redeemPoints > 0 ? redeemPoints : undefined,
+        // سرور همین مبلغ را در همان تراکنش از کیف پول کم می‌کند
+        applyAccountBalance: walletApplied > 0 ? walletApplied : undefined,
       },
     });
   }
@@ -853,27 +865,66 @@ export default function Payments() {
               <Separator />
 
               {/* Loyalty Section */}
-              {selectedPatientId && loyaltyOn && (
+              {selectedPatientId && (loyaltyOn || walletBalance > 0) && (
                 <>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 font-medium">
                         <Award className="h-4 w-4 text-amber-600" />
-                        باشگاه مشتریان
-                        {patientLoyalty?.member
+                        {loyaltyOn ? "باشگاه مشتریان" : "کیف پول"}
+                        {!loyaltyOn ? null : patientLoyalty?.member
                           ? <LoyaltyTierBadge tier={patientLoyalty.member.tier} />
                           : <span className="text-xs font-normal text-muted-foreground">با این پرداخت عضو می‌شود</span>}
                       </div>
                       <span className="text-sm">
-                        موجودی: <span className="font-bold">{toPersianDigits(loyaltyBalance)}</span> امتیاز
-                        <span className="text-muted-foreground"> ({formatCurrency(loyaltyBalance * pointValue)})</span>
+                        کیف پول: <span className="font-bold text-amber-700">{formatCurrency(walletBalance)}</span>
                       </span>
                     </div>
+                    {walletBalance > 0 && maxWallet > 0 && (
+                      <div className="rounded-lg border p-3 bg-amber-50/50 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <Label className="cursor-pointer text-sm" htmlFor="wallet-toggle">
+                            پرداخت از کیف پول
+                          </Label>
+                          <Switch
+                            id="wallet-toggle"
+                            checked={walletEnabled}
+                            onCheckedChange={(v) => {
+                              setWalletEnabled(v);
+                              setWalletInput(v ? String(maxWallet) : "");
+                            }}
+                          />
+                        </div>
+                        {walletEnabled && (
+                          <div className="flex items-center gap-2">
+                            <Input
+                              className="w-36 h-8"
+                              dir="ltr"
+                              inputMode="numeric"
+                              value={walletInput}
+                              onChange={(e) => setWalletInput(e.target.value.replace(/[^\d]/g, ""))}
+                              data-testid="input-wallet-amount"
+                            />
+                            <span className="text-sm text-muted-foreground">تومان</span>
+                            <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => setWalletInput(String(maxWallet))}>
+                              همه
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {walletApplied > 0 && (
+                      <div className="text-sm bg-amber-50 rounded-md p-2 text-amber-900 flex justify-between">
+                        <span>پرداخت از کیف پول:</span>
+                        <span className="font-bold">{formatCurrency(walletApplied)}</span>
+                      </div>
+                    )}
+                    {/* امتیازهای قدیمی (قبل از اعتبار سود)، فقط اگر مانده باشد */}
                     {loyaltyBalance >= (patientLoyalty?.settings.minRedeem ?? 1) && maxRedeemPoints > 0 && (
                       <div className="rounded-lg border p-3 bg-amber-50/50 space-y-2">
                         <div className="flex items-center justify-between gap-3">
                           <Label className="cursor-pointer text-sm" htmlFor="redeem-toggle">
-                            استفاده از امتیاز در این پرداخت
+                            استفاده از {toPersianDigits(loyaltyBalance)} امتیاز قدیمی ({formatCurrency(loyaltyBalance * pointValue)})
                           </Label>
                           <Switch
                             id="redeem-toggle"

@@ -2521,7 +2521,7 @@ components:
     # ── Loyalty ───────────────────────────────────────────────────────────────
     LoyaltySettings:
       type: object
-      required: [enabled, earnAmount, redeemValue, minRedeem, silverMin, goldMin, diamondMin, silverRate, goldRate, diamondRate, expiryMonths, birthdayBonus, referralBonus]
+      required: [enabled, earnAmount, redeemValue, minRedeem, silverMin, goldMin, diamondMin, silverRate, goldRate, diamondRate, expiryMonths, profitRewardPercent, birthdayBonus, referralBonus]
       properties:
         enabled: { type: boolean }
         earnAmount: { type: number }
@@ -2534,6 +2534,8 @@ components:
         goldRate: { type: number }
         diamondRate: { type: number }
         expiryMonths: { type: number }
+        # درصد سود خدمت که اعتبار کیف پول می‌شود
+        profitRewardPercent: { type: number }
         birthdayBonus: { type: number }
         referralBonus: { type: number }
 
@@ -2552,6 +2554,7 @@ components:
         goldRate: { type: number, minimum: 100 }
         diamondRate: { type: number, minimum: 100 }
         expiryMonths: { type: number, minimum: 0 }
+        profitRewardPercent: { type: number, minimum: 0, maximum: 100 }
         birthdayBonus: { type: number, minimum: 0 }
         referralBonus: { type: number, minimum: 0 }
 
@@ -2564,14 +2567,14 @@ components:
         paymentId: { type: ["integer", "null"] }
         delta: { type: integer }
         amount: { type: integer }
-        type: { type: string, enum: [earn, redeem, reverse, expire, birthday, referral, adjust] }
+        type: { type: string, enum: [earn, redeem, reverse, expire, birthday, referral, adjust, cashback] }
         description: { type: ["string", "null"] }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
 
     LoyaltyOverview:
       type: object
-      required: [totalMembers, membersByTier, totalEarned, totalRedeemed, totalExpired, totalOutstanding, expiringSoonPoints, expiringSoonMembers, recent]
+      required: [totalMembers, membersByTier, totalEarned, totalRedeemed, totalExpired, totalOutstanding, totalRewards, walletTotal, expiringSoonAmount, expiringSoonMembers, recent]
       properties:
         totalMembers: { type: integer }
         membersByTier:
@@ -2586,8 +2589,11 @@ components:
         totalRedeemed: { type: integer }
         totalExpired: { type: integer }
         totalOutstanding: { type: integer }
-        # امتیاز و تعداد اعضایی که ظرف ۳۰ روز آینده امتیازشان منقضی می‌شود
-        expiringSoonPoints: { type: integer }
+        # جمع اعتبار تومانیِ داده‌شده (سود خدمت، تولد، معرفی، دستی) و موجودی کیف پول اعضا
+        totalRewards: { type: integer }
+        walletTotal: { type: integer }
+        # اعتبار (تومان) و تعداد اعضایی که ظرف ۳۰ روز آینده اعتبارشان منقضی می‌شود
+        expiringSoonAmount: { type: integer }
         expiringSoonMembers: { type: integer }
         recent:
           type: array
@@ -2596,7 +2602,7 @@ components:
 
     LoyaltyMember:
       type: object
-      required: [patientId, tier, joinedAt, patientName, balance, spend12m]
+      required: [patientId, tier, joinedAt, patientName, balance, spend12m, walletBalance, totalRewards]
       properties:
         patientId: { type: integer }
         tier: { type: string, enum: [bronze, silver, gold, diamond] }
@@ -2606,20 +2612,25 @@ components:
         phone: { type: ["string", "null"] }
         balance: { type: integer }
         spend12m: { type: number }
+        walletBalance: { type: integer }
+        totalRewards: { type: integer }
 
     AdjustLoyaltyInput:
       type: object
-      required: [patientId, points]
+      required: [patientId, amount]
       properties:
         patientId: { type: integer }
-        points: { type: integer }
+        # تومان؛ مثبت = افزودن به کیف پول، منفی = کسر
+        amount: { type: integer }
         description: { type: string }
 
     PatientLoyalty:
       type: object
-      required: [balance, settings, transactions, member]
+      required: [balance, settings, transactions, member, walletBalance, totalRewards]
       properties:
         balance: { type: integer }
+        walletBalance: { type: integer }
+        totalRewards: { type: integer }
         member:
           type: ["object", "null"]
           required: [tier, joinedAt, spend12m, nextTier]

@@ -18,4 +18,6 @@ export interface LoyaltyMember {
   phone?: string | null;
   balance: number;
   spend12m: number;
+  walletBalance: number;
+  totalRewards: number;
 }

@@ -28,6 +28,11 @@ export interface LoyaltySettingsInput {
   diamondRate?: number;
   /** @minimum 0 */
   expiryMonths?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  profitRewardPercent?: number;
   /** @minimum 0 */
   birthdayBonus?: number;
   /** @minimum 0 */

@@ -19,6 +19,7 @@ import {
   recomputeAllTiers,
   adjustLoyaltyPoints,
   isLoyaltyTier,
+  getWalletBalance,
 } from "../lib/loyalty";
 import { setAppSetting } from "../lib/sms";
 import { logActivity } from "../lib/activity";
@@ -57,11 +58,15 @@ router.put("/loyalty/settings", async (req, res): Promise<void> => {
     ["goldRate", b.goldRate],
     ["diamondRate", b.diamondRate],
     ["expiryMonths", b.expiryMonths],
+    ["profitRewardPercent", b.profitRewardPercent],
     ["birthdayBonus", b.birthdayBonus],
     ["referralBonus", b.referralBonus],
   ] as const;
   for (const [key, value] of optional) {
-    if (value !== undefined) await setAppSetting(LOYALTY_SETTING_KEYS[key], String(Math.max(0, Math.round(value))));
+    if (value === undefined) continue;
+    // درصد پاداش سود می‌تواند اعشاری باشد (مثلاً ۲.۵)؛ بقیه عدد صحیح‌اند
+    const stored = key === "profitRewardPercent" ? Math.min(100, Math.max(0, Math.round(value * 100) / 100)) : Math.max(0, Math.round(value));
+    await setAppSetting(LOYALTY_SETTING_KEYS[key], String(stored));
   }
   const settings = await getLoyaltySettings();
   // با روشن شدن باشگاه، همهٔ مراجعینِ دارای پرداخت (بدون پیامک) عضو می‌شوند؛
@@ -85,8 +90,13 @@ router.get("/loyalty/overview", async (_req, res): Promise<void> => {
       totalRedeemed: sql<number>`COALESCE(SUM(CASE WHEN ${loyaltyTransactionsTable.type} = 'redeem' THEN -${loyaltyTransactionsTable.delta} ELSE 0 END), 0)`,
       totalExpired: sql<number>`COALESCE(SUM(CASE WHEN ${loyaltyTransactionsTable.type} = 'expire' THEN -${loyaltyTransactionsTable.delta} ELSE 0 END), 0)`,
       totalOutstanding: sql<number>`COALESCE(SUM(${loyaltyTransactionsTable.delta}), 0)`,
+      totalRewards: sql<number>`COALESCE(SUM(CASE WHEN ${loyaltyTransactionsTable.type} IN ('cashback', 'birthday', 'referral') AND ${loyaltyTransactionsTable.delta} = 0 THEN ${loyaltyTransactionsTable.amount} WHEN ${loyaltyTransactionsTable.type} = 'reverse' AND ${loyaltyTransactionsTable.delta} = 0 THEN -${loyaltyTransactionsTable.amount} ELSE 0 END), 0)`,
     })
     .from(loyaltyTransactionsTable);
+  const [wallet] = await db
+    .select({ total: sql<number>`COALESCE(SUM(${patientsTable.accountBalance}), 0)` })
+    .from(loyaltyMembersTable)
+    .innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId));
 
   const tierRows = await db
     .select({ tier: loyaltyMembersTable.tier, count: sql<number>`COUNT(*)` })
@@ -122,7 +132,9 @@ router.get("/loyalty/overview", async (_req, res): Promise<void> => {
     totalRedeemed: Number(totals?.totalRedeemed ?? 0),
     totalExpired: Number(totals?.totalExpired ?? 0),
     totalOutstanding: Number(totals?.totalOutstanding ?? 0),
-    expiringSoonPoints: expiring.reduce((s, e) => s + e.points, 0),
+    totalRewards: Number(totals?.totalRewards ?? 0),
+    walletTotal: Number(wallet?.total ?? 0),
+    expiringSoonAmount: expiring.reduce((s, e) => s + e.points, 0),
     expiringSoonMembers: expiring.length,
     recent,
   });
@@ -139,24 +151,31 @@ router.get("/loyalty/members", async (_req, res): Promise<void> => {
       fileNumber: patientsTable.fileNumber,
       phone: patientsTable.phone,
       balance: sql<number>`COALESCE((SELECT SUM(delta) FROM loyalty_transactions t WHERE t.patient_id = ${loyaltyMembersTable.patientId}), 0)`,
+      walletBalance: patientsTable.accountBalance,
+      totalRewards: sql<number>`COALESCE((SELECT SUM(amount) FROM patient_account_transactions w WHERE w.patient_id = ${loyaltyMembersTable.patientId} AND w.type IN ('loyalty_cashback', 'loyalty_birthday', 'loyalty_referral')), 0)`,
     })
     .from(loyaltyMembersTable)
     .innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId))
     .orderBy(desc(loyaltyMembersTable.joinedAt));
   const spend = await getSpend12m(db, nowSec());
-  res.json(rows.map((r) => ({ ...r, balance: Number(r.balance), spend12m: spend.get(r.patientId) ?? 0 })));
+  res.json(rows.map((r) => ({
+    ...r,
+    balance: Number(r.balance),
+    totalRewards: Number(r.totalRewards),
+    spend12m: spend.get(r.patientId) ?? 0,
+  })));
 });
 
-// افزودن/کسر دستی امتیاز — فقط مدیر
+// افزودن/کسر دستی اعتبار کیف پول از صفحهٔ باشگاه — فقط مدیر
 router.post("/loyalty/adjust", requireAdmin, async (req, res): Promise<void> => {
   const parsed = AdjustLoyaltyPointsBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { patientId, points, description } = parsed.data;
-  if (!Number.isInteger(points) || points === 0) {
-    res.status(400).json({ error: "تعداد امتیاز باید عددی صحیح و غیر صفر باشد" });
+  const { patientId, amount, description } = parsed.data;
+  if (!Number.isInteger(amount) || amount === 0) {
+    res.status(400).json({ error: "مبلغ باید عددی صحیح و غیر صفر باشد" });
     return;
   }
   const member = await db.select().from(loyaltyMembersTable).where(eq(loyaltyMembersTable.patientId, patientId)).get();
@@ -165,12 +184,12 @@ router.post("/loyalty/adjust", requireAdmin, async (req, res): Promise<void> => 
     return;
   }
   try {
-    const balance = await adjustLoyaltyPoints(patientId, points, (description ?? "").trim());
-    await logActivity("update", "loyalty", patientId, `${points > 0 ? "افزودن" : "کسر"} دستی ${Math.abs(points)} امتیاز`);
+    const balance = await adjustLoyaltyPoints(patientId, amount, (description ?? "").trim());
+    await logActivity("update", "loyalty", patientId, `${amount > 0 ? "افزودن" : "کسر"} دستی ${Math.abs(amount).toLocaleString()} تومان اعتبار کیف پول`);
     res.json({ balance });
   } catch (err) {
     if (err instanceof Error && err.message === LOYALTY_ERRORS.insufficient) {
-      res.status(400).json({ error: "امتیاز مراجع برای این کسر کافی نیست" });
+      res.status(400).json({ error: "موجودی کیف پول مراجع برای این کسر کافی نیست" });
       return;
     }
     throw err;
@@ -189,7 +208,7 @@ router.get("/patients/:id/loyalty", async (req, res): Promise<void> => {
     res.status(404).json({ error: "مراجع یافت نشد" });
     return;
   }
-  const [settings, balance, transactions, member, spendMap] = await Promise.all([
+  const [settings, balance, transactions, member, spendMap, walletBalance, rewards] = await Promise.all([
     getLoyaltySettings(),
     getLoyaltyBalance(db, id),
     db
@@ -200,10 +219,17 @@ router.get("/patients/:id/loyalty", async (req, res): Promise<void> => {
       .limit(50),
     db.select().from(loyaltyMembersTable).where(eq(loyaltyMembersTable.patientId, id)).get(),
     getSpend12m(db, nowSec(), id),
+    getWalletBalance(db, id),
+    db.all<{ total: number }>(sql`
+      SELECT COALESCE(SUM(amount), 0) AS total FROM patient_account_transactions
+      WHERE patient_id = ${id} AND type IN ('loyalty_cashback', 'loyalty_birthday', 'loyalty_referral')
+    `),
   ]);
   const spend12m = spendMap.get(id) ?? 0;
   res.json({
     balance,
+    walletBalance,
+    totalRewards: Number(rewards[0]?.total ?? 0),
     settings,
     transactions,
     member: member

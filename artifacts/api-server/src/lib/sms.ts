@@ -85,7 +85,7 @@ export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
 export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
   appointment:
     "{نام} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {تاریخ} ساعت {ساعت} ثبت شد. منتظر حضور شما هستیم.\nwww.drjavadyari.ir",
-  // {باشگاه}: اگر باشگاه فعال باشد «امتیاز این خرید: … — موجودی باشگاه: … امتیاز»، وگرنه خالی
+  // {باشگاه}: اگر باشگاه فعال باشد، اعتبار سودِ این خرید و موجودی کیف پول؛ وگرنه خالی
   payment:
     "{نام} عزیز، مبلغ {مبلغ} تومان بابت {خدمت} در مطب زیبایی دکتر یاری پرداخت شد. از اعتماد شما سپاسگزاریم.{باشگاه}\nwww.drjavadyari.ir",
   commission:
@@ -102,13 +102,13 @@ export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
   followupReminder:
     "{نام} عزیز، زمان جلسهٔ بعدی شما در مطب زیبایی دکتر یاری فرا رسیده است. برای رزرو نوبت با ما تماس بگیرید.\nwww.drjavadyari.ir",
   loyaltyWelcome:
-    "{نام} عزیز، به باشگاه مشتریان مطب زیبایی دکتر یاری خوش آمدید! از این پس با هر پرداخت امتیاز می‌گیرید و می‌توانید از آن در مراجعه‌های بعدی استفاده کنید. موجودی شما: {موجودی} امتیاز.\nwww.drjavadyari.ir",
+    "{نام} عزیز، به باشگاه مشتریان مطب زیبایی دکتر یاری خوش آمدید! از این پس از هر خدمت، بخشی به‌صورت اعتبار به کیف پول شما برمی‌گردد و می‌توانید در مراجعه‌های بعدی از آن استفاده کنید. موجودی کیف پول شما: {موجودی} تومان.\nwww.drjavadyari.ir",
   loyaltyTierUp:
-    "{نام} عزیز، تبریک! سطح شما در باشگاه مشتریان مطب زیبایی دکتر یاری به «{سطح}» ارتقا یافت و از این پس با هر پرداخت امتیاز بیشتری می‌گیرید.\nwww.drjavadyari.ir",
+    "{نام} عزیز، تبریک! سطح شما در باشگاه مشتریان مطب زیبایی دکتر یاری به «{سطح}» ارتقا یافت و از این پس از هر خدمت اعتبار بیشتری به کیف پول شما برمی‌گردد.\nwww.drjavadyari.ir",
   loyaltyExpiry:
-    "{نام} عزیز، {امتیاز} امتیاز باشگاه مشتریان شما در مطب زیبایی دکتر یاری تا {تاریخ} منقضی می‌شود. برای استفاده از آن نوبت بگیرید.\nwww.drjavadyari.ir",
+    "{نام} عزیز، {اعتبار} تومان از اعتبار کیف پول شما در مطب زیبایی دکتر یاری تا {تاریخ} منقضی می‌شود. برای استفاده از آن نوبت بگیرید.\nwww.drjavadyari.ir",
   loyaltyReferral:
-    "{نام} عزیز، از معرفی دوستتان سپاسگزاریم! {امتیاز} امتیاز هدیه به حساب باشگاه شما در مطب زیبایی دکتر یاری اضافه شد. موجودی: {موجودی} امتیاز.\nwww.drjavadyari.ir",
+    "{نام} عزیز، از معرفی دوستتان سپاسگزاریم! {اعتبار} تومان اعتبار هدیه به کیف پول شما در مطب زیبایی دکتر یاری اضافه شد. موجودی کیف پول: {موجودی} تومان.\nwww.drjavadyari.ir",
 };
 
 // ── ابزارهای قالب و قالب‌بندی ─────────────────────────────────────────────────
@@ -406,11 +406,12 @@ function describePatternFailure(resp: MelipayamakResponse): string {
 //   recipientWelcome: {0}=نام
 //   appointmentReminder: {0}=نام  {1}=تاریخ  {2}=ساعت
 //   followupReminder: {0}=نام
+//   (مبالغ باشگاه به تومان؛ «موجودی» = موجودی کیف پول)
 //   loyaltyWelcome:  {0}=نام  {1}=موجودی
 //   loyaltyTierUp:   {0}=نام  {1}=سطح
-//   loyaltyExpiry:   {0}=نام  {1}=امتیاز  {2}=تاریخ
-//   loyaltyReferral: {0}=نام  {1}=امتیاز  {2}=موجودی
-//   پرداخت با امتیاز (کد جدا): {0}=نام  {1}=مبلغ  {2}=خدمت  {3}=امتیاز  {4}=موجودی
+//   loyaltyExpiry:   {0}=نام  {1}=اعتبار  {2}=تاریخ
+//   loyaltyReferral: {0}=نام  {1}=اعتبار  {2}=موجودی
+//   پرداخت با اعتبار باشگاه (کد جدا): {0}=نام  {1}=مبلغ  {2}=خدمت  {3}=اعتبار این خرید  {4}=موجودی
 export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   appointment: ["نام", "تاریخ", "ساعت"],
   payment: ["نام", "مبلغ", "خدمت"],
@@ -422,8 +423,8 @@ export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   followupReminder: ["نام"],
   loyaltyWelcome: ["نام", "موجودی"],
   loyaltyTierUp: ["نام", "سطح"],
-  loyaltyExpiry: ["نام", "امتیاز", "تاریخ"],
-  loyaltyReferral: ["نام", "امتیاز", "موجودی"],
+  loyaltyExpiry: ["نام", "اعتبار", "تاریخ"],
+  loyaltyReferral: ["نام", "اعتبار", "موجودی"],
 };
 
 // متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
@@ -603,7 +604,7 @@ export function firePaymentSms(args: {
   phone: string | null;
   amount: number;
   serviceName?: string | null;
-  /** اگر باشگاه فعال و مراجع عضو است: امتیاز این پرداخت، موجودی و سطح */
+  /** اگر باشگاه فعال و مراجع عضو است: اعتبار سودِ این پرداخت و موجودی کیف پول (تومان) و سطح */
   loyalty?: { earned: number; balance: number; tierLabel: string } | null;
 }): void {
   void (async () => {
@@ -616,18 +617,21 @@ export function firePaymentSms(args: {
       const amount = formatToman(args.amount);
       const service = args.serviceName || "خدمات";
       const loyalty = args.loyalty ?? null;
-      const points = loyalty ? toPersianDigits(loyalty.earned) : "";
-      const balance = loyalty ? toPersianDigits(loyalty.balance) : "";
+      const points = loyalty ? formatToman(loyalty.earned) : "";
+      const balance = loyalty ? formatToman(loyalty.balance) : "";
       const text = renderTemplate(templates.payment, {
         "نام": name,
         "مبلغ": amount,
         "خدمت": service,
+        "اعتبار": points,
         "امتیاز": points,
         "موجودی": balance,
         "سطح": loyalty?.tierLabel ?? "",
-        "باشگاه": loyalty
-          ? ` امتیاز این خرید: ${points} — موجودی باشگاه: ${balance} امتیاز.`
-          : "",
+        "باشگاه": !loyalty
+          ? ""
+          : loyalty.earned > 0
+            ? ` ${points} تومان اعتبار هدیه از سود این خدمت به کیف پول شما اضافه شد؛ موجودی کیف پول: ${balance} تومان.`
+            : ` موجودی کیف پول شما: ${balance} تومان.`,
       });
       // پترن پرداختِ همراه با امتیاز فقط وقتی کدش تنظیم شده؛ وگرنه همان پترن پرداخت عادی
       const usePaymentLoyaltyPattern = !!loyalty && settings.bodyIdPaymentLoyalty !== "";

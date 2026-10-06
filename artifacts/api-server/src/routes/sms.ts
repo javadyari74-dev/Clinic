@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { desc, sql, inArray, eq } from "drizzle-orm";
 import { db, smsLogTable, patientsTable, smsSavedPatternsTable, loyaltyMembersTable } from "@workspace/db";
-import { getLoyaltyBalance, isLoyaltyTier, TIER_LABELS } from "../lib/loyalty";
+import { getWalletBalance, isLoyaltyTier, TIER_LABELS } from "../lib/loyalty";
 import {
   UpdateSmsSettingsBody,
   UpdateSmsTemplatesBody,
@@ -29,6 +29,7 @@ import {
   renderTemplate,
   normalizePhone,
   toPersianDigits,
+  formatToman,
 } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
 
@@ -234,8 +235,8 @@ router.post("/sms/send", async (req, res): Promise<void> => {
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
-  // متغیرهای باشگاه برای هر گیرنده: {امتیاز} = موجودی، {سطح}
-  const usesLoyaltyVars = /\{\s*(امتیاز|سطح)\s*\}/.test(message);
+  // متغیرهای باشگاه برای هر گیرنده: {اعتبار} (یا {امتیاز}) = موجودی کیف پول به تومان، {سطح}
+  const usesLoyaltyVars = /\{\s*(امتیاز|اعتبار|سطح)\s*\}/.test(message);
   const memberTiers = new Map<number, string>();
   if (usesLoyaltyVars) {
     const rows = await db.select().from(loyaltyMembersTable)
@@ -246,7 +247,10 @@ router.post("/sms/send", async (req, res): Promise<void> => {
     const tier = memberTiers.get(r.id);
     const text = renderTemplate(message, {
       "نام": r.name,
-      "امتیاز": usesLoyaltyVars ? toPersianDigits(await getLoyaltyBalance(db, r.id)) : "",
+      ...(usesLoyaltyVars ? await (async () => {
+        const wallet = formatToman(await getWalletBalance(db, r.id));
+        return { "اعتبار": wallet, "امتیاز": wallet };
+      })() : { "اعتبار": "", "امتیاز": "" }),
       "سطح": tier && isLoyaltyTier(tier) ? TIER_LABELS[tier] : "",
       // جای‌نگهدارهای پیامک‌های خودکار، در ارسال دستی خالی می‌شوند
       "هدیه_باشگاه": "",

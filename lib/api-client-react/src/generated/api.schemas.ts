@@ -1015,6 +1015,7 @@ export interface LoyaltySettings {
   goldRate: number;
   diamondRate: number;
   expiryMonths: number;
+  profitRewardPercent: number;
   birthdayBonus: number;
   referralBonus: number;
 }
@@ -1041,6 +1042,11 @@ export interface LoyaltySettingsInput {
   diamondRate?: number;
   /** @minimum 0 */
   expiryMonths?: number;
+  /**
+     * @minimum 0
+     * @maximum 100
+     */
+  profitRewardPercent?: number;
   /** @minimum 0 */
   birthdayBonus?: number;
   /** @minimum 0 */
@@ -1058,6 +1064,7 @@ export const LoyaltyTransactionType = {
   birthday: 'birthday',
   referral: 'referral',
   adjust: 'adjust',
+  cashback: 'cashback',
 } as const;
 
 export interface LoyaltyTransaction {
@@ -1089,7 +1096,9 @@ export interface LoyaltyOverview {
   totalRedeemed: number;
   totalExpired: number;
   totalOutstanding: number;
-  expiringSoonPoints: number;
+  totalRewards: number;
+  walletTotal: number;
+  expiringSoonAmount: number;
   expiringSoonMembers: number;
   recent: LoyaltyTransaction[];
 }
@@ -1115,11 +1124,13 @@ export interface LoyaltyMember {
   phone?: string | null;
   balance: number;
   spend12m: number;
+  walletBalance: number;
+  totalRewards: number;
 }
 
 export interface AdjustLoyaltyInput {
   patientId: number;
-  points: number;
+  amount: number;
   description?: string;
 }
 
@@ -1140,6 +1151,8 @@ export type PatientLoyaltyMember = {
 
 export interface PatientLoyalty {
   balance: number;
+  walletBalance: number;
+  totalRewards: number;
   /** @nullable */
   member: PatientLoyaltyMember;
   settings: LoyaltySettings;

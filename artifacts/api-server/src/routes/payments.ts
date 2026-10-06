@@ -19,6 +19,8 @@ import {
   getMemberTier,
   tierRate,
   updateMembershipAfterPayment,
+  applyProfitCashback,
+  getWalletBalance,
   TIER_LABELS,
   type MembershipUpdate,
 } from "../lib/loyalty";
@@ -152,7 +154,7 @@ router.post("/payments", async (req, res): Promise<void> => {
       const ratePercent = loyaltySettings.enabled
         ? tierRate(await getMemberTier(tx, loyaltyPatientId), loyaltySettings)
         : 100;
-      const applied = await applyLoyaltyOnPayment(tx, {
+      await applyLoyaltyOnPayment(tx, {
         patientId: loyaltyPatientId,
         paymentId: created.id,
         amountPaid: created.amount,
@@ -160,6 +162,8 @@ router.post("/payments", async (req, res): Promise<void> => {
         settings: loyaltySettings,
         serviceName: created.serviceName,
         ratePercent,
+        // پاداش باشگاه اکنون اعتبار سود خدمت در کیف پول است، نه امتیاز بر اساس مبلغ
+        earnPoints: false,
       });
       // عضویت خودکار، ارتقای سطح و امتیاز معرفی — داخل همین تراکنش
       if (loyaltySettings.enabled) {
@@ -170,7 +174,17 @@ router.post("/payments", async (req, res): Promise<void> => {
           nowSec: paidAt,
           patientName: created.patientName,
         });
-        membership = { ...m, earned: applied.earned };
+        // درصدی از سود خدمت (با ضریب سطح) به کیف پول مراجع
+        const cashback = await applyProfitCashback(tx, {
+          patientId: loyaltyPatientId,
+          paymentId: created.id,
+          appointmentId: created.appointmentId,
+          unitsUsed: created.unitsUsed,
+          settings: loyaltySettings,
+          ratePercent,
+          serviceName: created.serviceName,
+        });
+        membership = { ...m, earned: cashback.reward };
       }
     }
 
@@ -284,8 +298,9 @@ router.post("/payments", async (req, res): Promise<void> => {
   let loyaltySms: { earned: number; balance: number; tierLabel: string } | null = null;
   if (loyaltyResult && loyaltyPatientId) {
     loyaltySms = {
+      // اعتبار سودِ همین پرداخت و موجودی کیف پول (تومان)
       earned: loyaltyResult.earned,
-      balance: await getLoyaltyBalance(db, loyaltyPatientId),
+      balance: await getWalletBalance(db, loyaltyPatientId),
       tierLabel: TIER_LABELS[loyaltyResult.tier],
     };
     if (loyaltyResult.joined) fireLoyaltyWelcomeSms(loyaltyPatientId);
@@ -348,6 +363,7 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
   // اتمیک «تصاحب» می‌کنیم: DELETE ... RETURNING؛ اگر ردیفی برنگردد یعنی درخواست دیگری
   // زودتر آن را حذف کرده، پس تراکنش لغو می‌شود و آثار مالی فقط یک‌بار برگردانده می‌شوند.
   const PAYMENT_NOT_FOUND = "PAYMENT_NOT_FOUND";
+  const WALLET_NEGATIVE = "WALLET_NEGATIVE";
   let payment: typeof paymentsTable.$inferSelect;
   try {
     payment = await db.transaction(async (tx) => {
@@ -370,6 +386,12 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
           .update(patientsTable)
           .set({ accountBalance: sql`${patientsTable.accountBalance} - ${t.amount}` })
           .where(eq(patientsTable.id, t.patientId));
+      }
+      // اگر اعتبارِ داده‌شده از این پرداخت (سود خدمت یا معرفی) قبلاً خرج شده باشد، کیف پول
+      // منفی می‌شود؛ در این حالت حذف لغو می‌شود
+      for (const pid of new Set(linkedTxns.filter((t) => t.amount > 0).map((t) => t.patientId))) {
+        const p = await tx.select({ balance: patientsTable.accountBalance }).from(patientsTable).where(eq(patientsTable.id, pid)).get();
+        if (p && p.balance < 0) throw new Error(WALLET_NEGATIVE);
       }
       if (linkedTxns.length > 0) {
         await tx
@@ -412,6 +434,10 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
   } catch (err) {
     if (err instanceof Error && err.message === PAYMENT_NOT_FOUND) {
       res.status(404).json({ error: "پرداخت یافت نشد" });
+      return;
+    }
+    if (err instanceof Error && err.message === WALLET_NEGATIVE) {
+      res.status(400).json({ error: "اعتباری که این پرداخت به کیف پول مراجع داده قبلاً خرج شده است؛ حذف این پرداخت ممکن نیست" });
       return;
     }
     if (err instanceof Error && err.message === LOYALTY_ERRORS.negativeOnDelete) {

@@ -17,6 +17,7 @@ import {
   renderTemplate,
   sendSms,
   toPersianDigits,
+  formatToman,
   type SmsSettings,
 } from "./sms";
 
@@ -263,7 +264,7 @@ async function sendBirthdayGreetings(settings: SmsSettings, nowMs: number): Prom
       to: r.phone,
       text: renderTemplate(templates.birthday, {
         "نام": name,
-        "هدیه_باشگاه": bonus > 0 ? ` ${toPersianDigits(bonus)} امتیاز هدیه هم به حساب باشگاه مشتریان شما اضافه شد.` : "",
+        "هدیه_باشگاه": bonus > 0 ? ` ${formatToman(bonus)} تومان اعتبار هدیه هم به کیف پول شما اضافه شد.` : "",
       }),
       eventType: "birthday",
       recipientName: r.name,

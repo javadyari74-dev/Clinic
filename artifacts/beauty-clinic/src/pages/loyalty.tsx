@@ -26,10 +26,11 @@ import { LoyaltyTierBadge, LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTie
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, TrendingDown } from "lucide-react";
+import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet } from "lucide-react";
 
 const TYPE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  earn: { label: "کسب", variant: "default" },
+  cashback: { label: "اعتبار سود", variant: "default" },
+  earn: { label: "کسب امتیاز", variant: "default" },
   redeem: { label: "استفاده", variant: "secondary" },
   reverse: { label: "برگردان", variant: "outline" },
   expire: { label: "انقضا", variant: "destructive" },
@@ -39,19 +40,33 @@ const TYPE_LABELS: Record<string, { label: string; variant: "default" | "seconda
 };
 
 type NumericField =
-  | "earnAmount" | "redeemValue" | "minRedeem"
   | "silverMin" | "goldMin" | "diamondMin"
   | "silverRate" | "goldRate" | "diamondRate"
   | "expiryMonths" | "birthdayBonus" | "referralBonus";
 
 const NUMERIC_FIELDS: NumericField[] = [
-  "earnAmount", "redeemValue", "minRedeem",
   "silverMin", "goldMin", "diamondMin",
   "silverRate", "goldRate", "diamondRate",
   "expiryMonths", "birthdayBonus", "referralBonus",
 ];
 
 const num = (v: string) => Number.parseInt(v.replace(/[^\d]/g, ""), 10);
+const pct = (n: number) => `${toPersianDigits(+n.toFixed(2))}٪`;
+
+// ردیف‌های تومانی (اعتبار کیف پول) delta صفر دارند و مبلغشان در amount است؛
+// ردیف‌های امتیازی قدیمی delta دارند
+type TxLike = { delta: number; amount: number; type: string };
+const NEGATIVE_TYPES = ["expire", "reverse", "redeem"];
+function txSign(tx: TxLike): number {
+  if (tx.delta !== 0) return Math.sign(tx.delta);
+  return NEGATIVE_TYPES.includes(tx.type) ? -1 : 1;
+}
+function txAmountText(tx: TxLike): string {
+  const sign = txSign(tx) > 0 ? "+" : "−";
+  return tx.delta !== 0
+    ? `${sign}${toPersianDigits(Math.abs(tx.delta))} امتیاز`
+    : `${sign}${formatCurrency(tx.amount)}`;
+}
 
 function rateText(rate: number) {
   return rate === 100 ? "عادی" : `${toPersianDigits(+(rate / 100).toFixed(2))} برابر`;
@@ -73,8 +88,6 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
     gold: settings?.goldRate ?? 100,
     diamond: settings?.diamondRate ?? 100,
   };
-  const value = (points: number) => formatCurrency(points * (settings?.redeemValue ?? 0));
-
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
@@ -91,23 +104,23 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Coins className="h-4 w-4 text-amber-600" /> امتیاز در دست اعضا
+              <Gift className="h-4 w-4 text-emerald-600" /> اعتبار هدیه‌شده تا امروز
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-amber-600">{toPersianDigits(overview?.totalOutstanding ?? 0)}</p>
-            <p className="text-xs text-muted-foreground mt-1">معادل {value(overview?.totalOutstanding ?? 0)}</p>
+            <p className="text-xl font-bold text-emerald-700">{formatCurrency(overview?.totalRewards ?? 0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">سود خدمت، تولد و معرفی</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <TrendingDown className="h-4 w-4 text-rose-600" /> استفاده‌شده تا امروز
+              <Wallet className="h-4 w-4 text-amber-600" /> موجودی کیف پول اعضا
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-rose-600">{toPersianDigits(overview?.totalRedeemed ?? 0)}</p>
-            <p className="text-xs text-muted-foreground mt-1">معادل {value(overview?.totalRedeemed ?? 0)} تخفیف</p>
+            <p className="text-xl font-bold text-amber-600">{formatCurrency(overview?.walletTotal ?? 0)}</p>
+            <p className="text-xs text-muted-foreground mt-1">قابل استفاده در صندوق</p>
           </CardContent>
         </Card>
         <Card>
@@ -117,7 +130,7 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-orange-600">{toPersianDigits(overview?.expiringSoonPoints ?? 0)}</p>
+            <p className="text-xl font-bold text-orange-600">{formatCurrency(overview?.expiringSoonAmount ?? 0)}</p>
             <p className="text-xs text-muted-foreground mt-1">
               {settings?.expiryMonths ? `${toPersianDigits(overview?.expiringSoonMembers ?? 0)} عضو` : "انقضا غیرفعال است"}
             </p>
@@ -140,7 +153,9 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
                     ? `خرید ۱۲ ماه از ${formatCurrency(tierMin[t])}`
                     : "غیرفعال"}
               </p>
-              <p className="text-xs text-muted-foreground">امتیاز: {rateText(tierRateOf[t])}</p>
+              <p className="text-xs text-muted-foreground">
+                اعتبار: {pct(((settings?.profitRewardPercent ?? 0) * tierRateOf[t]) / 100)} سود هر خدمت
+              </p>
             </CardContent>
           </Card>
         ))}
@@ -150,7 +165,7 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Coins className="h-4 w-4 text-primary" />
-            آخرین تراکنش‌های امتیازی
+            آخرین تراکنش‌های باشگاه
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -159,7 +174,7 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
               <TableRow>
                 <TableHead className="text-right">مراجع</TableHead>
                 <TableHead className="text-right">نوع</TableHead>
-                <TableHead className="text-right">امتیاز</TableHead>
+                <TableHead className="text-right">مبلغ</TableHead>
                 <TableHead className="text-right">شرح</TableHead>
                 <TableHead className="text-right">تاریخ</TableHead>
               </TableRow>
@@ -175,9 +190,8 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
                   <TableCell>
                     <Badge variant={TYPE_LABELS[tx.type]?.variant ?? "outline"}>{TYPE_LABELS[tx.type]?.label ?? tx.type}</Badge>
                   </TableCell>
-                  <TableCell className={`font-mono font-bold ${tx.delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                    {tx.delta > 0 ? "+" : "−"}
-                    {toPersianDigits(Math.abs(tx.delta))}
+                  <TableCell className={`font-bold whitespace-nowrap ${txSign(tx) > 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {txAmountText(tx)}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-72 truncate">{tx.description ?? "—"}</TableCell>
                   <TableCell className="text-sm">{formatShamsiDate(tx.createdAt, true)}</TableCell>
@@ -209,7 +223,7 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
   const [q, setQ] = useState("");
   const [tier, setTier] = useState<LoyaltyTierKey | "all">("all");
   const [adjusting, setAdjusting] = useState<LoyaltyMember | null>(null);
-  const [points, setPoints] = useState("");
+  const [amountInput, setAmountInput] = useState("");
   const [direction, setDirection] = useState<"add" | "remove">("add");
   const [description, setDescription] = useState("");
 
@@ -218,12 +232,12 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListLoyaltyMembersQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetLoyaltyOverviewQueryKey() });
-        toast({ title: "امتیاز مراجع به‌روزرسانی شد" });
+        toast({ title: "کیف پول مراجع به‌روزرسانی شد" });
         setAdjusting(null);
       },
       onError: (err) => {
         const msg = (err as { data?: { error?: string } })?.data?.error;
-        toast({ title: msg || "تغییر امتیاز ناموفق بود", variant: "destructive" });
+        toast({ title: msg || "تغییر اعتبار ناموفق بود", variant: "destructive" });
       },
     },
   });
@@ -239,19 +253,19 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
 
   function openAdjust(m: LoyaltyMember) {
     setAdjusting(m);
-    setPoints("");
+    setAmountInput("");
     setDirection("add");
     setDescription("");
   }
 
   function submitAdjust() {
-    const n = num(points);
+    const n = num(amountInput);
     if (!adjusting || !Number.isFinite(n) || n <= 0) {
-      toast({ title: "تعداد امتیاز را وارد کنید", variant: "destructive" });
+      toast({ title: "مبلغ را وارد کنید", variant: "destructive" });
       return;
     }
     adjust.mutate({
-      data: { patientId: adjusting.patientId, points: direction === "add" ? n : -n, description: description.trim() },
+      data: { patientId: adjusting.patientId, amount: direction === "add" ? n : -n, description: description.trim() },
     });
   }
 
@@ -279,7 +293,8 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
             <TableRow>
               <TableHead className="text-right">مراجع</TableHead>
               <TableHead className="text-right">سطح</TableHead>
-              <TableHead className="text-right">امتیاز</TableHead>
+              <TableHead className="text-right">کیف پول</TableHead>
+              <TableHead className="text-right">اعتبار هدیه‌شده</TableHead>
               <TableHead className="text-right">خرید ۱۲ ماه</TableHead>
               <TableHead className="text-right">عضویت از</TableHead>
               {isAdmin && <TableHead />}
@@ -295,16 +310,14 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
                   <div className="text-xs text-muted-foreground" dir="ltr">{m.phone ?? ""}</div>
                 </TableCell>
                 <TableCell><LoyaltyTierBadge tier={m.tier} /></TableCell>
-                <TableCell>
-                  <span className="font-mono font-bold">{toPersianDigits(m.balance)}</span>
-                  <div className="text-xs text-muted-foreground">{formatCurrency(m.balance * (settings?.redeemValue ?? 0))}</div>
-                </TableCell>
-                <TableCell className="font-mono text-sm">{formatCurrency(m.spend12m)}</TableCell>
+                <TableCell className="font-bold text-amber-700 whitespace-nowrap">{formatCurrency(m.walletBalance)}</TableCell>
+                <TableCell className="text-sm text-emerald-700 whitespace-nowrap">{formatCurrency(m.totalRewards)}</TableCell>
+                <TableCell className="text-sm whitespace-nowrap">{formatCurrency(m.spend12m)}</TableCell>
                 <TableCell className="text-sm">{formatShamsiDate(m.joinedAt)}</TableCell>
                 {isAdmin && (
                   <TableCell>
                     <Button variant="ghost" size="sm" className="gap-1" onClick={() => openAdjust(m)}>
-                      <PlusCircle className="h-3.5 w-3.5" /> تغییر امتیاز
+                      <PlusCircle className="h-3.5 w-3.5" /> تغییر اعتبار
                     </Button>
                   </TableCell>
                 )}
@@ -312,7 +325,7 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={isAdmin ? 7 : 6} className="text-center text-muted-foreground py-8">
                   {members?.length ? "عضوی با این مشخصات پیدا نشد" : "هنوز عضوی در باشگاه نیست"}
                 </TableCell>
               </TableRow>
@@ -324,19 +337,19 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
       <Dialog open={!!adjusting} onOpenChange={(o) => !o && setAdjusting(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>تغییر امتیاز {adjusting?.patientName}</DialogTitle>
+            <DialogTitle>تغییر اعتبار کیف پول {adjusting?.patientName}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              موجودی فعلی: <span className="font-bold text-foreground">{toPersianDigits(adjusting?.balance ?? 0)}</span> امتیاز
+              موجودی فعلی: <span className="font-bold text-foreground">{formatCurrency(adjusting?.walletBalance ?? 0)}</span>
             </p>
             <div className="flex gap-2">
               <Button size="sm" variant={direction === "add" ? "default" : "outline"} onClick={() => setDirection("add")}>افزودن</Button>
               <Button size="sm" variant={direction === "remove" ? "destructive" : "outline"} onClick={() => setDirection("remove")}>کسر</Button>
             </div>
             <div>
-              <Label className="text-sm mb-1.5 block">تعداد امتیاز</Label>
-              <Input inputMode="numeric" dir="ltr" value={points} onChange={(e) => setPoints(e.target.value.replace(/[^\d]/g, ""))} />
+              <Label className="text-sm mb-1.5 block">مبلغ (تومان)</Label>
+              <Input inputMode="numeric" dir="ltr" value={amountInput} onChange={(e) => setAmountInput(e.target.value.replace(/[^\d]/g, ""))} />
             </div>
             <div>
               <Label className="text-sm mb-1.5 block">توضیح (اختیاری)</Label>
@@ -359,6 +372,7 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [enabled, setEnabled] = useState(false);
+  const [percent, setPercent] = useState("");
   const [values, setValues] = useState<Record<NumericField, string>>(
     () => Object.fromEntries(NUMERIC_FIELDS.map((f) => [f, ""])) as Record<NumericField, string>,
   );
@@ -366,6 +380,7 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
   useEffect(() => {
     if (!settings) return;
     setEnabled(settings.enabled);
+    setPercent(String(settings.profitRewardPercent));
     setValues(Object.fromEntries(NUMERIC_FIELDS.map((f) => [f, String(settings[f])])) as Record<NumericField, string>);
   }, [settings]);
 
@@ -387,12 +402,9 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
 
   function handleSave() {
     const parsed = Object.fromEntries(NUMERIC_FIELDS.map((f) => [f, n(f)])) as Record<NumericField, number>;
-    if (!(parsed.earnAmount >= 1000) || !(parsed.redeemValue >= 1000)) {
-      toast({ title: "نرخ کسب و ارزش امتیاز باید حداقل ۱٬۰۰۰ تومان باشد", variant: "destructive" });
-      return;
-    }
-    if (!(parsed.minRedeem >= 1)) {
-      toast({ title: "حداقل امتیاز برای استفاده باید حداقل ۱ باشد", variant: "destructive" });
+    const profitRewardPercent = Number.parseFloat(percent.replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace("٫", "."));
+    if (!Number.isFinite(profitRewardPercent) || profitRewardPercent < 0 || profitRewardPercent > 100) {
+      toast({ title: "درصد اعتبار سود باید بین ۰ تا ۱۰۰ باشد", variant: "destructive" });
       return;
     }
     for (const f of NUMERIC_FIELDS) {
@@ -410,7 +422,18 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
       toast({ title: "ضریب امتیاز سطح‌ها نمی‌تواند کمتر از ۱۰۰٪ باشد", variant: "destructive" });
       return;
     }
-    update.mutate({ data: { enabled, ...parsed } });
+    if (!settings) return;
+    update.mutate({
+      data: {
+        enabled,
+        ...parsed,
+        profitRewardPercent,
+        // تنظیمات امتیاز قدیمی (بر اساس مبلغ) بدون تغییر می‌مانند
+        earnAmount: settings.earnAmount,
+        redeemValue: settings.redeemValue,
+        minRedeem: settings.minRedeem,
+      },
+    });
   }
 
   const tierRows: Array<{ tier: LoyaltyTierKey; min: NumericField; rate: NumericField }> = [
@@ -423,7 +446,7 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2"><Settings2 className="h-4 w-4 text-primary" /> امتیاز</CardTitle>
+          <CardTitle className="text-base flex items-center gap-2"><Settings2 className="h-4 w-4 text-primary" /> پاداش: اعتبار از سود خدمت</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between rounded-lg border p-3">
@@ -435,20 +458,17 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
             </div>
             <Switch id="loyalty-enabled" checked={enabled} onCheckedChange={setEnabled} />
           </div>
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-[16rem_1fr] items-start">
             <div>
-              <Label className="text-sm mb-1.5 block">نرخ کسب امتیاز (تومان به ازای ۱ امتیاز)</Label>
-              <Input inputMode="numeric" dir="ltr" value={values.earnAmount} onChange={set("earnAmount")} />
-              <p className="text-xs text-muted-foreground mt-1">هر {formatCurrency(n("earnAmount") || 0)} پرداخت = ۱ امتیاز</p>
+              <Label className="text-sm mb-1.5 block">اعتبار از سود هر خدمت (٪)</Label>
+              <Input inputMode="decimal" dir="ltr" value={percent} onChange={(e) => setPercent(e.target.value.replace(/[^\d.٫۰-۹]/g, ""))} />
             </div>
-            <div>
-              <Label className="text-sm mb-1.5 block">ارزش هر امتیاز هنگام استفاده (تومان)</Label>
-              <Input inputMode="numeric" dir="ltr" value={values.redeemValue} onChange={set("redeemValue")} />
-              <p className="text-xs text-muted-foreground mt-1">هر امتیاز = {formatCurrency(n("redeemValue") || 0)} تخفیف</p>
-            </div>
-            <div>
-              <Label className="text-sm mb-1.5 block">حداقل امتیاز برای استفاده</Label>
-              <Input inputMode="numeric" dir="ltr" value={values.minRedeem} onChange={set("minRedeem")} />
+            <div className="rounded-md bg-muted/50 p-3 text-sm leading-7 text-muted-foreground">
+              سود خدمت = مبلغ پرداخت − هزینهٔ خدمت (حق‌الزحمهٔ پزشک + مواد + سایر، همان‌که در «خدمات» تعریف شده).
+              این درصد از سود (با ضریب سطح مراجع) به‌صورت اعتبار تومانی به <b>کیف پول</b> مراجع شارژ می‌شود، در تاریخچهٔ باشگاه ثبت می‌شود و در پیامک پرداخت اعلام می‌شود.
+              <br />
+              مثال: سود ۱۰٬۰۰۰٬۰۰۰ تومان × {pct(Number.parseFloat(percent) || 0)} = {formatCurrency(Math.floor(((Number.parseFloat(percent) || 0) * 100_000) / 1000) * 1000)} اعتبار (گرد به پایین تا هزار تومان).
+              بخشی از پرداخت که از کیف پول خرج شده، اعتبار تازه نمی‌سازد.
             </div>
           </div>
         </CardContent>
@@ -458,7 +478,7 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2"><Award className="h-4 w-4 text-amber-600" /> سطح‌ها</CardTitle>
           <CardDescription>
-            سطح هر عضو خودکار از روی مجموع پرداخت‌های ۱۲ ماه اخیرش تعیین می‌شود. ارتقای سطح با پیامک اطلاع داده می‌شود؛ اگر خرید ۱۲ ماهه کم شود، سطح بی‌صدا پایین می‌آید. برای غیرفعال کردن یک سطح، مرز آن را ۰ بگذارید.
+            سطح هر عضو خودکار از روی مجموع پرداخت‌های ۱۲ ماه اخیرش تعیین می‌شود و ضریب سطح، درصد اعتبار سود را بیشتر می‌کند. ارتقای سطح با پیامک اطلاع داده می‌شود؛ اگر خرید ۱۲ ماهه کم شود، سطح بی‌صدا پایین می‌آید. برای غیرفعال کردن یک سطح، مرز آن را ۰ بگذارید.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -470,7 +490,9 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
                 <Input inputMode="numeric" dir="ltr" value={values[min]} onChange={set(min)} />
               </div>
               <div>
-                <Label className="text-xs mb-1 block text-muted-foreground">ضریب امتیاز (٪) — {rateText(n(rate) || 100)}</Label>
+                <Label className="text-xs mb-1 block text-muted-foreground">
+                  ضریب (٪) — {rateText(n(rate) || 100)}، یعنی {pct(((Number.parseFloat(percent) || 0) * (n(rate) || 100)) / 100)} سود
+                </Label>
                 <Input inputMode="numeric" dir="ltr" value={values[rate]} onChange={set(rate)} />
               </div>
             </div>
@@ -484,21 +506,21 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
           <div>
-            <Label className="text-sm mb-1.5 block">انقضای امتیاز (ماه پس از کسب)</Label>
+            <Label className="text-sm mb-1.5 block">انقضای اعتبار هدیه (ماه پس از دریافت)</Label>
             <Input inputMode="numeric" dir="ltr" value={values.expiryMonths} onChange={set("expiryMonths")} />
             <p className="text-xs text-muted-foreground mt-1">
               {n("expiryMonths") > 0
-                ? `امتیاز ${toPersianDigits(n("expiryMonths"))} ماه پس از کسب منقضی می‌شود (اول قدیمی‌ترها خرج می‌شوند)؛ یک هفته قبل پیامک هشدار می‌رود`
-                : "۰ = امتیازها هرگز منقضی نمی‌شوند"}
+                ? `اعتبار هدیهٔ خرج‌نشده ${toPersianDigits(n("expiryMonths"))} ماه پس از دریافت از کیف پول کم می‌شود (هنگام خرج، اول اعتبار هدیهٔ قدیمی‌تر مصرف می‌شود؛ پولی که خود مراجع شارژ کرده هرگز منقضی نمی‌شود). یک هفته قبل پیامک هشدار می‌رود`
+                : "۰ = اعتبار هدیه هرگز منقضی نمی‌شود"}
             </p>
           </div>
           <div>
-            <Label className="text-sm mb-1.5 block">امتیاز هدیهٔ تولد</Label>
+            <Label className="text-sm mb-1.5 block">اعتبار هدیهٔ تولد (تومان)</Label>
             <Input inputMode="numeric" dir="ltr" value={values.birthdayBonus} onChange={set("birthdayBonus")} />
             <p className="text-xs text-muted-foreground mt-1">در روز تولد شمسی؛ در پیامک تبریک تولد خودکار هم گفته می‌شود (۰ = خاموش)</p>
           </div>
           <div>
-            <Label className="text-sm mb-1.5 block">امتیاز معرفی دوست</Label>
+            <Label className="text-sm mb-1.5 block">اعتبار معرفی دوست (تومان)</Label>
             <Input inputMode="numeric" dir="ltr" value={values.referralBonus} onChange={set("referralBonus")} />
             <p className="text-xs text-muted-foreground mt-1">وقتی مراجعی که معرفش «مراجع» دیگری است اولین پرداختش را انجام دهد، به معرف داده می‌شود (۰ = خاموش)</p>
           </div>
@@ -529,7 +551,7 @@ export default function Loyalty() {
           باشگاه مشتریان
         </h1>
         <p className="text-muted-foreground mt-1">
-          عضویت خودکار با اولین پرداخت، سطح‌بندی بر اساس خرید، امتیاز با هر پرداخت و استفاده از آن در صندوق
+          عضویت خودکار با اولین پرداخت، سطح‌بندی بر اساس خرید، و اعتبار کیف پول از سود هر خدمت که در صندوق قابل استفاده است
         </p>
       </div>
 

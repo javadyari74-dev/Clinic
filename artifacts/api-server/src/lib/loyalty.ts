@@ -5,6 +5,7 @@ import {
   loyaltyTransactionsTable,
   loyaltyMembersTable,
   patientsTable,
+  patientAccountTransactionsTable,
 } from "@workspace/db";
 
 // ── باشگاه مشتریان (امتیاز وفاداری) ─────────────────────────────────────────
@@ -32,9 +33,12 @@ export const LOYALTY_SETTING_KEYS = {
   diamondRate: "loyalty_diamond_rate",
   // انقضای امتیاز: چند ماه پس از کسب (۰ = بدون انقضا)
   expiryMonths: "loyalty_expiry_months",
-  // امتیاز هدیهٔ تولد و معرفی دوست (۰ = خاموش)
-  birthdayBonus: "loyalty_birthday_bonus",
-  referralBonus: "loyalty_referral_bonus",
+  // پاداش اصلی باشگاه: درصدی از سود خدمت (مبلغ پرداخت − هزینهٔ خدمت) که به‌صورت
+  // اعتبار تومانی به کیف پول مراجع شارژ می‌شود (ضریب سطح هم روی آن اعمال می‌شود)
+  profitRewardPercent: "loyalty_profit_reward_percent",
+  // اعتبار تومانیِ هدیهٔ تولد و معرفی دوست (۰ = خاموش) — به کیف پول
+  birthdayBonus: "loyalty_birthday_credit",
+  referralBonus: "loyalty_referral_credit",
 } as const;
 
 // اعداد شرح تراکنش‌ها با ارقام فارسی
@@ -55,7 +59,11 @@ export interface LoyaltySettings {
   goldRate: number;
   diamondRate: number;
   expiryMonths: number;
+  /** درصد سود خدمت که اعتبار کیف پول می‌شود (مثلاً ۵) */
+  profitRewardPercent: number;
+  /** اعتبار هدیهٔ تولد (تومان) */
   birthdayBonus: number;
+  /** اعتبار معرفی دوست برای معرف (تومان) */
   referralBonus: number;
 }
 
@@ -71,9 +79,16 @@ export const LOYALTY_DEFAULTS: LoyaltySettings = {
   goldRate: 150,
   diamondRate: 200,
   expiryMonths: 12,
-  birthdayBonus: 20,
-  referralBonus: 50,
+  profitRewardPercent: 5,
+  birthdayBonus: 100_000,
+  referralBonus: 200_000,
 };
+
+function clampPercent(raw: string | null | undefined, fallback: number): number {
+  const n = Number.parseFloat(String(raw ?? ""));
+  if (!Number.isFinite(n) || n < 0 || n > 100) return fallback;
+  return Math.round(n * 100) / 100;
+}
 
 function clampInt(raw: string | null | undefined, fallback: number, min: number): number {
   const n = Number.parseInt(String(raw ?? ""), 10);
@@ -101,6 +116,7 @@ export async function getLoyaltySettings(): Promise<LoyaltySettings> {
     goldRate: clampInt(map.get(LOYALTY_SETTING_KEYS.goldRate), LOYALTY_DEFAULTS.goldRate, 100),
     diamondRate: clampInt(map.get(LOYALTY_SETTING_KEYS.diamondRate), LOYALTY_DEFAULTS.diamondRate, 100),
     expiryMonths: clampInt(map.get(LOYALTY_SETTING_KEYS.expiryMonths), LOYALTY_DEFAULTS.expiryMonths, 0),
+    profitRewardPercent: clampPercent(map.get(LOYALTY_SETTING_KEYS.profitRewardPercent), LOYALTY_DEFAULTS.profitRewardPercent),
     birthdayBonus: clampInt(map.get(LOYALTY_SETTING_KEYS.birthdayBonus), LOYALTY_DEFAULTS.birthdayBonus, 0),
     referralBonus: clampInt(map.get(LOYALTY_SETTING_KEYS.referralBonus), LOYALTY_DEFAULTS.referralBonus, 0),
   };
@@ -207,6 +223,11 @@ export async function applyLoyaltyOnPayment(
     serviceName?: string | null;
     /** ضریب امتیاز سطح مراجع به درصد (پیش‌فرض ۱۰۰) */
     ratePercent?: number;
+    /**
+     * کسب امتیاز بر اساس مبلغ (حالت قدیمی). باشگاه اکنون به‌جای امتیاز، درصدی از سود
+     * خدمت را اعتبار کیف پول می‌کند (applyProfitCashback)؛ مسیر پرداخت این را false می‌دهد.
+     */
+    earnPoints?: boolean;
   },
 ): Promise<{ earned: number; redeemed: number; redeemedValue: number }> {
   const { patientId, paymentId, amountPaid, settings, serviceName } = args;
@@ -230,7 +251,7 @@ export async function applyLoyaltyOnPayment(
   }
 
   let earned = 0;
-  if (settings.enabled) {
+  if (settings.enabled && args.earnPoints !== false) {
     earned = Math.floor((computeEarnPoints(amountPaid, settings.earnAmount) * (args.ratePercent ?? 100)) / 100);
     if (earned > 0) {
       await tx.insert(loyaltyTransactionsTable).values({
@@ -260,7 +281,7 @@ export async function reverseLoyaltyForPayment(tx: LoyaltyExecutor, paymentId: n
     .where(eq(loyaltyTransactionsTable.paymentId, paymentId));
   // فقط ردیف‌های اصلی (کسب/خرج/امتیاز معرفیِ همین پرداخت) برگردانده می‌شوند؛
   // ردیف‌های reverse قبلی دوباره معکوس نمی‌شوند
-  const originals = rows.filter((r) => r.type === "earn" || r.type === "redeem" || r.type === "referral");
+  const originals = rows.filter((r) => ["earn", "redeem", "referral", "cashback"].includes(r.type));
   if (originals.length === 0) return 0;
 
   for (const t of originals) {
@@ -273,9 +294,11 @@ export async function reverseLoyaltyForPayment(tx: LoyaltyExecutor, paymentId: n
       description:
         t.type === "earn"
           ? `برگردان ${fa(t.delta)} امتیازِ کسب‌شده (حذف پرداخت)`
-          : t.type === "referral"
-            ? `برگردان ${fa(t.delta)} امتیازِ معرفی (حذف پرداخت)`
-            : `برگردان ${fa(-t.delta)} امتیازِ استفاده‌شده (حذف پرداخت)`,
+          : t.type === "cashback"
+            ? `برگردان ${fa(t.amount)} تومان اعتبار سود (حذف پرداخت)`
+            : t.type === "referral"
+              ? `برگردان ${fa(t.amount)} تومان اعتبار معرفی (حذف پرداخت)`
+              : `برگردان ${fa(-t.delta)} امتیازِ استفاده‌شده (حذف پرداخت)`,
     });
   }
 
@@ -353,13 +376,15 @@ export async function updateMembershipAfterPayment(
         WHERE t.type = 'referral' AND a.patient_id = ${patientId} AND p.id <> ${paymentId}
       `);
       if (Number(count) === 1 && already.length === 0) {
+        const description = `اعتبار معرفی ${args.patientName ?? "مراجع"}: ${fa(settings.referralBonus)} تومان`;
+        await creditWallet(tx, patient.referrerId, settings.referralBonus, "loyalty_referral", description, paymentId);
         await tx.insert(loyaltyTransactionsTable).values({
           patientId: patient.referrerId,
           paymentId,
-          delta: settings.referralBonus,
-          amount: 0,
+          delta: 0,
+          amount: settings.referralBonus,
           type: "referral",
-          description: `امتیاز معرفی ${args.patientName ?? "مراجع"}`,
+          description,
         });
         referral = { referrerId: patient.referrerId, points: settings.referralBonus };
       }
@@ -460,50 +485,63 @@ export function remainingLots(
   return lots.filter((l) => l.remaining > 0).map(({ lotId, remaining, expiresAt }) => ({ lotId, remaining, expiresAt }));
 }
 
-/** امتیازهای منقضی‌شده را با ردیف «expire» کم می‌کند؛ خروجی = جمع امتیاز منقضی‌شده */
+// انقضا فقط روی «اعتبار هدیهٔ باشگاه» در کیف پول اعمال می‌شود (سود خدمت، تولد، معرفی،
+// افزودن دستی)؛ پولی که خود مراجع به کیف پول شارژ کرده هرگز منقضی نمی‌شود. برداشت‌ها از
+// کیف پول اول از قدیمی‌ترین اعتبار هدیه کم می‌شوند.
+export const WALLET_REWARD_TYPES = ["loyalty_cashback", "loyalty_birthday", "loyalty_referral", "loyalty_adjust"];
+const WALLET_CONSUMER_TYPES = ["deduct", "loyalty_expire", "loyalty_adjust"];
+
+async function walletRewardLots(patientId: number, expiryMonths: number): Promise<ExpiryLot[]> {
+  const rows = await db.select().from(patientAccountTransactionsTable)
+    .where(eq(patientAccountTransactionsTable.patientId, patientId));
+  const relevant = rows
+    .filter((r) => (r.amount > 0 && WALLET_REWARD_TYPES.includes(r.type)) || (r.amount < 0 && WALLET_CONSUMER_TYPES.includes(r.type)))
+    .map((r) => ({ id: r.id, delta: r.amount, type: r.type, paymentId: null, createdAt: r.createdAt }));
+  return remainingLots(relevant, expiryMonths);
+}
+
+/** اعتبار هدیهٔ منقضی‌شده را از کیف پول کم می‌کند؛ خروجی = جمع مبلغ منقضی‌شده (تومان) */
 export async function expireLoyaltyPoints(nowSec: number, settings: LoyaltySettings): Promise<number> {
   if (settings.expiryMonths <= 0) return 0;
   const members = await db.select({ patientId: loyaltyMembersTable.patientId }).from(loyaltyMembersTable);
   let total = 0;
   for (const { patientId } of members) {
-    const txns = await db.select().from(loyaltyTransactionsTable).where(eq(loyaltyTransactionsTable.patientId, patientId));
-    const expired = remainingLots(txns, settings.expiryMonths).filter((l) => l.expiresAt <= nowSec);
-    const points = expired.reduce((sum, l) => sum + l.remaining, 0);
-    if (points <= 0) continue;
-    await db.insert(loyaltyTransactionsTable).values({
-      patientId,
-      delta: -points,
-      amount: points * settings.redeemValue,
-      type: "expire",
-      description: `انقضای ${fa(points)} امتیاز (بیش از ${fa(settings.expiryMonths)} ماه از کسب گذشته)`,
+    const expired = (await walletRewardLots(patientId, settings.expiryMonths)).filter((l) => l.expiresAt <= nowSec);
+    const due = expired.reduce((sum, l) => sum + l.remaining, 0);
+    if (due <= 0) continue;
+    const p = await db.select({ balance: patientsTable.accountBalance }).from(patientsTable)
+      .where(eq(patientsTable.id, patientId)).get();
+    const amount = Math.min(due, Math.max(0, p?.balance ?? 0));
+    if (amount <= 0) continue;
+    const description = `انقضای ${fa(amount)} تومان اعتبار باشگاه (بیش از ${fa(settings.expiryMonths)} ماه از دریافت گذشته)`;
+    await db.transaction(async (tx) => {
+      await creditWallet(tx, patientId, -amount, "loyalty_expire", description);
+      await tx.insert(loyaltyTransactionsTable).values({ patientId, delta: 0, amount, type: "expire", description });
     });
-    total += points;
+    total += amount;
   }
   return total;
 }
 
-/** بسته‌هایی که ظرف withinDays روز آینده منقضی می‌شوند (برای پیامک هشدار و نمای کلی) */
+/** اعتبار هدیه‌ای که ظرف withinDays روز آینده منقضی می‌شود (تومان) — برای پیامک هشدار و نمای کلی */
 export async function getExpiringSoon(
   nowSec: number,
   settings: LoyaltySettings,
   withinDays: number,
 ): Promise<Array<{ patientId: number; points: number; expiresAt: number; lotIds: number[] }>> {
   if (settings.expiryMonths <= 0) return [];
-  const txns = await db.select().from(loyaltyTransactionsTable);
-  const byPatient = new Map<number, typeof txns>();
-  for (const t of txns) {
-    const list = byPatient.get(t.patientId) ?? [];
-    list.push(t);
-    byPatient.set(t.patientId, list);
-  }
+  const members = await db.select({ patientId: loyaltyMembersTable.patientId, balance: patientsTable.accountBalance })
+    .from(loyaltyMembersTable).innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId));
   const out: Array<{ patientId: number; points: number; expiresAt: number; lotIds: number[] }> = [];
-  for (const [patientId, list] of byPatient) {
-    const soon = remainingLots(list, settings.expiryMonths)
+  for (const m of members) {
+    if (m.balance <= 0) continue;
+    const soon = (await walletRewardLots(m.patientId, settings.expiryMonths))
       .filter((l) => l.expiresAt > nowSec && l.expiresAt <= nowSec + withinDays * DAY_SEC);
     if (soon.length === 0) continue;
     out.push({
-      patientId,
-      points: soon.reduce((s, l) => s + l.remaining, 0),
+      patientId: m.patientId,
+      // «points» این‌جا مبلغ تومانی است (حداکثر به اندازهٔ موجودی کیف پول)
+      points: Math.min(m.balance, soon.reduce((s, l) => s + l.remaining, 0)),
       expiresAt: Math.min(...soon.map((l) => l.expiresAt)),
       lotIds: soon.map((l) => l.lotId),
     });
@@ -521,39 +559,132 @@ export async function grantBirthdayBonus(patientId: number, nowSec: number, sett
     .where(and(eq(loyaltyTransactionsTable.patientId, patientId), eq(loyaltyTransactionsTable.type, "birthday"),
       gte(loyaltyTransactionsTable.createdAt, nowSec - 300 * DAY_SEC))).get();
   if (recent) return 0;
-  await db.insert(loyaltyTransactionsTable).values({
-    patientId,
-    delta: settings.birthdayBonus,
-    amount: 0,
-    type: "birthday",
-    description: `هدیهٔ تولد: ${fa(settings.birthdayBonus)} امتیاز`,
-    createdAt: nowSec,
+  const description = `هدیهٔ تولد: ${fa(settings.birthdayBonus)} تومان اعتبار`;
+  await db.transaction(async (tx) => {
+    await creditWallet(tx, patientId, settings.birthdayBonus, "loyalty_birthday", description, null, nowSec);
+    await tx.insert(loyaltyTransactionsTable).values({
+      patientId, delta: 0, amount: settings.birthdayBonus, type: "birthday", description, createdAt: nowSec,
+    });
   });
   return settings.birthdayBonus;
 }
 
 /** امتیاز هدیهٔ تولدی که امروز (۲۴ ساعت اخیر) به مراجع داده شده؛ برای متن پیامک تبریک */
 export async function getTodaysBirthdayBonus(patientId: number, nowSec: number): Promise<number> {
-  const row = await db.select({ delta: loyaltyTransactionsTable.delta }).from(loyaltyTransactionsTable)
+  const row = await db.select({ amount: loyaltyTransactionsTable.amount }).from(loyaltyTransactionsTable)
     .where(and(eq(loyaltyTransactionsTable.patientId, patientId), eq(loyaltyTransactionsTable.type, "birthday"),
       gte(loyaltyTransactionsTable.createdAt, nowSec - DAY_SEC))).get();
-  return row?.delta ?? 0;
+  return row?.amount ?? 0;
 }
 
-/** افزودن/کسر دستی امتیاز (فقط مدیر) */
-export async function adjustLoyaltyPoints(patientId: number, points: number, description: string): Promise<number> {
+/** افزودن/کسر دستی اعتبار کیف پول از صفحهٔ باشگاه (فقط مدیر)؛ خروجی = موجودی جدید کیف پول */
+export async function adjustLoyaltyPoints(patientId: number, amount: number, description: string): Promise<number> {
   return db.transaction(async (tx) => {
-    if (points < 0) {
-      const balance = await getLoyaltyBalance(tx, patientId);
-      if (balance + points < 0) throw new Error(LOYALTY_ERRORS.insufficient);
-    }
-    await tx.insert(loyaltyTransactionsTable).values({
-      patientId,
-      delta: points,
-      amount: 0,
-      type: "adjust",
-      description: description || (points > 0 ? `افزودن دستی ${fa(points)} امتیاز` : `کسر دستی ${fa(-points)} امتیاز`),
-    });
-    return getLoyaltyBalance(tx, patientId);
+    const p = await tx.select({ balance: patientsTable.accountBalance }).from(patientsTable)
+      .where(eq(patientsTable.id, patientId)).get();
+    if (!p) throw new Error(LOYALTY_ERRORS.insufficient);
+    if (p.balance + amount < 0) throw new Error(LOYALTY_ERRORS.insufficient);
+    const text = description || (amount > 0 ? `افزودن دستی ${fa(amount)} تومان اعتبار` : `کسر دستی ${fa(-amount)} تومان اعتبار`);
+    await creditWallet(tx, patientId, amount, "loyalty_adjust", text);
+    await tx.insert(loyaltyTransactionsTable).values({ patientId, delta: 0, amount: Math.abs(amount), type: "adjust", description: text });
+    return p.balance + amount;
   });
+}
+
+// ── کیف پول و پاداش سود خدمت ────────────────────────────────────────────────
+
+/** ثبت تراکنش کیف پول مراجع و به‌روزرسانی موجودی (مثبت = شارژ، منفی = کسر) */
+export async function creditWallet(
+  tx: LoyaltyExecutor,
+  patientId: number,
+  amount: number,
+  type: string,
+  description: string,
+  paymentId: number | null = null,
+  createdAt?: number,
+): Promise<void> {
+  if (amount === 0) return;
+  await tx.insert(patientAccountTransactionsTable).values({
+    patientId, amount, type, description, paymentId, ...(createdAt ? { createdAt } : {}),
+  });
+  await tx.update(patientsTable)
+    .set({ accountBalance: sql`${patientsTable.accountBalance} + ${amount}` })
+    .where(eq(patientsTable.id, patientId));
+}
+
+export async function getWalletBalance(executor: LoyaltyExecutor, patientId: number): Promise<number> {
+  const p = await executor.select({ balance: patientsTable.accountBalance }).from(patientsTable)
+    .where(eq(patientsTable.id, patientId)).get();
+  return p?.balance ?? 0;
+}
+
+/**
+ * هزینهٔ خدمتِ یک نوبت (حق‌الزحمهٔ پزشک + مواد + سایر)، با همان قاعدهٔ حسابداری:
+ * هزینه‌های «per_unit» × واحد مصرفی (واحد همین پرداخت، یا واحد ثبت‌شده در نوبت، یا تعداد واحد خدمت).
+ */
+export async function appointmentServiceCost(tx: LoyaltyExecutor, appointmentId: number, unitsOverride?: number | null): Promise<number> {
+  const override = unitsOverride && unitsOverride > 0 ? unitsOverride : null;
+  const units = sql`COALESCE(${override}, a.units_used, s.unit_count, 1)`;
+  const rows = await tx.all<{ cost: number }>(sql`
+    SELECT
+      (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN COALESCE(s.doctor_fee, 0) * ${units} ELSE COALESCE(s.doctor_fee, 0) END) +
+      (CASE WHEN s.material_cost_mode = 'per_unit' THEN COALESCE(s.material_cost, 0) * ${units} ELSE COALESCE(s.material_cost, 0) END) +
+      (CASE WHEN s.other_cost_mode = 'per_unit' THEN COALESCE(s.other_cost, 0) * ${units} ELSE COALESCE(s.other_cost, 0) END) AS cost
+    FROM appointments a INNER JOIN services s ON s.id = a.service_id
+    WHERE a.id = ${appointmentId}
+  `);
+  return Number(rows[0]?.cost ?? 0);
+}
+
+/** اعتبار سود: درصدی از سود با ضریب سطح، گرد به پایین تا هزار تومان */
+export function computeProfitReward(profit: number, percent: number, ratePercent = 100): number {
+  if (!(profit > 0) || !(percent > 0)) return 0;
+  const raw = (profit * percent * ratePercent) / 10_000;
+  return Math.floor(raw / 1000) * 1000;
+}
+
+/**
+ * پاداش اصلی باشگاه: درصدی از سود خدمت به کیف پول مراجع (داخل تراکنش پرداخت).
+ * سود برای کل نوبت حساب می‌شود: (جمع پرداخت‌های نقدی این نوبت تا الان − هزینهٔ خدمت)؛
+ * پاداش این پرداخت = پاداشِ کل تا الان − پاداش‌های قبلیِ همین نوبت. پس بیعانه + پرداخت
+ * نهایی دقیقاً همان پاداشی را می‌دهند که یک پرداخت یک‌جا می‌داد، و تا هزینهٔ خدمت پوشش
+ * داده نشده پاداشی داده نمی‌شود. مبلغ پرداخت‌شده از کیف پول یا امتیاز جزو «نقدی» نیست.
+ */
+export async function applyProfitCashback(
+  tx: LoyaltyExecutor,
+  args: {
+    patientId: number;
+    paymentId: number;
+    appointmentId: number;
+    unitsUsed?: number | null;
+    settings: LoyaltySettings;
+    ratePercent: number;
+    serviceName?: string | null;
+  },
+): Promise<{ reward: number; profit: number }> {
+  const { patientId, paymentId, appointmentId, settings } = args;
+  if (!settings.enabled || settings.profitRewardPercent <= 0 || !(appointmentId > 0)) return { reward: 0, profit: 0 };
+
+  const cost = await appointmentServiceCost(tx, appointmentId, args.unitsUsed);
+  const [{ paid }] = await tx.all<{ paid: number }>(sql`
+    SELECT COALESCE(SUM(amount), 0) AS paid FROM payments WHERE appointment_id = ${appointmentId}
+  `);
+  const [{ rewarded }] = await tx.all<{ rewarded: number }>(sql`
+    SELECT COALESCE(SUM(t.amount), 0) AS rewarded FROM patient_account_transactions t
+    INNER JOIN payments p ON p.id = t.payment_id
+    WHERE p.appointment_id = ${appointmentId} AND t.type = 'loyalty_cashback' AND p.id <> ${paymentId}
+  `);
+  const profit = Number(paid) - cost;
+  const target = computeProfitReward(profit, settings.profitRewardPercent, args.ratePercent);
+  const reward = Math.max(0, target - Number(rewarded));
+  if (reward <= 0) return { reward: 0, profit };
+
+  const description =
+    `اعتبار سود خدمت${args.serviceName ? ` (${args.serviceName})` : ""}: ` +
+    `${fa(settings.profitRewardPercent * args.ratePercent / 100)}٪ سود — ${fa(reward)} تومان`;
+  await creditWallet(tx, patientId, reward, "loyalty_cashback", description, paymentId);
+  await tx.insert(loyaltyTransactionsTable).values({
+    patientId, paymentId, delta: 0, amount: reward, type: "cashback", description,
+  });
+  return { reward, profit };
 }

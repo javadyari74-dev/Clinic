@@ -8,13 +8,14 @@ import {
   sendSms,
   toPersianDigits,
   normalizePhone,
+  formatToman,
 } from "./sms";
 import {
   TIER_LABELS,
   backfillLoyaltyMembers,
   expireLoyaltyPoints,
   getExpiringSoon,
-  getLoyaltyBalance,
+  getWalletBalance,
   getLoyaltySettings,
   grantBirthdayBonus,
   isLoyaltyTier,
@@ -48,7 +49,7 @@ export function fireLoyaltyWelcomeSms(patientId: number): void {
       if (!p) return;
       const templates = await getSmsTemplates();
       const name = p.name ?? "";
-      const balance = toPersianDigits(await getLoyaltyBalance(db, patientId));
+      const balance = formatToman(await getWalletBalance(db, patientId));
       await sendSms({
         to: p.phone ?? "",
         text: renderTemplate(templates.loyaltyWelcome, { "نام": name, "موجودی": balance }),
@@ -87,7 +88,7 @@ export function fireLoyaltyTierUpSms(patientId: number, tier: string): void {
   })();
 }
 
-export function fireLoyaltyReferralSms(referrerId: number, points: number): void {
+export function fireLoyaltyReferralSms(referrerId: number, amount: number): void {
   void (async () => {
     try {
       const settings = await getSmsSettings();
@@ -96,11 +97,11 @@ export function fireLoyaltyReferralSms(referrerId: number, points: number): void
       if (!p) return;
       const templates = await getSmsTemplates();
       const name = p.name ?? "";
-      const pts = toPersianDigits(points);
-      const balance = toPersianDigits(await getLoyaltyBalance(db, referrerId));
+      const pts = formatToman(amount);
+      const balance = formatToman(await getWalletBalance(db, referrerId));
       await sendSms({
         to: p.phone ?? "",
-        text: renderTemplate(templates.loyaltyReferral, { "نام": name, "امتیاز": pts, "موجودی": balance }),
+        text: renderTemplate(templates.loyaltyReferral, { "نام": name, "اعتبار": pts, "امتیاز": pts, "موجودی": balance }),
         eventType: "loyalty_referral",
         recipientName: p.name,
         patientId: referrerId,
@@ -173,11 +174,11 @@ async function sendExpiryWarnings(nowMs: number): Promise<number> {
     const key = `loyalty-expiry:${s.patientId}:${Math.min(...s.lotIds)}`;
     if (!(await claimScheduledSms(key, "loyalty_expiry", nowSec))) continue;
     const name = p.name ?? "";
-    const pts = toPersianDigits(s.points);
+    const pts = formatToman(s.points);
     const date = shamsiDateText(s.expiresAt * 1000);
     const r = await sendSms({
       to: p.phone,
-      text: renderTemplate(templates.loyaltyExpiry, { "نام": name, "امتیاز": pts, "تاریخ": date }),
+      text: renderTemplate(templates.loyaltyExpiry, { "نام": name, "اعتبار": pts, "امتیاز": pts, "تاریخ": date }),
       eventType: "loyalty_expiry",
       recipientName: p.name,
       patientId: s.patientId,

@@ -8,6 +8,6 @@
 
 export interface AdjustLoyaltyInput {
   patientId: number;
-  points: number;
+  amount: number;
   description?: string;
 }

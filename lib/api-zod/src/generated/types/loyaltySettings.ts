@@ -18,6 +18,7 @@ export interface LoyaltySettings {
   goldRate: number;
   diamondRate: number;
   expiryMonths: number;
+  profitRewardPercent: number;
   birthdayBonus: number;
   referralBonus: number;
 }

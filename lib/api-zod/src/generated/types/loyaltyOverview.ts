@@ -15,7 +15,9 @@ export interface LoyaltyOverview {
   totalRedeemed: number;
   totalExpired: number;
   totalOutstanding: number;
-  expiringSoonPoints: number;
+  totalRewards: number;
+  walletTotal: number;
+  expiringSoonAmount: number;
   expiringSoonMembers: number;
   recent: LoyaltyTransaction[];
 }

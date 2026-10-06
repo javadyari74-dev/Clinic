@@ -527,9 +527,11 @@ export default function PatientDetail() {
               <>
                 <div className="grid grid-cols-3 gap-3 text-sm">
                   <div>
-                    <div className="text-muted-foreground text-xs">موجودی امتیاز</div>
-                    <div className="text-xl font-bold text-amber-700">{toPersianDigits(loyalty.balance)}</div>
-                    <div className="text-xs text-muted-foreground">{formatCurrency(loyalty.balance * loyalty.settings.redeemValue)}</div>
+                    <div className="text-muted-foreground text-xs">کیف پول</div>
+                    <div className="text-xl font-bold text-amber-700">{formatCurrency(loyalty.walletBalance)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      اعتبار هدیه‌شده تا امروز: {formatCurrency(loyalty.totalRewards)}
+                    </div>
                   </div>
                   <div>
                     <div className="text-muted-foreground text-xs">خرید ۱۲ ماه اخیر</div>
@@ -559,8 +561,12 @@ export default function PatientDetail() {
                     {loyalty.transactions.slice(0, 5).map((t) => (
                       <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
                         <span className="truncate text-muted-foreground">{t.description ?? "—"}</span>
-                        <span className={`font-mono font-bold shrink-0 ${t.delta > 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                          {t.delta > 0 ? "+" : "−"}{toPersianDigits(Math.abs(t.delta))}
+                        <span className={`font-bold shrink-0 whitespace-nowrap ${
+                          (t.delta !== 0 ? t.delta > 0 : !["expire", "reverse"].includes(t.type)) ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {t.delta !== 0
+                            ? `${t.delta > 0 ? "+" : "−"}${toPersianDigits(Math.abs(t.delta))} امتیاز`
+                            : `${["expire", "reverse"].includes(t.type) ? "−" : "+"}${formatCurrency(t.amount)}`}
                         </span>
                       </div>
                     ))}

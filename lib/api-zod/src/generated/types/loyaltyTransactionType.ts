@@ -17,4 +17,5 @@ export const LoyaltyTransactionType = {
   birthday: 'birthday',
   referral: 'referral',
   adjust: 'adjust',
+  cashback: 'cashback',
 } as const;

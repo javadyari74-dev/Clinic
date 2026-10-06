@@ -468,22 +468,23 @@ const loyaltySettings = {
   enabled: true, earnAmount: 100_000, redeemValue: 10_000, minRedeem: 10,
   silverMin: 20_000_000, goldMin: 50_000_000, diamondMin: 100_000_000,
   silverRate: 120, goldRate: 150, diamondRate: 200,
-  expiryMonths: 12, birthdayBonus: 20, referralBonus: 50,
+  expiryMonths: 12, profitRewardPercent: 5, birthdayBonus: 100_000, referralBonus: 200_000,
 };
 const loyaltyTxn = {
-  id: 1, patientId: 1, paymentId: 1, delta: 12, amount: 1_200_000, type: "earn",
-  description: "کسب ۱۲ امتیاز از پرداخت", createdAt: NOW - DAY, patientName: PATIENT_ONE_NAME,
+  id: 1, patientId: 1, paymentId: 1, delta: 0, amount: 60_000, type: "cashback",
+  description: "اعتبار سود خدمت: ۵٪ سود — ۶۰٬۰۰۰ تومان", createdAt: NOW - DAY, patientName: PATIENT_ONE_NAME,
 };
 const loyaltyOverview = {
   totalMembers: 1, membersByTier: { bronze: 0, silver: 1, gold: 0, diamond: 0 },
-  totalEarned: 12, totalRedeemed: 0, totalExpired: 0, totalOutstanding: 12,
-  expiringSoonPoints: 0, expiringSoonMembers: 0, recent: [loyaltyTxn],
+  totalEarned: 0, totalRedeemed: 0, totalExpired: 0, totalOutstanding: 0,
+  totalRewards: 60_000, walletTotal: 60_000,
+  expiringSoonAmount: 0, expiringSoonMembers: 0, recent: [loyaltyTxn],
 };
 const loyaltyMembers = [
-  { patientId: 1, tier: "silver", joinedAt: NOW - 30 * DAY, patientName: PATIENT_ONE_NAME, fileNumber: "1001", phone: "09120000000", balance: 12, spend12m: 25_000_000 },
+  { patientId: 1, tier: "silver", joinedAt: NOW - 30 * DAY, patientName: PATIENT_ONE_NAME, fileNumber: "1001", phone: "09120000000", balance: 0, spend12m: 25_000_000, walletBalance: 60_000, totalRewards: 60_000 },
 ];
 const patientLoyalty = {
-  balance: 12, settings: loyaltySettings, transactions: [loyaltyTxn],
+  balance: 0, walletBalance: 60_000, totalRewards: 60_000, settings: loyaltySettings, transactions: [loyaltyTxn],
   member: { tier: "silver", joinedAt: NOW - 30 * DAY, spend12m: 25_000_000, nextTier: { tier: "gold", min: 50_000_000, remaining: 25_000_000 } },
 };
 
