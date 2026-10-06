@@ -129,9 +129,12 @@ describe("create dialogs survive a failed save (500) without crashing", () => {
       await screen.findByRole("option", { name: new RegExp(PATIENT_ONE_NAME) }),
     );
 
-    // Service: open the Select, then pick the service option.
-    await user.click(within(d).getByText("انتخاب خدمت"));
-    await user.click(await screen.findByRole("option", { name: SERVICE_NAME }));
+    // Service: open the searchable combobox, then pick the service option
+    // (the option's accessible name also includes the category).
+    await user.click(within(d).getByText(/انتخاب خدمت/));
+    await user.click(
+      await screen.findByRole("option", { name: new RegExp(SERVICE_NAME) }),
+    );
 
     // Date and time are pre-filled with defaults, so the form is submittable.
     await user.click(within(d).getByRole("button", { name: /ثبت نوبت/ }));

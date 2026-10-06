@@ -2,7 +2,7 @@ import { useState } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { useParams, useLocation } from "wouter";
 import {
-  useGetPatient, useListPatientAppointments, useListPatientNotes,
+  useGetPatient, useListPatients, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
   useListServices, useListStaff, useListCommissionRecipients,
   useCreateAppointment, getListAppointmentsQueryKey,
@@ -83,7 +83,7 @@ export default function PatientDetail() {
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
-  const { data: patients } = useGetPatient(id);
+  const { data: allPatients } = useListPatients({ limit: 1000 });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
     resolver: zodResolver(editSchema),
@@ -405,7 +405,7 @@ export default function PatientDetail() {
                       <FormControl>
                         <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
                           <option value="">انتخاب معرف...</option>
-                          {editReferrerType === "patient" && (patients as any[])?.map((p: any) => (
+                          {editReferrerType === "patient" && (allPatients?.data ?? []).filter(p => p.id !== id).map(p => (
                             <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
                           ))}
                           {editReferrerType === "staff" && (staff ?? []).map(s => (
