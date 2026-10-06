@@ -14,7 +14,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
-import { formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { formatShamsiDate, toPersianDigits, gregorianDateToUnix, unixToGregorianDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
@@ -283,48 +283,8 @@ export default function Reminders() {
                   <FormLabel>تاریخ سررسید</FormLabel>
                   <FormControl>
                     <PersianDatePicker
-                      value={
-                        field.value
-                          ? (() => {
-                              const d = new Date(field.value * 1000);
-                              const parts = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                                year: "numeric", month: "2-digit", day: "2-digit",
-                              }).formatToParts(d);
-                              const g = (t: string) => parts.find(p => p.type === t)?.value ?? "";
-                              return `${g("year")}-${g("month")}-${g("day")}`;
-                            })()
-                          : ""
-                      }
-                      onChange={(shamsiStr) => {
-                        if (!shamsiStr) { field.onChange(0); return; }
-                        const [y, m, day] = shamsiStr.split("-").map(Number);
-                        // Convert Shamsi to Gregorian unix
-                        const ref = new Date();
-                        ref.setHours(12, 0, 0, 0);
-                        const rp = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                          year: "numeric", month: "numeric", day: "numeric",
-                        }).formatToParts(ref);
-                        const rg = (t: string) => parseInt(rp.find(p => p.type === t)?.value ?? "0");
-                        const ry = rg("year"), rm = rg("month"), rd = rg("day");
-                        const approx = Math.round(
-                          (y - ry) * 365.25 + ((m - 1) * 30.5 + day) - ((rm - 1) * 30.5 + rd),
-                        );
-                        const base = new Date(ref);
-                        base.setDate(base.getDate() + approx);
-                        let found = base;
-                        for (let offset = -8; offset <= 8; offset++) {
-                          const test = new Date(base);
-                          test.setDate(test.getDate() + offset);
-                          const tp = new Intl.DateTimeFormat("en-US-u-ca-persian", {
-                            year: "numeric", month: "numeric", day: "numeric",
-                          }).formatToParts(test);
-                          const tg = (t: string) => parseInt(tp.find(p => p.type === t)?.value ?? "0");
-                          if (tg("year") === y && tg("month") === m && tg("day") === day) {
-                            found = test; break;
-                          }
-                        }
-                        field.onChange(Math.floor(found.getTime() / 1000));
-                      }}
+                      value={unixToGregorianDate(field.value)}
+                      onChange={(isoDate) => field.onChange(gregorianDateToUnix(isoDate))}
                       placeholder="انتخاب تاریخ سررسید..."
                     />
                   </FormControl>

@@ -37,3 +37,23 @@ export function formatShamsiDate(unixTime: number | string | null | undefined, i
 export function toISODateString(date: Date): string {
   return date.toISOString().split('T')[0];
 }
+
+// PersianDatePicker تاریخ را به‌صورت رشتهٔ «میلادی» YYYY-MM-DD می‌گیرد و برمی‌گرداند
+// (فقط نمایشش شمسی است). این دو تابع آن رشته را به/از ثانیهٔ یونیکس تبدیل می‌کنند.
+// ساعت ۱۲ ظهر به وقت محلی انتخاب می‌شود تا اختلاف منطقهٔ زمانی، روز را جابه‌جا نکند.
+
+/** «YYYY-MM-DD» میلادی (خروجی PersianDatePicker) → ثانیهٔ یونیکس، ظهر همان روز به وقت محلی؛ نامعتبر → 0 */
+export function gregorianDateToUnix(isoDate: string): number {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(isoDate ?? "");
+  if (!m) return 0;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0);
+  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 1000);
+}
+
+/** ثانیه (یا میلی‌ثانیه) یونیکس → «YYYY-MM-DD» میلادی به وقت محلی، برای مقدار PersianDatePicker */
+export function unixToGregorianDate(ts: number | null | undefined): string {
+  if (!ts) return "";
+  const d = new Date(ts > 1e11 ? ts : ts * 1000);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}

@@ -4,7 +4,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
-import { backfillAppointmentCodes, backfillPaymentSnapshots } from "./lib/backfill";
+import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates } from "./lib/backfill";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,6 +30,10 @@ runMigrations(migrationsFolder)
     await seedAdminUser();
     await backfillAppointmentCodes();
     await backfillPaymentSnapshots();
+    const repairedReminders = await repairShamsiReminderDates();
+    if (repairedReminders > 0) {
+      logger.info({ repairedReminders }, "Repaired reminder due dates saved with the Shamsi/Gregorian mix-up");
+    }
     app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
