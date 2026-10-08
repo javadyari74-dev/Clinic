@@ -55,6 +55,7 @@ const EXPECTED_SECTIONS = [
   "surveys",
   "smsLog",
   "loyaltyTransactions",
+  "loyaltyMembers",
 ];
 
 describe("buildBackupData (single source for manual, auto and pre-merge backups)", () => {

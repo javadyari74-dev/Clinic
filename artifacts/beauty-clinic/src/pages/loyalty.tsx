@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { LoyaltyTierBadge, LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTierKey } from "@/components/loyalty-tier-badge";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet, History } from "lucide-react";
@@ -55,21 +56,6 @@ const NUMERIC_FIELDS: NumericField[] = [
 
 const num = (v: string) => Number.parseInt(v.replace(/[^\d]/g, ""), 10);
 const pct = (n: number) => `${toPersianDigits(+n.toFixed(2))}٪`;
-
-// ردیف‌های تومانی (اعتبار کیف پول) delta صفر دارند و مبلغشان در amount است؛
-// ردیف‌های امتیازی قدیمی delta دارند
-type TxLike = { delta: number; amount: number; type: string };
-const NEGATIVE_TYPES = ["expire", "reverse", "redeem"];
-function txSign(tx: TxLike): number {
-  if (tx.delta !== 0) return Math.sign(tx.delta);
-  return NEGATIVE_TYPES.includes(tx.type) ? -1 : 1;
-}
-function txAmountText(tx: TxLike): string {
-  const sign = txSign(tx) > 0 ? "+" : "−";
-  return tx.delta !== 0
-    ? `${sign}${toPersianDigits(Math.abs(tx.delta))} امتیاز`
-    : `${sign}${formatCurrency(tx.amount)}`;
-}
 
 function rateText(rate: number) {
   return rate === 100 ? "عادی" : `${toPersianDigits(+(rate / 100).toFixed(2))} برابر`;

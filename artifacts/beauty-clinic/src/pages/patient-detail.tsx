@@ -34,6 +34,7 @@ import {
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
+import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
 
 const editSchema = z.object({
@@ -562,11 +563,9 @@ export default function PatientDetail() {
                       <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
                         <span className="truncate text-muted-foreground">{t.description ?? "—"}</span>
                         <span className={`font-bold shrink-0 whitespace-nowrap ${
-                          (t.delta !== 0 ? t.delta > 0 : !["expire", "reverse"].includes(t.type)) ? "text-emerald-600" : "text-rose-600"
+                          txSign(t) > 0 ? "text-emerald-600" : "text-rose-600"
                         }`}>
-                          {t.delta !== 0
-                            ? `${t.delta > 0 ? "+" : "−"}${toPersianDigits(Math.abs(t.delta))} امتیاز`
-                            : `${["expire", "reverse"].includes(t.type) ? "−" : "+"}${formatCurrency(t.amount)}`}
+                          {txAmountText(t)}
                         </span>
                       </div>
                     ))}

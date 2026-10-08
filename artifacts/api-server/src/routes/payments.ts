@@ -20,6 +20,7 @@ import {
   tierRate,
   updateMembershipAfterPayment,
   applyProfitCashback,
+  reconcileAppointmentCashback,
   getWalletBalance,
   TIER_LABELS,
   type MembershipUpdate,
@@ -56,6 +57,15 @@ router.post("/payments", async (req, res): Promise<void> => {
   const { applyAccountBalance, redeemPoints, ...paymentValues } = parsed.data;
   const balanceToApply = Math.abs(Math.round(applyAccountBalance ?? 0));
   const pointsToRedeem = Math.max(0, Math.round(redeemPoints ?? 0));
+  // «amount» فقط مبلغ نقدی (کارت/نقد/...) است؛ سهم کیف پول و امتیاز جدا ذخیره می‌شود
+  if (paymentValues.amount < 0 || paymentValues.originalAmount < 0) {
+    res.status(400).json({ error: "مبلغ پرداخت نمی‌تواند منفی باشد" });
+    return;
+  }
+  if (balanceToApply > paymentValues.originalAmount) {
+    res.status(400).json({ error: "مبلغ پرداخت از کیف پول بیشتر از مبلغ خدمت است" });
+    return;
+  }
 
   // اگر قرار است از موجودی اکانت استفاده شود، بیمار را پیدا کن و کفایت موجودی را پیش از ثبت پرداخت بررسی کن
   // تا «ثبت پرداخت» و «کسر موجودی» اتمیک باشند (یا هر دو انجام می‌شوند یا هیچ‌کدام)
@@ -124,7 +134,12 @@ router.post("/payments", async (req, res): Promise<void> => {
   // ثبت پرداخت و کسر موجودی اکانت در یک تراکنش انجام می‌شود تا اتمیک بماند
   let membership: (MembershipUpdate & { earned: number }) | null = null;
   const payment = await db.transaction(async (tx) => {
-    const [created] = await tx.insert(paymentsTable).values({ ...paymentValues, paidAt }).returning();
+    const [created] = await tx.insert(paymentsTable).values({
+      ...paymentValues,
+      paidAt,
+      walletAmount: balanceToApply > 0 ? balanceToApply : null,
+      pointsAmount: pointsToRedeem > 0 ? pointsToRedeem * loyaltySettings.redeemValue : null,
+    }).returning();
 
     if (balanceToApply > 0 && balancePatientId !== null) {
       const [freshPatient] = await tx
@@ -398,6 +413,12 @@ router.delete("/payments/:id", async (req, res): Promise<void> => {
           .delete(patientAccountTransactionsTable)
           .where(eq(patientAccountTransactionsTable.paymentId, claimed.id));
       }
+      // اعتبار سود تجمعیِ نوبت: اگر پرداخت‌های بعدیِ همین نوبت با احتساب این پرداخت
+      // اعتبار گرفته‌اند، مازادش برگردانده می‌شود (مثلاً حذف بیعانه)
+      await reconcileAppointmentCashback(tx, claimed.appointmentId, {
+        amount: claimed.amount,
+        cashback: linkedTxns.filter((t) => t.type === "loyalty_cashback").reduce((sum, t) => sum + t.amount, 0),
+      });
 
       // ۲) حذف کمیسیون‌های مربوط به همین پرداخت.
       //    کمیسیون‌های جدید با paymentId به پرداخت گره خورده‌اند؛ پس دقیقاً همان‌ها حذف می‌شوند.

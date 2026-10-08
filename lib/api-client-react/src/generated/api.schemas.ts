@@ -330,6 +330,10 @@ export interface Payment {
   discountAmount?: number | null;
   /** @nullable */
   depositAmount?: number | null;
+  /** @nullable */
+  walletAmount?: number | null;
+  /** @nullable */
+  pointsAmount?: number | null;
 }
 
 export interface PaymentInput {

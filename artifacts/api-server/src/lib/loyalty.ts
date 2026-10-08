@@ -495,7 +495,9 @@ async function walletRewardLots(patientId: number, expiryMonths: number): Promis
   const rows = await db.select().from(patientAccountTransactionsTable)
     .where(eq(patientAccountTransactionsTable.patientId, patientId));
   const relevant = rows
-    .filter((r) => (r.amount > 0 && WALLET_REWARD_TYPES.includes(r.type)) || (r.amount < 0 && WALLET_CONSUMER_TYPES.includes(r.type)))
+    // ردیف منفی از نوع پاداش (اصلاح اعتبار سود پس از حذف پرداخت) هم مصرف‌کننده است
+    .filter((r) => (r.amount > 0 && WALLET_REWARD_TYPES.includes(r.type)) ||
+      (r.amount < 0 && (WALLET_CONSUMER_TYPES.includes(r.type) || WALLET_REWARD_TYPES.includes(r.type))))
     .map((r) => ({ id: r.id, delta: r.amount, type: r.type, paymentId: null, createdAt: r.createdAt }));
   return remainingLots(relevant, expiryMonths);
 }
@@ -586,7 +588,8 @@ export async function adjustLoyaltyPoints(patientId: number, amount: number, des
     if (p.balance + amount < 0) throw new Error(LOYALTY_ERRORS.insufficient);
     const text = description || (amount > 0 ? `افزودن دستی ${fa(amount)} تومان اعتبار` : `کسر دستی ${fa(-amount)} تومان اعتبار`);
     await creditWallet(tx, patientId, amount, "loyalty_adjust", text);
-    await tx.insert(loyaltyTransactionsTable).values({ patientId, delta: 0, amount: Math.abs(amount), type: "adjust", description: text });
+    // مبلغ با علامت ذخیره می‌شود تا کسر دستی در سابقه منفی نمایش داده شود
+    await tx.insert(loyaltyTransactionsTable).values({ patientId, delta: 0, amount, type: "adjust", description: text });
     return p.balance + amount;
   });
 }
@@ -687,6 +690,62 @@ export async function applyProfitCashback(
     patientId, paymentId, delta: 0, amount: reward, type: "cashback", description,
   });
   return { reward, profit };
+}
+
+export const WALLET_NEGATIVE_ERROR = "WALLET_NEGATIVE";
+
+/**
+ * پس از حذف یک پرداخت (داخل تراکنش حذف، بعد از برگرداندن تراکنش‌های خود آن پرداخت):
+ * اعتبار سودِ نوبت بر اساس پرداخت‌های باقی‌مانده دوباره حساب می‌شود. چون پاداش هر
+ * پرداخت «تجمعی» است، حذف مثلاً بیعانه باعث می‌شد پاداشی که پرداخت نهایی با احتساب
+ * بیعانه گرفته اضافه بماند؛ مازاد از کیف پول کم و به آخرین پرداخت باقی‌مانده وصل
+ * می‌شود (تا اگر آن هم حذف شد، درست برگردد). هرگز اعتبار اضافه نمی‌کند.
+ * اگر مازاد قبلاً خرج شده باشد (موجودی منفی شود) خطای WALLET_NEGATIVE پرتاب می‌شود.
+ */
+export async function reconcileAppointmentCashback(
+  tx: LoyaltyExecutor,
+  appointmentId: number,
+  deleted: { amount: number; cashback: number },
+): Promise<number> {
+  if (!(appointmentId > 0)) return 0;
+  const [row] = await tx.all<{ patient_id: number; paid: number; last_payment_id: number | null; units_used: number | null; rewarded: number }>(sql`
+    SELECT a.patient_id AS patient_id,
+      (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.appointment_id = a.id) AS paid,
+      (SELECT MAX(p.id) FROM payments p WHERE p.appointment_id = a.id) AS last_payment_id,
+      (SELECT p.units_used FROM payments p WHERE p.appointment_id = a.id ORDER BY p.id DESC LIMIT 1) AS units_used,
+      (SELECT COALESCE(SUM(t.amount), 0) FROM patient_account_transactions t INNER JOIN payments p ON p.id = t.payment_id
+        WHERE p.appointment_id = a.id AND t.type = 'loyalty_cashback') AS rewarded
+    FROM appointments a WHERE a.id = ${appointmentId}
+  `);
+  const rewarded = Number(row?.rewarded ?? 0);
+  if (!row || row.last_payment_id == null || !(rewarded > 0)) return 0;
+  const pid = Number(row.patient_id);
+  const cost = await appointmentServiceCost(tx, appointmentId, row.units_used);
+  // نرخ مؤثری که واقعاً داده شده بود (مستقل از تغییر بعدی درصد یا سطح):
+  // پاداش کل قبل از حذف ÷ سود کل قبل از حذف
+  const paidAfter = Number(row.paid);
+  const profitBefore = paidAfter + deleted.amount - cost;
+  if (!(profitBefore > 0)) return 0;
+  const rewardedBefore = rewarded + Math.max(0, deleted.cashback);
+  const profitAfter = paidAfter - cost;
+  // اگر تنظیمات فعلی همان پاداش قبلی را می‌دهند، همان قاعده (بدون خطای گرد کردن)؛
+  // وگرنه نرخ مؤثر قبلی
+  const settings = await getLoyaltySettings();
+  const tierPct = tierRate(await getMemberTier(tx, pid), settings);
+  const target = computeProfitReward(profitBefore, settings.profitRewardPercent, tierPct) === rewardedBefore
+    ? computeProfitReward(profitAfter, settings.profitRewardPercent, tierPct)
+    : profitAfter > 0 ? Math.floor((profitAfter * rewardedBefore) / profitBefore / 1000 + 1e-9) * 1000 : 0;
+  const excess = rewarded - target;
+  if (excess <= 0) return 0;
+
+  const paymentId = Number(row.last_payment_id);
+  const description = `اصلاح اعتبار سود پس از حذف پرداخت: ${fa(excess)} تومان`;
+  await creditWallet(tx, pid, -excess, "loyalty_cashback", description, paymentId);
+  await tx.insert(loyaltyTransactionsTable).values({
+    patientId: pid, paymentId, delta: 0, amount: -excess, type: "cashback", description,
+  });
+  if ((await getWalletBalance(tx, pid)) < 0) throw new Error(WALLET_NEGATIVE_ERROR);
+  return excess;
 }
 
 // ── اعتبار سودِ پرداخت‌های قبلی ──────────────────────────────────────────────

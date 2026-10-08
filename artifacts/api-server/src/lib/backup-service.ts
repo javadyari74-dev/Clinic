@@ -30,6 +30,7 @@ import {
   surveysTable,
   smsLogTable,
   loyaltyTransactionsTable,
+  loyaltyMembersTable,
 } from "@workspace/db";
 import { logger } from "./logger";
 
@@ -144,6 +145,7 @@ export async function buildBackupData(): Promise<{
     surveys,
     smsLog,
     loyaltyTransactions,
+    loyaltyMembers,
   ] = await Promise.all([
     db.select().from(patientsTable),
     db.select().from(servicesTable),
@@ -169,6 +171,7 @@ export async function buildBackupData(): Promise<{
     db.select().from(surveysTable),
     db.select().from(smsLogTable),
     db.select().from(loyaltyTransactionsTable),
+    db.select().from(loyaltyMembersTable),
   ]);
 
   return {
@@ -199,6 +202,7 @@ export async function buildBackupData(): Promise<{
       surveys,
       smsLog,
       loyaltyTransactions,
+      loyaltyMembers,
     },
   };
 }
@@ -377,6 +381,8 @@ const RECORD_KEYS = [
 // (restore) این بخش‌ها را پوشش می‌دهد.
 const MERGE_IGNORED_KEYS = [
   "smsLog",
+  // اعضای باشگاه uuid ندارند؛ پس از ادغام، عضویت از روی پرداخت‌ها خودکار ساخته می‌شود
+  "loyaltyMembers",
   "laserClients",
   "laserServices",
   "laserAppointments",

@@ -121,6 +121,7 @@ beforeAll(async () => {
   const { default: paymentsRouter } = await import("../src/routes/payments");
   const { default: loyaltyRouter } = await import("../src/routes/loyalty");
   const { default: smsRouter } = await import("../src/routes/sms");
+  const { default: patientsRouter } = await import("../src/routes/patients");
 
   const [svc] = await dbm.db.insert(dbm.servicesTable).values({ name: "بوتاکس", price: 1 }).returning();
   serviceId = svc.id;
@@ -130,6 +131,7 @@ beforeAll(async () => {
   app.use(paymentsRouter);
   app.use(loyaltyRouter);
   app.use(smsRouter);
+  app.use(patientsRouter);
   server = http.createServer(app);
   await new Promise<void>((r) => server.listen(0, r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -359,5 +361,106 @@ describe("birthday gift and bulk SMS", () => {
     expect(overview.json.totalMembers).toBe(list.json.length);
     expect(overview.json.totalRewards).toBeGreaterThanOrEqual(800_000);
     expect(overview.json.walletTotal).toBeGreaterThan(0);
+  });
+});
+
+describe("wallet and checkout stay in step", () => {
+  const smallSvc = async (cost: number) => {
+    const [svc] = await dbm.db.insert(dbm.servicesTable).values({ name: "خدمت آزمایشی", price: 1, doctorFee: cost }).returning();
+    return svc.id;
+  };
+
+  it("records a fully wallet-paid service as zero cash, keeps the wallet part on the payment, and earns nothing", async () => {
+    const p = await patient("تمام‌کیف");
+    await pay(p.id, 2_000_000); // ۱۰۰ هزار اعتبار
+    const r = await pay(p.id, 0, { originalAmount: 100_000, applyAccountBalance: 100_000 });
+    expect(r).toMatchObject({ amount: 0, originalAmount: 100_000, walletAmount: 100_000 });
+    expect(await wallet(p.id)).toBe(0);
+    const stored = await call("GET", `/payments/${r.id}`);
+    expect(stored.json.walletAmount).toBe(100_000);
+  });
+
+  it("rejects paying more from the wallet than the service costs, or a negative amount", async () => {
+    const p = await patient("بیش‌از‌حد");
+    await pay(p.id, 4_000_000); // ۲۰۰ هزار اعتبار
+    const a = await appointment(p.id);
+    const tooMuch = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 100_000, amount: 0, method: "card", applyAccountBalance: 150_000 });
+    expect(tooMuch.status).toBe(400);
+    const negative = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 100_000, amount: -5, method: "card" });
+    expect(negative.status).toBe(400);
+    expect(await wallet(p.id)).toBe(200_000);
+  });
+
+  it("deleting a deposit takes back the extra credit the final payment got because of it", async () => {
+    const svc = await smallSvc(600_000);
+    const p = await patient("حذف‌بیعانه");
+    const a = await appointment(p.id, svc);
+    const deposit = await payFor(a.id, 200_000);
+    const final = await payFor(a.id, 1_800_000); // (۲ م − ۶۰۰ ه) × ۵٪ = ۷۰ هزار
+    expect(await wallet(p.id)).toBe(70_000);
+
+    expect((await call("DELETE", `/payments/${deposit.id}`)).status).toBe(204);
+    expect(await wallet(p.id)).toBe(60_000); // (۱.۸ م − ۶۰۰ ه) × ۵٪
+    const history = await call("GET", `/patients/${p.id}/loyalty`);
+    expect(history.json.totalRewards).toBe(60_000);
+
+    // پرداخت بعدی همان نوبت دقیقاً تا هدف جدید اعتبار می‌دهد
+    const again = await payFor(a.id, 200_000);
+    expect(await wallet(p.id)).toBe(70_000);
+
+    // حذف همهٔ پرداخت‌ها کیف پول را صفر می‌کند
+    expect((await call("DELETE", `/payments/${again.id}`)).status).toBe(204);
+    expect((await call("DELETE", `/payments/${final.id}`)).status).toBe(204);
+    expect(await wallet(p.id)).toBe(0);
+    expect((await call("GET", `/patients/${p.id}/loyalty`)).json.totalRewards).toBe(0);
+  });
+
+  it("refuses to delete a deposit when the extra credit was already spent", async () => {
+    const p = await patient("خرج‌شده");
+    const a = await appointment(p.id);
+    const deposit = await payFor(a.id, 1_000_000);
+    await payFor(a.id, 1_000_000); // ۱۰۰ هزار کل
+    await pay(p.id, 900_000, { originalAmount: 1_000_000, applyAccountBalance: 100_000 });
+    const blocked = await call("DELETE", `/payments/${deposit.id}`);
+    expect(blocked.status).toBe(400);
+    expect(blocked.json.error).toContain("خرج شده");
+  });
+
+  it("stores a manual deduction as negative in the club history", async () => {
+    const p = await patient("کسر");
+    await pay(p.id, 2_000_000);
+    await loyalty.adjustLoyaltyPoints(p.id, -40_000, "");
+    const history = await call("GET", `/patients/${p.id}/loyalty`);
+    expect(history.json.transactions[0]).toMatchObject({ type: "adjust", amount: -40_000 });
+    expect(history.json.walletBalance).toBe(60_000);
+  });
+
+  it("changes the wallet only through its ledger", async () => {
+    const p = await patient("دفتر");
+    const edit = await call("PUT", `/patients/${p.id}`, { accountBalance: 9_999_999, notes: "x" });
+    expect(edit.status).toBe(200);
+    expect(await wallet(p.id)).toBe(0);
+    const created = await call("POST", "/patients", { fileNumber: "LEDGER-1", name: "جدید", phone: "09120000000", accountBalance: 500 });
+    expect(created.status).toBe(201);
+    expect(await wallet(created.json.id)).toBe(0);
+
+    const reserved = await call("POST", `/patients/${p.id}/account-transactions`, { amount: 1000, type: "loyalty_cashback" });
+    expect(reserved.status).toBe(400);
+    const charge = await call("POST", `/patients/${p.id}/account-transactions`, { amount: 50_000, type: "referral_credit" });
+    expect(charge.status).toBe(201);
+    const over = await call("POST", `/patients/${p.id}/account-transactions`, { amount: 60_000, type: "deduct" });
+    expect(over.status).toBe(400);
+    expect(await wallet(p.id)).toBe(50_000);
+  });
+
+  it("every wallet balance equals the sum of its transactions", async () => {
+    const rows = await dbm.db.all<{ id: number; balance: number; ledger: number }>(
+      (await import("drizzle-orm")).sql`
+        SELECT p.id AS id, p.account_balance AS balance,
+          (SELECT COALESCE(SUM(t.amount), 0) FROM patient_account_transactions t WHERE t.patient_id = p.id) AS ledger
+        FROM patients p`,
+    );
+    expect(rows.length).toBeGreaterThan(10);
+    expect(rows.filter((r) => Number(r.balance) !== Number(r.ledger))).toEqual([]);
   });
 });

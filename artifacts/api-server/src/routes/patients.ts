@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, or, and, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable, loyaltyMembersTable, loyaltyTransactionsTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -98,7 +98,9 @@ router.post("/patients", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [patient] = await db.insert(patientsTable).values(parsed.data).returning();
+  // موجودی کیف پول فقط از راه تراکنش‌های حساب تغییر می‌کند (تا با سابقه همخوان بماند)
+  const { accountBalance: _ignoredBalance, ...values } = parsed.data;
+  const [patient] = await db.insert(patientsTable).values(values).returning();
   await logActivity("create", "patient", patient.id, `بیمار جدید "${patient.name}" ثبت شد`);
   res.status(201).json(patient);
 });
@@ -147,7 +149,11 @@ router.put("/patients/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [patient] = await db.update(patientsTable).set(parsed.data).where(eq(patientsTable.id, params.data.id)).returning();
+  // موجودی کیف پول از ویرایش مراجع تغییر نمی‌کند؛ فقط از راه تراکنش‌های حساب
+  const { accountBalance: _ignoredBalance, ...changes } = parsed.data;
+  const [patient] = Object.keys(changes).length > 0
+    ? await db.update(patientsTable).set(changes).where(eq(patientsTable.id, params.data.id)).returning()
+    : await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
   if (!patient) {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
@@ -189,6 +195,8 @@ router.delete("/patients/:id", requireAdmin, async (req, res): Promise<void> => 
     await tx.delete(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
     await tx.delete(patientNotesTable).where(eq(patientNotesTable.patientId, patientId));
     await tx.delete(patientAccountTransactionsTable).where(eq(patientAccountTransactionsTable.patientId, patientId));
+    await tx.delete(loyaltyTransactionsTable).where(eq(loyaltyTransactionsTable.patientId, patientId));
+    await tx.delete(loyaltyMembersTable).where(eq(loyaltyMembersTable.patientId, patientId));
     await tx.delete(remindersTable).where(eq(remindersTable.patientId, patientId));
     await tx.delete(patientsTable).where(eq(patientsTable.id, patientId));
   });
@@ -259,9 +267,9 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
     return;
   }
 
-  const [patient] = await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
-  if (!patient) {
-    res.status(404).json({ error: "بیمار یافت نشد" });
+  // نوع‌های ویژهٔ باشگاه و صندوق فقط از مسیرهای خودشان ثبت می‌شوند
+  if (parsed.data.type.startsWith("loyalty_")) {
+    res.status(400).json({ error: "این نوع تراکنش از این‌جا قابل ثبت نیست" });
     return;
   }
 
@@ -270,20 +278,39 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
   const isDeduct = parsed.data.type === "deduct";
   const signed = isDeduct ? -magnitude : magnitude;
 
-  if (isDeduct && magnitude > patient.accountBalance) {
-    res.status(400).json({ error: "موجودی اکانت کافی نیست" });
-    return;
+  // بررسی موجودی و ثبت تراکنش اتمیک؛ موجودی نسبی به‌روز می‌شود تا با پرداخت هم‌زمان تداخل نکند
+  const NOT_FOUND = "NOT_FOUND";
+  const INSUFFICIENT = "INSUFFICIENT";
+  let patient: typeof patientsTable.$inferSelect;
+  let tx: typeof patientAccountTransactionsTable.$inferSelect;
+  try {
+    ({ patient, tx } = await db.transaction(async (t) => {
+      const p = await t.select().from(patientsTable).where(eq(patientsTable.id, params.data.id)).get();
+      if (!p) throw new Error(NOT_FOUND);
+      if (isDeduct && magnitude > p.accountBalance) throw new Error(INSUFFICIENT);
+      const [row] = await t.insert(patientAccountTransactionsTable).values({
+        patientId: p.id,
+        amount: signed,
+        type: parsed.data.type,
+        description: parsed.data.description ?? null,
+        paymentId: parsed.data.paymentId ?? null,
+      }).returning();
+      await t.update(patientsTable)
+        .set({ accountBalance: sql`${patientsTable.accountBalance} + ${signed}` })
+        .where(eq(patientsTable.id, p.id));
+      return { patient: p, tx: row };
+    }));
+  } catch (err) {
+    if (err instanceof Error && err.message === NOT_FOUND) {
+      res.status(404).json({ error: "بیمار یافت نشد" });
+      return;
+    }
+    if (err instanceof Error && err.message === INSUFFICIENT) {
+      res.status(400).json({ error: "موجودی اکانت کافی نیست" });
+      return;
+    }
+    throw err;
   }
-
-  const newBalance = patient.accountBalance + signed;
-  const [tx] = await db.insert(patientAccountTransactionsTable).values({
-    patientId: patient.id,
-    amount: signed,
-    type: parsed.data.type,
-    description: parsed.data.description ?? null,
-    paymentId: parsed.data.paymentId ?? null,
-  }).returning();
-  await db.update(patientsTable).set({ accountBalance: newBalance }).where(eq(patientsTable.id, patient.id));
 
   const label = isDeduct ? "برداشت از" : "شارژ";
   await logActivity("update", "patient", patient.id, `${label} اکانت بیمار "${patient.name}" به مبلغ ${magnitude.toLocaleString()} تومان`);

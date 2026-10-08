@@ -1829,6 +1829,9 @@ components:
         discountName: { type: ["string", "null"] }
         discountAmount: { type: ["integer", "null"] }
         depositAmount: { type: ["integer", "null"] }
+        # بخش پرداخت‌شده از کیف پول / امتیاز باشگاه (تومان)؛ amount فقط نقدی است
+        walletAmount: { type: ["integer", "null"] }
+        pointsAmount: { type: ["integer", "null"] }
 
     PaymentInput:
       type: object

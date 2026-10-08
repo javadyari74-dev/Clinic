@@ -542,7 +542,9 @@ export const ListPaymentsResponseItem = zod.object({
   "unitLabel": zod.string().nullish(),
   "discountName": zod.string().nullish(),
   "discountAmount": zod.number().nullish(),
-  "depositAmount": zod.number().nullish()
+  "depositAmount": zod.number().nullish(),
+  "walletAmount": zod.number().nullish(),
+  "pointsAmount": zod.number().nullish()
 })
 export const ListPaymentsResponse = zod.array(ListPaymentsResponseItem)
 
@@ -587,7 +589,9 @@ export const GetPaymentResponse = zod.object({
   "unitLabel": zod.string().nullish(),
   "discountName": zod.string().nullish(),
   "discountAmount": zod.number().nullish(),
-  "depositAmount": zod.number().nullish()
+  "depositAmount": zod.number().nullish(),
+  "walletAmount": zod.number().nullish(),
+  "pointsAmount": zod.number().nullish()
 })
 
 

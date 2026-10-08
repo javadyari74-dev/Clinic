@@ -59,6 +59,8 @@ interface ReceiptData {
   discountName?: string;
   discountAmount?: number;
   depositAmount?: number;
+  walletAmount?: number;
+  pointsAmount?: number;
   finalAmount: number;
   method: string;
   notes?: string;
@@ -71,6 +73,7 @@ function receiptFromPayment(p: {
   notes?: string | null; patientName?: string | null; serviceName?: string | null;
   sessionNumber?: number | null; unitsUsed?: number | null; unitLabel?: string | null;
   discountName?: string | null; discountAmount?: number | null; depositAmount?: number | null;
+  walletAmount?: number | null; pointsAmount?: number | null;
 }): ReceiptData {
   return {
     paymentId: p.id,
@@ -84,6 +87,8 @@ function receiptFromPayment(p: {
     discountName: p.discountName ?? undefined,
     discountAmount: p.discountAmount ?? undefined,
     depositAmount: p.depositAmount ?? undefined,
+    walletAmount: p.walletAmount ?? undefined,
+    pointsAmount: p.pointsAmount ?? undefined,
     finalAmount: p.amount,
     method: p.method,
     notes: p.notes ?? undefined,
@@ -159,6 +164,20 @@ function ReceiptDialog({ receipt, open, onClose }: { receipt: ReceiptData | null
               <div className="flex justify-between text-amber-700">
                 <span>بیعانه پرداخت‌شده:</span>
                 <span>− {formatCurrency(receipt.depositAmount)}</span>
+              </div>
+            )}
+
+            {!!receipt.pointsAmount && receipt.pointsAmount > 0 && (
+              <div className="flex justify-between text-amber-700">
+                <span>امتیاز باشگاه:</span>
+                <span>− {formatCurrency(receipt.pointsAmount)}</span>
+              </div>
+            )}
+
+            {!!receipt.walletAmount && receipt.walletAmount > 0 && (
+              <div className="flex justify-between text-amber-700">
+                <span>پرداخت از کیف پول:</span>
+                <span>− {formatCurrency(receipt.walletAmount)}</span>
               </div>
             )}
 
@@ -552,6 +571,11 @@ export default function Payments() {
       toast({ title: `حداقل امتیاز قابل استفاده ${toPersianDigits(minRedeem)} است`, variant: "destructive" });
       return;
     }
+    // مبلغ دریافتی صفر فقط وقتی مجاز است که کل مبلغ با بیعانه/کیف پول/امتیاز پوشش داده شده باشد
+    if (!(values.amount > 0) && dueBeforePoints - redeemToman - walletApplied > 0) {
+      toast({ title: "مبلغ دریافتی را وارد کنید", variant: "destructive" });
+      return;
+    }
     // مبلغ تخفیف اعمال‌شده تا روی ردیف پرداخت ذخیره و در رسید نمایش داده شود
     const discountAmt = discountEnabled && selectedDiscount
       ? selectedDiscount.type === "percentage"
@@ -562,7 +586,8 @@ export default function Payments() {
       data: {
         ...values,
         originalAmount: values.originalAmount,
-        amount: values.amount || values.originalAmount,
+        // مبلغ نقدی همان است که محاسبه شده؛ صفر یعنی بقیه با بیعانه/کیف پول/امتیاز پوشش داده شده
+        amount: values.amount ?? 0,
         appointmentId: values.appointmentId ?? 0,
         unitsUsed: isPerUnit ? (values.unitsUsed ?? 1) : undefined,
         // اسنپ‌شات جزئیات تا هر پرداخت به‌صورت کامل و دائمی در دیتابیس بماند
@@ -1144,7 +1169,12 @@ export default function Payments() {
                     {(p as any).serviceName || "—"}
                     {(p as any).sessionNumber ? ` (جلسه ${toPersianDigits((p as any).sessionNumber)})` : ""}
                   </TableCell>
-                  <TableCell className="font-bold text-green-700">{formatCurrency(p.amount)}</TableCell>
+                  <TableCell className="font-bold text-green-700">
+                    {formatCurrency(p.amount)}
+                    {!!p.walletAmount && p.walletAmount > 0 && (
+                      <div className="text-xs font-normal text-amber-700">+ {formatCurrency(p.walletAmount)} از کیف پول</div>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {p.originalAmount !== p.amount
                       ? <span className="line-through">{formatCurrency(p.originalAmount)}</span>

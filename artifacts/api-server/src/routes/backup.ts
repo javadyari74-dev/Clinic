@@ -26,6 +26,7 @@ import {
   surveysTable,
   smsLogTable,
   loyaltyTransactionsTable,
+  loyaltyMembersTable,
 } from "@workspace/db";
 import { seedAdminUser } from "../lib/seed";
 import {
@@ -65,6 +66,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 // حذف تمام داده‌های مطب (فرزند → والد). کاربران و بخش لیزر دست‌نخورده می‌مانند.
 async function wipeClinicData(tx: Tx): Promise<void> {
   await tx.delete(loyaltyTransactionsTable);
+  await tx.delete(loyaltyMembersTable);
   await tx.delete(surveysTable);
   await tx.delete(waitingListTable);
   await tx.delete(smsLogTable);
@@ -172,6 +174,7 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
       await restoreRows(tx, surveysTable, data.surveys);
       await restoreRows(tx, smsLogTable, data.smsLog);
       await restoreRows(tx, loyaltyTransactionsTable, data.loyaltyTransactions);
+      await restoreRows(tx, loyaltyMembersTable, data.loyaltyMembers);
 
       // ۲-ب) بخش لیزر (والد → فرزند) با حفظ شناسه‌ها
       await restoreRows(tx, laserClientsTable, data.laserClients);
