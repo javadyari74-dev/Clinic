@@ -5,6 +5,7 @@ import {
   UpdateLoyaltySettingsBody,
   GetPatientLoyaltyParams,
   AdjustLoyaltyPointsBody,
+  RetroLoyaltyCashbackBody,
 } from "@workspace/api-zod";
 import {
   LOYALTY_SETTING_KEYS,
@@ -20,8 +21,10 @@ import {
   adjustLoyaltyPoints,
   isLoyaltyTier,
   getWalletBalance,
+  retroProfitCashback,
 } from "../lib/loyalty";
-import { setAppSetting } from "../lib/sms";
+import { setAppSetting, sendSms, renderTemplate, formatToman } from "../lib/sms";
+import { tehranInstant } from "../lib/scheduled-sms";
 import { logActivity } from "../lib/activity";
 import { requireAdmin } from "../lib/auth";
 
@@ -194,6 +197,66 @@ router.post("/loyalty/adjust", requireAdmin, async (req, res): Promise<void> => 
     }
     throw err;
   }
+});
+
+// تاریخ میلادی YYYY-MM-DD (روز تهران) → ابتدای آن روز به ثانیه؛ nextDay = ابتدای روز بعد
+function dayStartSec(value: string | null | undefined, nextDay = false): number | null | "invalid" {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return "invalid";
+  return Math.floor(tehranInstant(Number(m[1]), Number(m[2]), Number(m[3]) + (nextDay ? 1 : 0)) / 1000);
+}
+
+// اعتبار سودِ پرداخت‌های قبلی (پیش از فعال شدن اعتبار سود) — فقط مدیر.
+// apply=false فقط پیش‌نمایش است؛ نوبت‌هایی که قبلاً اعتبار گرفته‌اند دوباره حساب نمی‌شوند.
+router.post("/loyalty/retro-cashback", requireAdmin, async (req, res): Promise<void> => {
+  const parsed = RetroLoyaltyCashbackBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const fromSec = dayStartSec(parsed.data.from);
+  const toSec = dayStartSec(parsed.data.to, true);
+  if (fromSec === "invalid" || toSec === "invalid" || (fromSec !== null && toSec !== null && fromSec >= toSec)) {
+    res.status(400).json({ error: "بازهٔ تاریخ نامعتبر است" });
+    return;
+  }
+  const settings = await getLoyaltySettings();
+  if (!settings.enabled) {
+    res.status(400).json({ error: "باشگاه مشتریان غیرفعال است" });
+    return;
+  }
+  const apply = parsed.data.apply;
+  if (apply) await backfillLoyaltyMembers(nowSec());
+  const result = await retroProfitCashback({ fromSec, toSec, apply });
+
+  let smsSent = 0;
+  let smsFailed = 0;
+  const smsText = (parsed.data.smsText ?? "").trim();
+  if (apply && result.total > 0) {
+    await logActivity("update", "loyalty", null,
+      `اعتبار سود پرداخت‌های قبلی: ${result.total.toLocaleString()} تومان برای ${result.patients.length} مراجع`);
+    if (smsText) {
+      for (const p of result.patients) {
+        if (!p.phone) { smsFailed++; continue; }
+        const text = renderTemplate(smsText, {
+          "نام": p.name,
+          "اعتبار": formatToman(p.amount),
+          "امتیاز": formatToman(p.amount),
+          "موجودی": formatToman(await getWalletBalance(db, p.patientId)),
+        });
+        const r = await sendSms({ to: p.phone, text, eventType: "loyalty_bulk", recipientName: p.name, patientId: p.patientId });
+        if (r.ok) smsSent++; else smsFailed++;
+      }
+    }
+  }
+  res.json({
+    appointments: result.appointments,
+    total: result.total,
+    smsSent,
+    smsFailed,
+    patients: result.patients.map(({ patientId, name, amount, appointments }) => ({ patientId, name, amount, appointments })),
+  });
 });
 
 router.get("/patients/:id/loyalty", async (req, res): Promise<void> => {

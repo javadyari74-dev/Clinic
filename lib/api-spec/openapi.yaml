@@ -1500,6 +1500,24 @@ paths:
                 properties:
                   balance: { type: integer }
 
+  /loyalty/retro-cashback:
+    post:
+      operationId: retroLoyaltyCashback
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetroCashbackInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetroCashbackResult"
+
   /patients/{id}/loyalty:
     get:
       operationId: getPatientLoyalty
@@ -2623,6 +2641,37 @@ components:
         # تومان؛ مثبت = افزودن به کیف پول، منفی = کسر
         amount: { type: integer }
         description: { type: string }
+
+    RetroCashbackInput:
+      type: object
+      required: [apply]
+      properties:
+        # تاریخ میلادی YYYY-MM-DD (روز تهران)؛ خالی = بدون محدودیت
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        # false = فقط پیش‌نمایش
+        apply: { type: boolean }
+        # متن پیامک اختیاری؛ متغیرها: {نام} {اعتبار} {موجودی}
+        smsText: { type: string, nullable: true }
+
+    RetroCashbackResult:
+      type: object
+      required: [appointments, total, patients, smsSent, smsFailed]
+      properties:
+        appointments: { type: integer }
+        total: { type: integer }
+        smsSent: { type: integer }
+        smsFailed: { type: integer }
+        patients:
+          type: array
+          items:
+            type: object
+            required: [patientId, name, amount, appointments]
+            properties:
+              patientId: { type: integer }
+              name: { type: string }
+              amount: { type: integer }
+              appointments: { type: integer }
 
     PatientLoyalty:
       type: object

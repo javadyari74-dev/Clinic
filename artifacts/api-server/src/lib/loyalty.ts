@@ -688,3 +688,96 @@ export async function applyProfitCashback(
   });
   return { reward, profit };
 }
+
+// ── اعتبار سودِ پرداخت‌های قبلی ──────────────────────────────────────────────
+
+export interface RetroCashbackPatient {
+  patientId: number;
+  name: string;
+  phone: string | null;
+  amount: number;
+  appointments: number;
+}
+
+export interface RetroCashbackResult {
+  appointments: number;
+  patients: RetroCashbackPatient[];
+  total: number;
+}
+
+/**
+ * محاسبه (و در صورت apply ثبتِ) اعتبار سود برای نوبت‌های پرداخت‌شده‌ای که هنوز هیچ اعتبار
+ * سودی نگرفته‌اند (مثلاً پرداخت‌های پیش از فعال شدن این قابلیت). بازه روی تاریخ آخرین
+ * پرداخت نوبت است (ثانیه، to انحصاری). قاعدهٔ محاسبه همان پرداخت عادی است؛ ضریبِ سطحِ
+ * فعلی عضو اعمال می‌شود. اعتبار به آخرین پرداخت نوبت وصل می‌شود (تا حذف آن پرداخت
+ * برش گرداند) و تاریخش «الان» است تا انقضا از امروز حساب شود. اجرای دوباره بی‌اثر است.
+ */
+export async function retroProfitCashback(args: {
+  fromSec?: number | null;
+  toSec?: number | null;
+  apply: boolean;
+}): Promise<RetroCashbackResult> {
+  const settings = await getLoyaltySettings();
+  const empty: RetroCashbackResult = { appointments: 0, patients: [], total: 0 };
+  if (!settings.enabled || settings.profitRewardPercent <= 0) return empty;
+
+  const run = async (tx: LoyaltyExecutor): Promise<RetroCashbackResult> => {
+    const rows = await tx.all<{
+      appointment_id: number; patient_id: number; name: string; phone: string | null;
+      paid: number; last_payment_id: number; units_used: number | null; service_name: string | null;
+    }>(sql`
+      SELECT a.id AS appointment_id, a.patient_id AS patient_id, pt.name AS name, pt.phone AS phone,
+        SUM(p.amount) AS paid, MAX(p.id) AS last_payment_id,
+        (SELECT lp.units_used FROM payments lp WHERE lp.appointment_id = a.id ORDER BY lp.id DESC LIMIT 1) AS units_used,
+        (SELECT lp.service_name FROM payments lp WHERE lp.appointment_id = a.id ORDER BY lp.id DESC LIMIT 1) AS service_name
+      FROM payments p
+      INNER JOIN appointments a ON a.id = p.appointment_id
+      INNER JOIN patients pt ON pt.id = a.patient_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM patient_account_transactions t INNER JOIN payments p2 ON p2.id = t.payment_id
+        WHERE p2.appointment_id = a.id AND t.type = 'loyalty_cashback'
+      )
+      GROUP BY a.id
+      HAVING (${args.fromSec ?? null} IS NULL OR MAX(p.paid_at) >= ${args.fromSec ?? null})
+         AND (${args.toSec ?? null} IS NULL OR MAX(p.paid_at) < ${args.toSec ?? null})
+      ORDER BY MAX(p.paid_at)
+    `);
+
+    const byPatient = new Map<number, RetroCashbackPatient>();
+    let appointments = 0;
+    let total = 0;
+    const tierCache = new Map<number, number>();
+    for (const r of rows) {
+      const pid = Number(r.patient_id);
+      let rate = tierCache.get(pid);
+      if (rate === undefined) {
+        rate = tierRate(await getMemberTier(tx, pid), settings);
+        tierCache.set(pid, rate);
+      }
+      const cost = await appointmentServiceCost(tx, Number(r.appointment_id), r.units_used);
+      const reward = computeProfitReward(Number(r.paid) - cost, settings.profitRewardPercent, rate);
+      if (reward <= 0) continue;
+
+      if (args.apply) {
+        const description =
+          `اعتبار سود خدمت قبلی${r.service_name ? ` (${r.service_name})` : ""}: ` +
+          `${fa(settings.profitRewardPercent * rate / 100)}٪ سود — ${fa(reward)} تومان`;
+        const paymentId = Number(r.last_payment_id);
+        await creditWallet(tx, pid, reward, "loyalty_cashback", description, paymentId);
+        await tx.insert(loyaltyTransactionsTable).values({
+          patientId: pid, paymentId, delta: 0, amount: reward, type: "cashback", description,
+        });
+      }
+      appointments++;
+      total += reward;
+      const entry = byPatient.get(pid) ?? { patientId: pid, name: r.name, phone: r.phone, amount: 0, appointments: 0 };
+      entry.amount += reward;
+      entry.appointments++;
+      byPatient.set(pid, entry);
+    }
+    const patients = [...byPatient.values()].sort((a, b) => b.amount - a.amount);
+    return { appointments, patients, total };
+  };
+
+  return args.apply ? db.transaction(run) : run(db);
+}

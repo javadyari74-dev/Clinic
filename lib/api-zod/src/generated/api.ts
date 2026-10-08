@@ -1611,6 +1611,27 @@ export const AdjustLoyaltyPointsResponse = zod.object({
 })
 
 
+export const RetroLoyaltyCashbackBody = zod.object({
+  "from": zod.string().nullish(),
+  "to": zod.string().nullish(),
+  "apply": zod.boolean(),
+  "smsText": zod.string().nullish()
+})
+
+export const RetroLoyaltyCashbackResponse = zod.object({
+  "appointments": zod.number(),
+  "total": zod.number(),
+  "smsSent": zod.number(),
+  "smsFailed": zod.number(),
+  "patients": zod.array(zod.object({
+  "patientId": zod.number(),
+  "name": zod.string(),
+  "amount": zod.number(),
+  "appointments": zod.number()
+}))
+})
+
+
 export const GetPatientLoyaltyParams = zod.object({
   "id": zod.coerce.number()
 })

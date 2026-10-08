@@ -1134,6 +1134,28 @@ export interface AdjustLoyaltyInput {
   description?: string;
 }
 
+export interface RetroCashbackInput {
+  from?: string | null;
+  to?: string | null;
+  apply: boolean;
+  smsText?: string | null;
+}
+
+export type RetroCashbackResultPatientsItem = {
+  patientId: number;
+  name: string;
+  amount: number;
+  appointments: number;
+};
+
+export interface RetroCashbackResult {
+  appointments: number;
+  total: number;
+  smsSent: number;
+  smsFailed: number;
+  patients: RetroCashbackResultPatientsItem[];
+}
+
 /**
  * @nullable
  */

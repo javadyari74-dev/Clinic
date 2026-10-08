@@ -79,6 +79,8 @@ import type {
   ReminderInput,
   ReminderUpdate,
   ReportsSummary,
+  RetroCashbackInput,
+  RetroCashbackResult,
   RevenueChartPoint,
   SavedSmsPattern,
   SavedSmsPatternInput,
@@ -5940,6 +5942,71 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getAdjustLoyaltyPointsMutationOptions(options));
+    }
+
+export const getRetroLoyaltyCashbackUrl = () => {
+
+
+
+
+  return `/api/loyalty/retro-cashback`
+}
+
+export const retroLoyaltyCashback = async (retroCashbackInput: RetroCashbackInput, options?: RequestInit): Promise<RetroCashbackResult> => {
+
+  return customFetch<RetroCashbackResult>(getRetroLoyaltyCashbackUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      retroCashbackInput,)
+  }
+);}
+
+
+
+
+export const getRetroLoyaltyCashbackMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retroLoyaltyCashback>>, TError,{data: BodyType<RetroCashbackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retroLoyaltyCashback>>, TError,{data: BodyType<RetroCashbackInput>}, TContext> => {
+
+const mutationKey = ['retroLoyaltyCashback'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retroLoyaltyCashback>>, {data: BodyType<RetroCashbackInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  retroLoyaltyCashback(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetroLoyaltyCashbackMutationResult = NonNullable<Awaited<ReturnType<typeof retroLoyaltyCashback>>>
+    export type RetroLoyaltyCashbackMutationBody = BodyType<RetroCashbackInput>
+    export type RetroLoyaltyCashbackMutationError = ErrorType<unknown>
+
+    export const useRetroLoyaltyCashback = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retroLoyaltyCashback>>, TError,{data: BodyType<RetroCashbackInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retroLoyaltyCashback>>,
+        TError,
+        {data: BodyType<RetroCashbackInput>},
+        TContext
+      > => {
+      return useMutation(getRetroLoyaltyCashbackMutationOptions(options));
     }
 
 export const getGetPatientLoyaltyUrl = (id: number,) => {

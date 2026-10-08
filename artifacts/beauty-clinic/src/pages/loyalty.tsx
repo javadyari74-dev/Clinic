@@ -7,11 +7,12 @@ import {
   useGetLoyaltyOverview,
   useListLoyaltyMembers,
   useAdjustLoyaltyPoints,
+  useRetroLoyaltyCashback,
   getGetLoyaltySettingsQueryKey,
   getGetLoyaltyOverviewQueryKey,
   getListLoyaltyMembersQueryKey,
 } from "@workspace/api-client-react";
-import type { LoyaltySettings, LoyaltyMember } from "@workspace/api-client-react";
+import type { LoyaltySettings, LoyaltyMember, RetroCashbackResult } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,11 +23,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ErrorNotice } from "@/components/error-notice";
+import { Textarea } from "@/components/ui/textarea";
+import { PersianDatePicker } from "@/components/persian-date-picker";
 import { LoyaltyTierBadge, LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTierKey } from "@/components/loyalty-tier-badge";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet } from "lucide-react";
+import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet, History } from "lucide-react";
 
 const TYPE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   cashback: { label: "اعتبار سود", variant: "default" },
@@ -366,6 +369,163 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
   );
 }
 
+// ─── اعتبار سود پرداخت‌های قبلی (فقط مدیر) ─────────────────────────────────────
+
+const RETRO_SMS_DEFAULT =
+  "{نام} عزیز، {اعتبار} تومان اعتبار هدیه بابت خدمات قبلی به کیف پول شما در باشگاه مشتریان اضافه شد. موجودی کیف پول: {موجودی} تومان.";
+
+function RetroCashbackCard({ settings }: { settings: LoyaltySettings | undefined }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [preview, setPreview] = useState<RetroCashbackResult | null>(null);
+  const [sendSmsOn, setSendSmsOn] = useState(true);
+  const [smsText, setSmsText] = useState(RETRO_SMS_DEFAULT);
+  const [confirming, setConfirming] = useState(false);
+
+  const retro = useRetroLoyaltyCashback({
+    mutation: {
+      onError: (err) => {
+        const msg = (err as { data?: { error?: string } })?.data?.error;
+        toast({ title: msg || "محاسبه ناموفق بود", variant: "destructive" });
+      },
+    },
+  });
+
+  // با تغییر بازه، پیش‌نمایش قبلی دیگر معتبر نیست
+  useEffect(() => setPreview(null), [from, to]);
+
+  const range = { from: from || null, to: to || null };
+
+  function runPreview() {
+    retro.mutate({ data: { ...range, apply: false } }, { onSuccess: (r) => setPreview(r) });
+  }
+
+  function runApply() {
+    retro.mutate(
+      { data: { ...range, apply: true, smsText: sendSmsOn ? smsText.trim() : null } },
+      {
+        onSuccess: (r) => {
+          setConfirming(false);
+          setPreview(null);
+          queryClient.invalidateQueries({ queryKey: getListLoyaltyMembersQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetLoyaltyOverviewQueryKey() });
+          toast({
+            title: `${formatCurrency(r.total)} به کیف پول ${toPersianDigits(r.patients.length)} مراجع اضافه شد`,
+            description: sendSmsOn
+              ? `پیامک: ${toPersianDigits(r.smsSent)} ارسال${r.smsFailed ? `، ${toPersianDigits(r.smsFailed)} ناموفق` : ""}`
+              : undefined,
+          });
+        },
+      },
+    );
+  }
+
+  const disabled = !settings?.enabled || !(settings?.profitRewardPercent > 0);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-lg flex items-center gap-2">
+          <History className="h-5 w-5 text-amber-600" />
+          اعتبار سود پرداخت‌های قبلی
+        </CardTitle>
+        <CardDescription>
+          برای پرداخت‌هایی که پیش از راه‌اندازی اعتبار سود ثبت شده‌اند. اعتبار با همان قاعدهٔ صندوق
+          ({pct(settings?.profitRewardPercent ?? 0)} سود خدمت با ضریب سطح فعلی مراجع) حساب می‌شود و
+          نوبت‌هایی که قبلاً اعتبار گرفته‌اند دوباره حساب نمی‌شوند. بازه را خالی بگذارید تا همهٔ پرداخت‌های قبلی حساب شوند.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <div>
+            <Label className="text-sm mb-1.5 block">از تاریخ</Label>
+            <PersianDatePicker value={from} onChange={setFrom} placeholder="از ابتدا" />
+          </div>
+          <div>
+            <Label className="text-sm mb-1.5 block">تا تاریخ</Label>
+            <PersianDatePicker value={to} onChange={setTo} placeholder="تا امروز" />
+          </div>
+          {(from || to) && (
+            <Button variant="ghost" size="sm" onClick={() => { setFrom(""); setTo(""); }}>پاک کردن بازه</Button>
+          )}
+          <Button variant="outline" onClick={runPreview} disabled={disabled || retro.isPending}>
+            {retro.isPending && !confirming ? "در حال محاسبه..." : "محاسبه"}
+          </Button>
+        </div>
+        {disabled && (
+          <p className="text-sm text-amber-700">ابتدا باشگاه و درصد اعتبار سود را در تب «تنظیمات» فعال کنید.</p>
+        )}
+
+        {preview && (preview.total === 0 ? (
+          <p className="text-sm text-muted-foreground">در این بازه پرداختی بدون اعتبار سود پیدا نشد.</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-sm text-amber-900">
+              {toPersianDigits(preview.appointments)} نوبت از {toPersianDigits(preview.patients.length)} مراجع —
+              جمع اعتبار: <span className="font-bold">{formatCurrency(preview.total)}</span>
+            </div>
+            <div className="max-h-64 overflow-y-auto rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-right">مراجع</TableHead>
+                    <TableHead className="text-right">تعداد نوبت</TableHead>
+                    <TableHead className="text-right">اعتبار</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {preview.patients.map((p) => (
+                    <TableRow key={p.patientId}>
+                      <TableCell>{p.name}</TableCell>
+                      <TableCell>{toPersianDigits(p.appointments)}</TableCell>
+                      <TableCell className="font-bold text-emerald-700 whitespace-nowrap">{formatCurrency(p.amount)}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Switch id="retro-sms" checked={sendSmsOn} onCheckedChange={setSendSmsOn} />
+                <Label htmlFor="retro-sms">ارسال پیامک به این مراجعین</Label>
+              </div>
+              {sendSmsOn && (
+                <>
+                  <Textarea value={smsText} onChange={(e) => setSmsText(e.target.value)} rows={3} />
+                  <p className="text-xs text-muted-foreground">
+                    متغیرها: {"{نام}"}، {"{اعتبار}"} (اعتبار همین واریز)، {"{موجودی}"} (موجودی کیف پول بعد از واریز)
+                  </p>
+                </>
+              )}
+            </div>
+            <Button onClick={() => setConfirming(true)} disabled={retro.isPending} className="gap-1">
+              <Wallet className="h-4 w-4" /> واریز به کیف پول مراجعین
+            </Button>
+          </div>
+        ))}
+      </CardContent>
+
+      <Dialog open={confirming} onOpenChange={(o) => !o && !retro.isPending && setConfirming(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>تأیید واریز اعتبار</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm">
+            {formatCurrency(preview?.total ?? 0)} به کیف پول {toPersianDigits(preview?.patients.length ?? 0)} مراجع اضافه می‌شود
+            {sendSmsOn ? " و برای هر کدام پیامک فرستاده می‌شود" : ""}. ادامه می‌دهید؟
+          </p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setConfirming(false)} disabled={retro.isPending}>انصراف</Button>
+            <Button onClick={runApply} disabled={retro.isPending}>{retro.isPending ? "در حال واریز..." : "واریز"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
 // ─── تب تنظیمات ────────────────────────────────────────────────────────────────
 
 function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
@@ -541,6 +701,8 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
 
 export default function Loyalty() {
   const { data: settings, isError, refetch } = useGetLoyaltySettings();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [tab, setTab] = useState("overview");
 
   return (
@@ -575,7 +737,12 @@ export default function Loyalty() {
           <TabsTrigger value="settings">تنظیمات</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab settings={settings} /></TabsContent>
-        <TabsContent value="members"><MembersTab settings={settings} /></TabsContent>
+        <TabsContent value="members">
+          <div className="space-y-4">
+            {isAdmin && <RetroCashbackCard settings={settings} />}
+            <MembersTab settings={settings} />
+          </div>
+        </TabsContent>
         <TabsContent value="settings"><SettingsTab settings={settings} /></TabsContent>
       </Tabs>
     </div>
