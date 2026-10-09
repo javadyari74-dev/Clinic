@@ -14,6 +14,8 @@ const { state, chain } = vi.hoisted(() => {
     deleteResult: [] as unknown[],
     txInsertResult: [] as unknown[],
     txUpdateCalls: 0,
+    // نتیجهٔ UPDATE داخل تراکنش (تصاحب اتمیک مورد با WHERE status='waiting' RETURNING)
+    txUpdateResult: [{ id: 7 }] as unknown[],
     txError: null as Error | null,
   };
   function chain(result: () => unknown) {
@@ -43,7 +45,7 @@ vi.mock("@workspace/db", () => ({
         update: () => chain(() => {
           state.txUpdateCalls += 1;
           if (state.txError) throw state.txError;
-          return [];
+          return state.txUpdateResult;
         }),
       };
       return fn(tx);
@@ -77,6 +79,15 @@ vi.mock("../src/lib/sms", () => ({
   formatShamsiDateForSms: (ts: number) => `shamsi(${ts})`,
 }));
 vi.mock("../src/lib/activity", () => ({ logActivity: logActivityMock }));
+// شمارهٔ جلسه و بیعانه در کتابخانه‌های جداگانه‌اند (با تست یکپارچهٔ واقعی پوشش داده شده‌اند)
+vi.mock("../src/lib/appointment-details", () => ({
+  nextSessionNumber: vi.fn(() => Promise.resolve(1)),
+  normalizeScheduledAt: (ts: number) => (ts > 0 && ts < 1e11 ? ts * 1000 : ts),
+}));
+vi.mock("../src/lib/payment-effects", () => ({
+  recordDepositPayment: vi.fn(() => Promise.resolve(null)),
+  fireReferrerCommissionSms: vi.fn(),
+}));
 vi.mock("../src/lib/appointment-code", () => ({
   generateUniqueAppointmentCode: vi.fn(() => Promise.resolve("AP-7777")),
 }));
@@ -108,6 +119,7 @@ beforeEach(async () => {
   state.deleteResult = [];
   state.txInsertResult = [];
   state.txUpdateCalls = 0;
+  state.txUpdateResult = [{ id: 7 }];
   state.txError = null;
   sendSmsMock.mockReset();
   fireAppointmentSmsMock.mockClear();
@@ -244,7 +256,6 @@ describe("POST /waiting-list/:id/convert", () => {
   it("creates the appointment and fulfills the entry in one transaction", async () => {
     state.selectResults = [
       [rawEntry],
-      [{ count: 0 }],
       [apptDetail],
       [{ ...sampleEntry, status: "fulfilled", appointmentId: 42 }],
     ];
@@ -254,7 +265,8 @@ describe("POST /waiting-list/:id/convert", () => {
     expect(res.json.appointment.id).toBe(42);
     expect(res.json.entry.status).toBe("fulfilled");
     expect(res.json.entry.appointmentId).toBe(42);
-    expect(state.txUpdateCalls).toBe(1);
+    // تصاحب اتمیک مورد + ثبت شناسهٔ نوبت روی آن
+    expect(state.txUpdateCalls).toBe(2);
     expect(fireAppointmentSmsMock).toHaveBeenCalledTimes(1);
     expect(logActivityMock).toHaveBeenCalledWith(
       "create",
@@ -264,8 +276,17 @@ describe("POST /waiting-list/:id/convert", () => {
     );
   });
 
+  it("409s when a concurrent convert already claimed the entry (no second appointment)", async () => {
+    state.selectResults = [[rawEntry]];
+    state.txInsertResult = [createdAppt];
+    state.txUpdateResult = [];
+    const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(409);
+    expect(fireAppointmentSmsMock).not.toHaveBeenCalled();
+  });
+
   it("fails the whole request when fulfilling the entry fails (no half-converted state)", async () => {
-    state.selectResults = [[rawEntry], [{ count: 0 }]];
+    state.selectResults = [[rawEntry]];
     state.txInsertResult = [createdAppt];
     state.txError = new Error("disk I/O error");
     const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });

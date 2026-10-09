@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, or, and, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
-import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable, loyaltyMembersTable, loyaltyTransactionsTable } from "@workspace/db";
+import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable, loyaltyMembersTable, loyaltyTransactionsTable, waitingListTable, surveysTable } from "@workspace/db";
 import {
   ListPatientsQueryParams,
   CreatePatientBody,
@@ -18,6 +18,8 @@ import { logActivity } from "../lib/activity";
 import { requireAdmin } from "../lib/auth";
 import { fireCommissionSms } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
+import { appointmentWithDetails } from "../lib/appointment-details";
+import { PaymentEffectError, PAYMENT_EFFECT_MESSAGES, hasPaidCommissions, reversePaymentEffects } from "../lib/payment-effects";
 
 const router: IRouter = Router();
 
@@ -174,32 +176,58 @@ router.delete("/patients/:id", requireAdmin, async (req, res): Promise<void> => 
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;
   }
-  await db.transaction(async (tx) => {
-    const appts = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
-    const apptIds = appts.map((a) => a.id);
-    let paymentIds: number[] = [];
-    if (apptIds.length > 0) {
-      const payments = await tx.select({ id: paymentsTable.id }).from(paymentsTable).where(inArray(paymentsTable.appointmentId, apptIds));
-      paymentIds = payments.map((p) => p.id);
+  // حذف مراجع: هر پرداختِ او به‌طور کامل برگردانده می‌شود (اعتبار معرفی/باشگاهی که به
+  // مراجعین دیگر داده شده، کمیسیون‌ها، تخفیف‌ها) — اگر اعتبارِ مراجع دیگری قبلاً خرج شده
+  // باشد یا پورسانتی تسویه شده باشد، حذف لغو می‌شود.
+  try {
+    await db.transaction(async (tx) => {
+      const appts = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+      const apptIds = appts.map((a) => a.id);
+      const payments = apptIds.length > 0
+        ? await tx.select().from(paymentsTable).where(inArray(paymentsTable.appointmentId, apptIds)).orderBy(desc(paymentsTable.id))
+        : [];
+      const paymentIds = payments.map((p) => p.id);
+      const ownCommission = and(eq(commissionsTable.recipientType, "patient"), eq(commissionsTable.recipientId, patientId));
+      if (
+        await hasPaidCommissions(tx, { paymentIds, appointmentIds: apptIds }) ||
+        (await tx.select({ id: commissionsTable.id }).from(commissionsTable).where(and(ownCommission, eq(commissionsTable.isPaid, true))).limit(1)).length > 0
+      ) {
+        throw new PaymentEffectError("پورسانت مرتبط با این مراجع تسویه شده است؛ ابتدا تسویه را برگردانید");
+      }
+      // سوابق کیف پول و باشگاهِ خودِ مراجع پیش از برگرداندن پرداخت‌ها پاک می‌شود تا
+      // برگرداندن فقط روی مراجعین دیگر (مثلاً معرف) اثر کند
+      await tx.delete(patientAccountTransactionsTable).where(eq(patientAccountTransactionsTable.patientId, patientId));
+      await tx.delete(loyaltyTransactionsTable).where(eq(loyaltyTransactionsTable.patientId, patientId));
+      for (const payment of payments) {
+        await tx.delete(paymentsTable).where(eq(paymentsTable.id, payment.id));
+        await reversePaymentEffects(tx, payment, { ignoreWalletOf: patientId, skipCashbackReconcile: true, skipAppointmentRecompute: true });
+      }
+      // کمیسیون‌های باقی‌مانده‌ی نوبت‌های این مراجع و کمیسیون‌هایی که خودش دریافت‌کننده بوده
+      const commissionConditions = [ownCommission];
+      if (apptIds.length > 0) commissionConditions.push(inArray(commissionsTable.appointmentId, apptIds));
+      await tx.delete(commissionsTable).where(or(...commissionConditions));
+      // مراجعینی که این مراجع معرفشان بوده دیگر معرف ندارند
+      await tx.update(patientsTable)
+        .set({ referrerType: null, referrerId: null, referrerRate: null })
+        .where(and(eq(patientsTable.referrerType, "patient"), eq(patientsTable.referrerId, patientId)));
+      await tx.delete(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
+      await tx.delete(patientNotesTable).where(eq(patientNotesTable.patientId, patientId));
+      await tx.delete(loyaltyMembersTable).where(eq(loyaltyMembersTable.patientId, patientId));
+      await tx.delete(remindersTable).where(eq(remindersTable.patientId, patientId));
+      await tx.delete(waitingListTable).where(eq(waitingListTable.patientId, patientId));
+      await tx.delete(surveysTable).where(eq(surveysTable.patientId, patientId));
+      await tx.delete(patientsTable).where(eq(patientsTable.id, patientId));
+    });
+  } catch (err) {
+    if (err instanceof PaymentEffectError) {
+      const message = err.message === PAYMENT_EFFECT_MESSAGES.walletNegative
+        ? "اعتباری که پرداخت‌های این مراجع به کیف پول مراجع دیگری (مثلاً معرف) داده قبلاً خرج شده است؛ حذف این مراجع ممکن نیست"
+        : err.message;
+      res.status(err.status).json({ error: message });
+      return;
     }
-    // کمیسیون‌های مرتبط با نوبت‌ها/پرداخت‌های این مراجع و کمیسیون‌هایی که این مراجع دریافت‌کننده‌شان بوده
-    const commissionConditions = [
-      and(eq(commissionsTable.recipientType, "patient"), eq(commissionsTable.recipientId, patientId)),
-    ];
-    if (apptIds.length > 0) commissionConditions.push(inArray(commissionsTable.appointmentId, apptIds));
-    if (paymentIds.length > 0) commissionConditions.push(inArray(commissionsTable.paymentId, paymentIds));
-    await tx.delete(commissionsTable).where(or(...commissionConditions));
-    if (paymentIds.length > 0) {
-      await tx.delete(paymentsTable).where(inArray(paymentsTable.id, paymentIds));
-    }
-    await tx.delete(appointmentsTable).where(eq(appointmentsTable.patientId, patientId));
-    await tx.delete(patientNotesTable).where(eq(patientNotesTable.patientId, patientId));
-    await tx.delete(patientAccountTransactionsTable).where(eq(patientAccountTransactionsTable.patientId, patientId));
-    await tx.delete(loyaltyTransactionsTable).where(eq(loyaltyTransactionsTable.patientId, patientId));
-    await tx.delete(loyaltyMembersTable).where(eq(loyaltyMembersTable.patientId, patientId));
-    await tx.delete(remindersTable).where(eq(remindersTable.patientId, patientId));
-    await tx.delete(patientsTable).where(eq(patientsTable.id, patientId));
-  });
+    throw err;
+  }
   await logActivity("delete", "patient", existing.id, `بیمار "${existing.name}" حذف شد`);
   res.sendStatus(204);
 });
@@ -211,25 +239,7 @@ router.get("/patients/:id/appointments", async (req, res): Promise<void> => {
     return;
   }
   const rows = await db
-    .select({
-      id: appointmentsTable.id,
-      patientId: appointmentsTable.patientId,
-      serviceId: appointmentsTable.serviceId,
-      staffId: appointmentsTable.staffId,
-      scheduledAt: appointmentsTable.scheduledAt,
-      status: appointmentsTable.status,
-      notes: appointmentsTable.notes,
-      price: appointmentsTable.price,
-      discountId: appointmentsTable.discountId,
-      originalPrice: appointmentsTable.originalPrice,
-      createdAt: appointmentsTable.createdAt,
-      patientName: patientsTable.name,
-      patientPhone: patientsTable.phone,
-      patientFileNumber: patientsTable.fileNumber,
-      serviceName: servicesTable.name,
-      servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
-      staffName: staffTable.name,
-    })
+    .select(appointmentWithDetails)
     .from(appointmentsTable)
     .leftJoin(patientsTable, eq(appointmentsTable.patientId, patientsTable.id))
     .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
@@ -271,6 +281,19 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
   if (parsed.data.type.startsWith("loyalty_")) {
     res.status(400).json({ error: "این نوع تراکنش از این‌جا قابل ثبت نیست" });
     return;
+  }
+  // اعتبار معرفیِ دستی برای پرداختی که معرفش قبلاً اعتبار معرفی باشگاه یا اعتبار دستی گرفته، تکراری است
+  if (parsed.data.type === "referral_credit" && parsed.data.paymentId) {
+    const dup = await db.select({ id: patientAccountTransactionsTable.id }).from(patientAccountTransactionsTable)
+      .where(and(
+        eq(patientAccountTransactionsTable.patientId, params.data.id),
+        eq(patientAccountTransactionsTable.paymentId, parsed.data.paymentId),
+        inArray(patientAccountTransactionsTable.type, ["referral_credit", "loyalty_referral"]),
+      )).get();
+    if (dup) {
+      res.status(400).json({ error: "این معرف برای همین پرداخت قبلاً اعتبار معرفی گرفته است" });
+      return;
+    }
   }
 
   // مقدار همیشه به‌صورت قدر مطلق گرفته می‌شود؛ علامت را نوع تراکنش تعیین می‌کند
@@ -317,10 +340,18 @@ router.post("/patients/:id/account-transactions", async (req, res): Promise<void
 
   // اعتبار معرفی (معرف از نوع مراجع): پیامک اطلاع پورسانت برای بیمارِ معرف — آتش و فراموش
   if (parsed.data.type === "referral_credit") {
+    // مبلغ پایه (پرداخت مرتبط) و درصد (وقتی دقیقاً قابل محاسبه است) تا پیامک «—» نشان ندهد
+    const base = parsed.data.paymentId
+      ? await db.select({ amount: paymentsTable.amount }).from(paymentsTable).where(eq(paymentsTable.id, parsed.data.paymentId)).get()
+      : undefined;
+    const baseAmount = base?.amount ?? null;
+    const rate = baseAmount && baseAmount > 0 && Number.isInteger((magnitude * 100) / baseAmount) ? (magnitude * 100) / baseAmount : null;
     fireCommissionSms({
       referrerName: patient.name,
       phone: patient.phone,
       commissionAmount: magnitude,
+      baseAmount,
+      rate,
       referrerPatientId: patient.id,
     });
   }

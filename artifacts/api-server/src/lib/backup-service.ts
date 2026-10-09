@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, getTableColumns } from "drizzle-orm";
 import {
   db,
   DB_PATH,
@@ -31,12 +31,16 @@ import {
   smsLogTable,
   loyaltyTransactionsTable,
   loyaltyMembersTable,
+  smsSavedPatternsTable,
+  DATA_FIX_KEY_PREFIX,
 } from "@workspace/db";
 import { logger } from "./logger";
+import { backfillLoyaltyMembers } from "./loyalty";
 
 // نسخه فرمت فایل پشتیبان — هنگام افزودن/حذف جدول افزایش یابد.
 // نسخه ۴: افزودن لیست انتظار، نظرسنجی‌ها، لاگ پیامک، باشگاه مشتریان و بخش لیزر.
-export const BACKUP_VERSION = 4;
+// نسخه ۵: افزودن تنظیمات برنامه (appSettings) و کدهای پترن ذخیره‌شدهٔ پیامک؛ uuid برای جدول‌های لیزر.
+export const BACKUP_VERSION = 5;
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -48,6 +52,25 @@ const BACKUP_DIR_KEY = "backup_dir";
 // پوشهٔ نسخهٔ دوم (مثلاً فلش یا پوشهٔ همگام‌شده با Google Drive)؛ خالی = غیرفعال
 export const BACKUP_MIRROR_DIR_KEY = "backup_mirror_dir";
 const LAST_AUTO_BACKUP_KEY = "last_auto_backup_at";
+
+// کلیدهای app_settings که مختص همین دستگاه‌اند (مسیر پوشه‌ها، زمان آخرین اجرا،
+// نشانهٔ اصلاح‌های یک‌بارهٔ داده) و نباید در پشتیبان بیایند یا با بازیابی/ادغام
+// روی دستگاه دیگر نوشته شوند.
+const DEVICE_LOCAL_SETTING_KEYS = new Set<string>([
+  BACKUP_DIR_KEY,
+  BACKUP_MIRROR_DIR_KEY,
+  LAST_AUTO_BACKUP_KEY,
+  "loyalty_daily_last_run",
+]);
+
+export function isDeviceLocalSettingKey(key: string): boolean {
+  return (
+    DEVICE_LOCAL_SETTING_KEYS.has(key) ||
+    key.startsWith(DATA_FIX_KEY_PREFIX) ||
+    // نشانه‌های زمان آخرین اجرای کارهای زمان‌بندی‌شده
+    /_last_run$|_last_run_at$/.test(key)
+  );
+}
 
 function nowSeconds(): number {
   return Math.floor(Date.now() / 1000);
@@ -146,6 +169,8 @@ export async function buildBackupData(): Promise<{
     smsLog,
     loyaltyTransactions,
     loyaltyMembers,
+    appSettings,
+    smsSavedPatterns,
   ] = await Promise.all([
     db.select().from(patientsTable),
     db.select().from(servicesTable),
@@ -172,6 +197,8 @@ export async function buildBackupData(): Promise<{
     db.select().from(smsLogTable),
     db.select().from(loyaltyTransactionsTable),
     db.select().from(loyaltyMembersTable),
+    db.select().from(appSettingsTable),
+    db.select().from(smsSavedPatternsTable),
   ]);
 
   return {
@@ -203,8 +230,24 @@ export async function buildBackupData(): Promise<{
       smsLog,
       loyaltyTransactions,
       loyaltyMembers,
+      appSettings: appSettings.filter((r) => !isDeviceLocalSettingKey(r.key)),
+      smsSavedPatterns,
     },
   };
+}
+
+// تبدیل مقادیر ستون‌های تاریخ (در فایل پشتیبان به‌صورت رشتهٔ ISO ذخیره شده‌اند)
+// دوباره به شیء Date تا درج با حالت timestamp درایزل خطا ندهد.
+export function coerceDateColumns(table: any, row: Record<string, unknown>): Record<string, unknown> {
+  const cols = getTableColumns(table) as Record<string, { dataType?: string }>;
+  const out: Record<string, unknown> = { ...row };
+  for (const [key, col] of Object.entries(cols)) {
+    const v = out[key];
+    if (col?.dataType === "date" && v != null && !(v instanceof Date)) {
+      out[key] = new Date(v as string | number);
+    }
+  }
+  return out;
 }
 
 function fileTimestamp(d = new Date()): string {
@@ -375,18 +418,18 @@ const RECORD_KEYS = [
   "loyaltyTransactions",
 ] as const;
 
+// بخش‌های لیزر از نسخهٔ ۵ uuid دارند؛ در فایل‌های قدیمی‌تر ردیف‌ها uuid ندارند
+// و در ادغام رد می‌شوند (با یادداشت در گزارش). بازیابی کامل آن‌ها را پوشش می‌دهد.
+const LASER_KEYS = ["laserClients", "laserServices", "laserAppointments", "laserPayments"] as const;
+
 // بخش‌هایی که در فایل پشتیبان وجود دارند اما در ادغام پوشش داده نمی‌شوند و
 // آگاهانه نادیده گرفته می‌شوند: لاگ پیامک (uuid ندارد؛ دادهٔ گزارشیِ مختص
-// همان دستگاه است) و بخش لیزر (جدول‌هایش uuid ندارند). بازیابی کامل
-// (restore) این بخش‌ها را پوشش می‌دهد.
+// همان دستگاه است) و تنظیمات لیزر (یک ردیف تنظیم؛ تنظیم فعلی حفظ می‌شود).
+// بازیابی کامل (restore) این بخش‌ها را پوشش می‌دهد.
 const MERGE_IGNORED_KEYS = [
   "smsLog",
   // اعضای باشگاه uuid ندارند؛ پس از ادغام، عضویت از روی پرداخت‌ها خودکار ساخته می‌شود
   "loyaltyMembers",
-  "laserClients",
-  "laserServices",
-  "laserAppointments",
-  "laserPayments",
   "laserSettings",
 ] as const;
 
@@ -407,6 +450,21 @@ function preValidate(data: Record<string, unknown>): void {
           "رکوردی بدون شناسه یکتا (uuid) در فایل پشتیبان یافت شد؛ عملیات ادغام متوقف شد",
         );
       }
+      if (typeof row.id !== "number") {
+        throw new MergeError(`رکوردی بدون شناسه عددی معتبر در بخش «${key}» یافت شد`);
+      }
+    }
+  }
+  // بخش‌های لیزر و پترن‌ها: فقط ساختار؛ نبودِ uuid در لیزر (فایل قدیمی) خطا نیست
+  for (const key of [...LASER_KEYS, "smsSavedPatterns", "appSettings"]) {
+    const arr = data[key];
+    if (arr == null) continue;
+    if (!Array.isArray(arr) || (arr as unknown[]).some((r) => !r || typeof r !== "object")) {
+      throw new MergeError(`بخش «${key}» در فایل پشتیبان نامعتبر است`);
+    }
+  }
+  for (const key of LASER_KEYS) {
+    for (const row of (data[key] as Row[] | undefined) ?? []) {
       if (typeof row.id !== "number") {
         throw new MergeError(`رکوردی بدون شناسه عددی معتبر در بخش «${key}» یافت شد`);
       }
@@ -435,6 +493,9 @@ function resolveRef(
 }
 
 type Maps = {
+  laserClients?: IdMap;
+  laserServices?: IdMap;
+  laserAppointments?: IdMap;
   patients: IdMap;
   services: IdMap;
   staff: IdMap;
@@ -446,18 +507,33 @@ type Maps = {
 
 type MergeCount = { added: number; skipped: number };
 
+// ستون متنی یکتا (غیر از uuid) که ممکن است در دو دستگاه مستقل مقدار یکسان گرفته باشد
+// (مثل شماره پرونده یا کد لیزر): nullable → خالی می‌شود (بعداً دوباره ساخته می‌شود)،
+// اجباری → پسوند «-2»، «-3» و ... می‌گیرد تا درج به خطای UNIQUE نخورد.
+type UniqueTextCol = { key: string; nullable: boolean };
+
 // ادغام یک جدول: تکراری‌ها (بر اساس uuid) رد می‌شوند؛ رکوردهای جدید با id عددی
 // تازه درج و در نگاشت ثبت می‌شوند تا فرزندان به id صحیح متصل شوند.
+// remap می‌تواند null برگرداند یعنی «این ردیف درج نشود» (مثلاً والدش ادغام نشده).
 async function mergeTable(
   tx: any,
   table: any,
   rows: unknown,
-  remap?: (row: Row) => Row,
-): Promise<{ count: MergeCount; idMap: IdMap; inserted: Array<{ newId: number; row: Row }> }> {
+  remap?: (row: Row) => Row | null,
+  opts: { allowMissingUuid?: boolean; uniqueText?: UniqueTextCol[] } = {},
+): Promise<{
+  count: MergeCount;
+  idMap: IdMap;
+  inserted: Array<{ newId: number; row: Row }>;
+  missingUuid: number;
+  unresolved: number;
+}> {
   const idMap: IdMap = new Map();
   const inserted: Array<{ newId: number; row: Row }> = [];
   const count: MergeCount = { added: 0, skipped: 0 };
-  if (!Array.isArray(rows)) return { count, idMap, inserted };
+  let missingUuid = 0;
+  let unresolved = 0;
+  if (!Array.isArray(rows)) return { count, idMap, inserted, missingUuid, unresolved };
 
   const existing = await tx
     .select({ id: table.id, uuid: table.uuid })
@@ -467,7 +543,20 @@ async function mergeTable(
     existingByUuid.set(e.uuid, e.id);
   }
 
+  const taken = new Map<string, Set<string>>();
+  for (const u of opts.uniqueText ?? []) {
+    const vals = await tx.select({ v: table[u.key] }).from(table);
+    taken.set(u.key, new Set((vals as Array<{ v: unknown }>).filter((x) => x.v != null).map((x) => String(x.v))));
+  }
+
   for (const row of rows as Row[]) {
+    if (typeof row.uuid !== "string" || row.uuid.length === 0) {
+      // فقط برای بخش‌هایی که فایل‌های قدیمی‌شان uuid نداشت (لیزر) — رد با یادداشت
+      if (!opts.allowMissingUuid) throw new MergeError("رکوردی بدون شناسه یکتا (uuid) یافت شد");
+      missingUuid++;
+      count.skipped++;
+      continue;
+    }
     const current = existingByUuid.get(row.uuid);
     if (current !== undefined) {
       // رکورد تکراری — رکورد فعلی دست‌نخورده می‌ماند، فقط برای نگاشت فرزندان ثبت می‌شود
@@ -476,18 +565,88 @@ async function mergeTable(
       continue;
     }
     const { id: _oldId, ...rest } = row;
-    const values = remap ? remap(rest) : rest;
+    const values = remap ? remap(coerceDateColumns(table, rest)) : coerceDateColumns(table, rest);
+    if (values === null) {
+      unresolved++;
+      count.skipped++;
+      continue;
+    }
+    for (const u of opts.uniqueText ?? []) {
+      const set = taken.get(u.key)!;
+      const v = values[u.key];
+      if (v == null) continue;
+      let next = String(v);
+      if (set.has(next)) {
+        if (u.nullable) {
+          values[u.key] = null;
+          continue;
+        }
+        let n = 2;
+        while (set.has(`${v}-${n}`)) n++;
+        next = `${v}-${n}`;
+        values[u.key] = next;
+      }
+      set.add(next);
+    }
     const res = await tx.insert(table).values(values).returning({ id: table.id });
     const newId = res[0].id as number;
+    existingByUuid.set(row.uuid, newId);
     idMap.set(row.id, newId);
     inserted.push({ newId, row });
     count.added++;
   }
 
-  return { count, idMap, inserted };
+  return { count, idMap, inserted, missingUuid, unresolved };
 }
 
-async function mergeUsers(tx: any, rows: unknown): Promise<MergeCount> {
+// پترن‌های پیامک uuid ندارند؛ تکراری بودن بر اساس کد پترن (bodyId) تشخیص داده می‌شود.
+async function mergeSmsSavedPatterns(tx: any, rows: unknown): Promise<MergeCount> {
+  const count: MergeCount = { added: 0, skipped: 0 };
+  if (!Array.isArray(rows)) return count;
+  const existing = await tx.select({ bodyId: smsSavedPatternsTable.bodyId }).from(smsSavedPatternsTable);
+  const seen = new Set<string>((existing as Array<{ bodyId: string }>).map((e) => String(e.bodyId).trim()));
+  for (const row of rows as Row[]) {
+    const bodyId = String(row?.bodyId ?? "").trim();
+    if (!bodyId || !row?.name || seen.has(bodyId)) {
+      count.skipped++;
+      continue;
+    }
+    await tx.insert(smsSavedPatternsTable).values({
+      name: String(row.name),
+      bodyId,
+      ...(typeof row.createdAt === "number" ? { createdAt: row.createdAt } : {}),
+    });
+    seen.add(bodyId);
+    count.added++;
+  }
+  return count;
+}
+
+// تنظیمات برنامه: فقط کلیدهایی که این‌جا وجود ندارند اضافه می‌شوند؛ تنظیمات فعلی
+// (مثلاً اطلاعات پنل پیامک همین دستگاه) هرگز بازنویسی نمی‌شود. کلیدهای مختص دستگاه رد می‌شوند.
+async function mergeAppSettings(tx: any, rows: unknown): Promise<MergeCount> {
+  const count: MergeCount = { added: 0, skipped: 0 };
+  if (!Array.isArray(rows)) return count;
+  const existing = await tx.select({ key: appSettingsTable.key }).from(appSettingsTable);
+  const keys = new Set<string>((existing as Array<{ key: string }>).map((e) => e.key));
+  for (const row of rows as Row[]) {
+    const key = typeof row?.key === "string" ? row.key : "";
+    if (!key || keys.has(key) || isDeviceLocalSettingKey(key)) {
+      count.skipped++;
+      continue;
+    }
+    await tx.insert(appSettingsTable).values({
+      key,
+      value: row.value == null ? null : String(row.value),
+      updatedAt: nowSeconds(),
+    });
+    keys.add(key);
+    count.added++;
+  }
+  return count;
+}
+
+async function mergeUsers(tx: any, rows: unknown, maps: Maps): Promise<MergeCount> {
   const count: MergeCount = { added: 0, skipped: 0 };
   if (!Array.isArray(rows)) return count;
   const existing = await tx
@@ -505,7 +664,9 @@ async function mergeUsers(tx: any, rows: unknown): Promise<MergeCount> {
       count.skipped++;
       continue;
     }
-    const { id: _oldId, ...rest } = row;
+    const { id: _oldId, ...rest } = coerceDateColumns(usersTable, row);
+    // کارمند متصل به کاربر باید به id محلی همان کارمند اشاره کند
+    rest.staffId = resolveRef(maps.staff, row.staffId, false, "کاربر→کارمند") ?? null;
     await tx.insert(usersTable).values(rest);
     byUuid.add(row.uuid);
     byName.add(row.username);
@@ -522,10 +683,14 @@ function resolvePolyRequired(
 ): number {
   if (type === "staff") return resolveRef(maps.staff, oldVal, true, label) as number;
   if (type === "patient") return resolveRef(maps.patients, oldVal, true, label) as number;
-  if (type === "recipient") return resolveRef(maps.recipients, oldVal, true, label) as number;
-  // نوع خارج از دامنه‌ی ادغام (مثلاً laser) — مقدار اصلی حفظ می‌شود
+  // کمیسیون معرف بیرونی با نوع «external» ذخیره می‌شود؛ «recipient»/«laser» هم
+  // به جدول گیرندگان کمیسیون (commission_recipients) اشاره می‌کنند
+  if (RECIPIENT_TYPES.has(type)) return resolveRef(maps.recipients, oldVal, true, label) as number;
+  // نوع ناشناخته — مقدار اصلی حفظ می‌شود
   return oldVal;
 }
+
+const RECIPIENT_TYPES = new Set(["external", "recipient", "laser"]);
 
 function remapReferrer(row: Row, maps: Maps): number | null {
   const type = row.referrerType;
@@ -533,8 +698,8 @@ function remapReferrer(row: Row, maps: Maps): number | null {
   if (old == null) return null;
   if (type === "patient") return maps.patients.get(old) ?? null;
   if (type === "staff") return maps.staff.get(old) ?? null;
-  if (type === "recipient") return maps.recipients.get(old) ?? null;
-  return old; // laser/نامشخص — حفظ مقدار اصلی
+  if (RECIPIENT_TYPES.has(type)) return maps.recipients.get(old) ?? null;
+  return old; // نوع نامشخص — حفظ مقدار اصلی
 }
 
 function remapActivityEntity(row: Row, maps: Maps): number | null {
@@ -560,7 +725,7 @@ export type MergeReport = Record<string, MergeCount> & {
 
 export async function mergeRestore(
   payload: { data?: unknown },
-): Promise<{ report: MergeReport; safetyBackup?: string; ignoredSections: string[] }> {
+): Promise<{ report: MergeReport; safetyBackup?: string; ignoredSections: string[]; notes: string[] }> {
   const data = payload?.data;
   if (!data || typeof data !== "object") {
     throw new MergeError("فایل پشتیبان نامعتبر است");
@@ -580,6 +745,7 @@ export async function mergeRestore(
   }
 
   // ۳) ادغام درون یک تراکنش — هر خطایی کل عملیات را برمی‌گرداند و دیتابیس دست‌نخورده می‌ماند
+  const mergeNotes: string[] = [];
   const report = await db.transaction(async (tx) => {
     const rep: Record<string, MergeCount> = {};
 
@@ -701,7 +867,60 @@ export async function mergeRestore(
     );
     rep.loyaltyTransactions = loyaltyTransactions.count;
 
-    rep.users = await mergeUsers(tx, d.users);
+    rep.users = await mergeUsers(tx, d.users, maps);
+
+    rep.smsSavedPatterns = await mergeSmsSavedPatterns(tx, d.smsSavedPatterns);
+    rep.appSettings = await mergeAppSettings(tx, d.appSettings);
+
+    // ── بخش لیزر (والد → فرزند با نگاشت FK) ──
+    const laserOpts = { allowMissingUuid: true };
+    const laserClients = await mergeTable(tx, laserClientsTable, d.laserClients, undefined, {
+      ...laserOpts,
+      uniqueText: [{ key: "fileNumber", nullable: false }],
+    });
+    const laserServices = await mergeTable(tx, laserServicesTable, d.laserServices, undefined, {
+      ...laserOpts,
+      uniqueText: [{ key: "code", nullable: true }],
+    });
+    maps.laserClients = laserClients.idMap;
+    maps.laserServices = laserServices.idMap;
+    // ردیفی که والدش در ادغام نیامده (مثلاً والد بدون uuid) درج نمی‌شود
+    const laserAppointments = await mergeTable(
+      tx,
+      laserAppointmentsTable,
+      d.laserAppointments,
+      (row) => {
+        const clientId = maps.laserClients!.get(row.clientId);
+        const serviceId = maps.laserServices!.get(row.serviceId);
+        if (clientId === undefined || serviceId === undefined) return null;
+        return { ...row, clientId, serviceId };
+      },
+      { ...laserOpts, uniqueText: [{ key: "appointmentCode", nullable: true }] },
+    );
+    maps.laserAppointments = laserAppointments.idMap;
+    const laserPayments = await mergeTable(
+      tx,
+      laserPaymentsTable,
+      d.laserPayments,
+      (row) => {
+        const appointmentId = maps.laserAppointments!.get(row.appointmentId);
+        if (appointmentId === undefined) return null;
+        return { ...row, appointmentId };
+      },
+      laserOpts,
+    );
+    const laser = { laserClients, laserServices, laserAppointments, laserPayments };
+    for (const [key, result] of Object.entries(laser)) {
+      rep[key] = result.count;
+      if (result.missingUuid > 0) {
+        mergeNotes.push(
+          `${result.missingUuid} رکورد از بخش «${key}» شناسهٔ یکتا نداشت (فایل پشتیبان قدیمی) و ادغام نشد؛ برای آوردن آن‌ها از بازیابی کامل استفاده کنید.`,
+        );
+      }
+      if (result.unresolved > 0) {
+        mergeNotes.push(`${result.unresolved} رکورد از بخش «${key}» به‌دلیل نبودِ رکورد والد ادغام نشد.`);
+      }
+    }
 
     // نگاشت پایانی معرّف مراجعین جدید (پس از کامل‌شدن تمام نگاشت‌ها)
     for (const { newId, row } of patients.inserted) {
@@ -722,10 +941,18 @@ export async function mergeRestore(
     return { ...rep, totals } as MergeReport;
   });
 
+  // مراجعین تازه‌ادغام‌شده که پرداخت دارند عضو باشگاه می‌شوند (اعضای باشگاه uuid
+  // ندارند و مستقیم ادغام نمی‌شوند). خطا در این مرحله ادغامِ انجام‌شده را باطل نمی‌کند.
+  try {
+    await backfillLoyaltyMembers(nowSeconds());
+  } catch (err) {
+    logger.warn({ err }, "loyalty member backfill after merge failed");
+  }
+
   // بخش‌های خارج از قرارداد ادغام که در فایل وجود داشتند و نادیده گرفته شدند
   const ignoredSections = MERGE_IGNORED_KEYS.filter(
     (key) => Array.isArray(d[key]) && (d[key] as unknown[]).length > 0,
   );
 
-  return { report, safetyBackup: safety.filename, ignoredSections };
+  return { report, safetyBackup: safety.filename, ignoredSections, notes: mergeNotes };
 }

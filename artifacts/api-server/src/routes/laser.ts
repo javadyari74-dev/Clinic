@@ -112,7 +112,8 @@ router.put("/laser/clients/:id", async (req, res) => {
   res.json(row);
 });
 
-router.delete("/laser/clients/:id", async (req, res) => {
+// حذف فقط برای مدیر (مثل ویرایش/حذف پرداخت‌های لیزر)
+router.delete("/laser/clients/:id", requireAdmin, async (req, res) => {
   await db.delete(laserClientsTable).where(eq(laserClientsTable.id, Number(req.params.id)));
   res.status(204).end();
 });
@@ -159,7 +160,8 @@ router.put("/laser/services/:id", async (req, res) => {
   res.json(row);
 });
 
-router.delete("/laser/services/:id", async (req, res) => {
+// حذف فقط برای مدیر (مثل ویرایش/حذف پرداخت‌های لیزر)
+router.delete("/laser/services/:id", requireAdmin, async (req, res) => {
   await db.delete(laserServicesTable).where(eq(laserServicesTable.id, Number(req.params.id)));
   res.status(204).end();
 });
@@ -232,7 +234,8 @@ router.put("/laser/appointments/:id", async (req, res) => {
   res.json(row);
 });
 
-router.delete("/laser/appointments/:id", async (req, res) => {
+// حذف فقط برای مدیر (مثل ویرایش/حذف پرداخت‌های لیزر)
+router.delete("/laser/appointments/:id", requireAdmin, async (req, res) => {
   await db.delete(laserAppointmentsTable).where(eq(laserAppointmentsTable.id, Number(req.params.id)));
   res.status(204).end();
 });

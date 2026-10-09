@@ -169,6 +169,20 @@
       "when": 1791500000000,
       "tag": "0023_add_payment_credit_amounts",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791600000000,
+      "tag": "0024_laser_uuids_appointment_ms",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791700000000,
+      "tag": "0025_payment_integrity",
+      "breakpoints": true
     }
   ]
 }

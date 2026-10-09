@@ -1755,6 +1755,14 @@ components:
         discountId: { type: ["integer", "null"] }
         originalPrice: { type: ["integer", "null"] }
         deposit: { type: ["integer", "null"] }
+        appointmentCode: { type: ["string", "null"] }
+        sessionNumber: { type: ["integer", "null"] }
+        # جمع پرداخت‌های این نوبت (نقدی + کیف پول + امتیاز، شامل بیعانه)
+        paidTotal: { type: ["integer", "null"] }
+        # مانده = price − paidTotal (وقتی price ثبت شده باشد)
+        remaining: { type: ["integer", "null"] }
+        # آیا پرداخت تسویه (غیر از بیعانه) برای این نوبت ثبت شده است
+        hasCheckoutPayment: { type: ["boolean", "null"] }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
         patientPhone: { type: ["string", "null"] }
@@ -1853,6 +1861,31 @@ components:
         depositAmount: { type: integer }
         applyAccountBalance: { type: integer }
         redeemPoints: { type: integer }
+        # کمیسیون/اعتبار معرفی دستی — داخل تراکنش همین پرداخت ثبت می‌شود
+        manualCommission:
+          $ref: "#/components/schemas/PaymentManualCommission"
+        # یادآوری پیگیری — داخل تراکنش همین پرداخت ثبت و با حذف پرداخت حذف می‌شود
+        reminder:
+          $ref: "#/components/schemas/PaymentReminderInput"
+
+    PaymentManualCommission:
+      type: object
+      required: [recipientType, recipientId, amount]
+      properties:
+        recipientType: { type: string, enum: [staff, external, patient] }
+        recipientId: { type: integer }
+        amount: { type: integer }
+        rate: { type: integer }
+        description: { type: string }
+
+    PaymentReminderInput:
+      type: object
+      required: [type, dueDate]
+      properties:
+        type: { type: string }
+        # تاریخ میلادی YYYY-MM-DD
+        dueDate: { type: string }
+        note: { type: string }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
@@ -2077,6 +2110,7 @@ components:
         description: { type: ["string", "null"] }
         type: { type: string }
         patientId: { type: ["integer", "null"] }
+        paymentId: { type: ["integer", "null"] }
         dueAt: { type: integer }
         status: { type: string }
         createdAt: { type: integer }
@@ -2090,6 +2124,7 @@ components:
         description: { type: string }
         type: { type: string }
         patientId: { type: integer }
+        paymentId: { type: integer }
         dueAt: { type: integer }
         status: { type: string }
 

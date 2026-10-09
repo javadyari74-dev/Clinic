@@ -5,6 +5,8 @@
  * Beauty Clinic Management API
  * OpenAPI spec version: 0.1.0
  */
+import type { PaymentManualCommission } from './paymentManualCommission';
+import type { PaymentReminderInput } from './paymentReminderInput';
 
 export interface PaymentInput {
   appointmentId: number;
@@ -23,4 +25,6 @@ export interface PaymentInput {
   depositAmount?: number;
   applyAccountBalance?: number;
   redeemPoints?: number;
+  manualCommission?: PaymentManualCommission;
+  reminder?: PaymentReminderInput;
 }

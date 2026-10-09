@@ -142,6 +142,10 @@ const appointment = {
   unitPrice: 1_200_000,
   unitLabel: "جلسه",
   serviceUnitCount: 1,
+  // وضعیت پرداخت نوبت (از پرداخت‌های واقعی)
+  paidTotal: 0,
+  remaining: 1_200_000,
+  hasCheckoutPayment: false,
 };
 
 const appointmentsList = { data: [appointment], total: 1 };

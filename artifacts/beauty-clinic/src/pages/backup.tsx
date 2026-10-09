@@ -47,6 +47,12 @@ const SECTION_LABELS: Record<string, string> = {
   waitingList: "لیست انتظار",
   surveys: "نظرسنجی‌ها",
   loyaltyTransactions: "تراکنش‌های باشگاه مشتریان",
+  laserClients: "مراجعین لیزر",
+  laserServices: "خدمات لیزر",
+  laserAppointments: "نوبت‌های لیزر",
+  laserPayments: "پرداخت‌های لیزر",
+  smsSavedPatterns: "کدهای پترن پیامک",
+  appSettings: "تنظیمات برنامه",
 };
 
 // دلیل هر بکاپ خودکار (در فیلد message گزارش ذخیره می‌شود)
@@ -88,6 +94,7 @@ export default function Backup() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeReport, setMergeReport] = useState<MergeReport | null>(null);
+  const [mergeNotes, setMergeNotes] = useState<string[]>([]);
   const [reportOpen, setReportOpen] = useState(false);
 
   // گزارش بکاپ خودکار
@@ -260,6 +267,7 @@ export default function Backup() {
       if (!res.ok) throw new Error(data?.error || "failed");
       queryClient.clear();
       setMergeReport(data.report ?? null);
+      setMergeNotes(Array.isArray(data.notes) ? data.notes : []);
       closeMerge();
       setReportOpen(true);
       loadLogs();
@@ -301,12 +309,24 @@ export default function Backup() {
     }
   }
 
-  function downloadPatientsCsv() {
-    const link = document.createElement("a");
-    link.href = `${BASE_URL}/api/patients/export/excel`;
-    link.download = "patients.csv";
-    link.click();
-    toast({ title: "فایل CSV مراجعین در حال دانلود است" });
+  // لینک ساده هدر Authorization نمی‌فرستد (و سرور ۴۰۱ می‌داد)؛ پس با fetch دریافت می‌شود
+  async function downloadPatientsCsv() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/patients/export/excel`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "patients.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "فایل CSV مراجعین در حال دانلود است" });
+    } catch {
+      toast({ title: "خطا در دانلود فایل مراجعین", variant: "destructive" });
+    }
   }
 
   function openReset() {
@@ -350,6 +370,11 @@ export default function Backup() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* دانلود پشتیبان (شامل هش رمز کاربران)، خروجی مراجعین و تغییر مسیرها فقط برای مدیر؛
+            سرور هم برای سایر کاربران رد می‌کند. کاربر با دسترسی «پشتیبان‌گیری» بکاپ خودکار
+            را اجرا و گزارش آن را می‌بیند. */}
+        {isAdmin && (
+        <>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -400,6 +425,8 @@ export default function Backup() {
             </Button>
           </CardContent>
         </Card>
+        </>
+        )}
 
         {/* بازیابی کامل و ادغامی فقط برای مدیر؛ سرور هم برای سایر کاربران رد می‌کند */}
         {isAdmin && (
@@ -468,6 +495,7 @@ export default function Backup() {
         </>
         )}
 
+        {isAdmin && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -519,6 +547,7 @@ export default function Backup() {
             </Button>
           </CardContent>
         </Card>
+        )}
       </div>
 
       <Card className="border-yellow-200 bg-yellow-50">
@@ -788,6 +817,11 @@ export default function Backup() {
                   )}
                 </table>
               </div>
+              {mergeNotes.length > 0 && (
+                <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded-lg space-y-1">
+                  {mergeNotes.map((n, i) => <p key={i}>{n}</p>)}
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>

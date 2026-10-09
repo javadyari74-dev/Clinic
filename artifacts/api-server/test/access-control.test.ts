@@ -153,3 +153,39 @@ describe("POST /backup/restore", () => {
     expect(patients.map((p) => p.name)).toEqual(["بیمار فعلی"]);
   });
 });
+
+describe("POST /backup/restore — version 5 sections", () => {
+  it("restores app settings (except device-local keys) and SMS patterns, clears scheduled SMS, accepts old laser rows without uuid", async () => {
+    const { db, appSettingsTable, smsSavedPatternsTable, scheduledSmsTable, laserClientsTable } = dbModule;
+    const { eq } = await import("drizzle-orm");
+    await db.insert(appSettingsTable).values({ key: "backup_dir", value: "/local/backups", updatedAt: 1 })
+      .onConflictDoUpdate({ target: appSettingsTable.key, set: { value: "/local/backups" } });
+    await db.insert(appSettingsTable).values({ key: "sms_from", value: "LOCAL", updatedAt: 1 });
+    await db.insert(smsSavedPatternsTable).values({ name: "قدیمی", bodyId: "999" });
+    await db.insert(scheduledSmsTable).values({ key: "appointment:1:1", kind: "appointment", status: "sent" });
+
+    const status = await call("boss", "POST", "/backup/restore", {
+      data: {
+        patients: [{ id: 1, uuid: "p-r-1", name: "الف", phone: "1", fileNumber: "RS-1", createdAt: 1 }],
+        appSettings: [
+          { key: "sms_from", value: "FROM-BACKUP" },
+          { key: "backup_dir", value: "/other/pc" },
+        ],
+        smsSavedPatterns: [{ id: 5, name: "پترن فایل", bodyId: "123", createdAt: 1 }],
+        // فایل نسخهٔ ۴: ردیف لیزر بدون uuid
+        laserClients: [{ id: 3, fileNumber: "LC-OLD", name: "لیزر", phone: "1", gender: "female", createdAt: "2026-01-01T00:00:00.000Z" }],
+      },
+    });
+    expect(status).toBe(200);
+
+    const get = async (k: string) =>
+      (await db.select().from(appSettingsTable).where(eq(appSettingsTable.key, k)).get())?.value;
+    expect(await get("sms_from")).toBe("FROM-BACKUP");
+    expect(await get("backup_dir")).toBe("/local/backups");
+    expect((await db.select().from(smsSavedPatternsTable)).map((r) => r.bodyId)).toEqual(["123"]);
+    expect(await db.select().from(scheduledSmsTable)).toEqual([]);
+    const laser = await db.select().from(laserClientsTable);
+    expect(laser).toHaveLength(1);
+    expect(typeof laser[0].uuid).toBe("string");
+  });
+});

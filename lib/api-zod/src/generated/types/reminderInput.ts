@@ -11,6 +11,7 @@ export interface ReminderInput {
   description?: string;
   type?: string;
   patientId?: number;
+  paymentId?: number;
   dueAt: number;
   status?: string;
 }

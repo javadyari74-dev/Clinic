@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
-import { eq, or, getTableColumns } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import {
   db,
   patientsTable,
@@ -27,8 +27,12 @@ import {
   smsLogTable,
   loyaltyTransactionsTable,
   loyaltyMembersTable,
+  appSettingsTable,
+  smsSavedPatternsTable,
+  scheduledSmsTable,
 } from "@workspace/db";
 import { seedAdminUser } from "../lib/seed";
+import { requireAdmin } from "../lib/auth";
 import {
   getBackupDir,
   getDefaultBackupDir,
@@ -41,6 +45,8 @@ import {
   MergeError,
   buildBackupData,
   BACKUP_MIRROR_DIR_KEY,
+  coerceDateColumns,
+  isDeviceLocalSettingKey,
 } from "../lib/backup-service";
 
 const router: IRouter = Router();
@@ -50,7 +56,9 @@ const BACKUP_DIR_KEY = "backup_dir";
 // GET /api/backup/download — پشتیبان کامل از تمام داده‌های مطب (شامل بخش لیزر)
 // از همان منبع واحد بکاپ خودکار/ایمنی (buildBackupData) استفاده می‌کند تا
 // خروجی دانلود دستی و بکاپ خودکار همیشه هم‌ساختار باشند.
-router.get("/backup/download", async (_req, res): Promise<void> => {
+// شامل هش رمز کاربران است (برای بازیابی کامل لازم است)، پس فقط مدیر؛ قاعدهٔ
+// routes/index.ts هم همین را اعمال می‌کند — این‌جا لایهٔ دوم محافظت است.
+router.get("/backup/download", requireAdmin, async (_req, res): Promise<void> => {
   const backup = await buildBackupData();
 
   const json = JSON.stringify(backup, null, 2);
@@ -93,20 +101,6 @@ async function wipeLaserData(tx: Tx): Promise<void> {
   await tx.delete(laserClientsTable);
   await tx.delete(laserServicesTable);
   await tx.delete(laserSettingsTable);
-}
-
-// تبدیل مقادیر ستون‌های تاریخ (در فایل پشتیبان به‌صورت رشتهٔ ISO ذخیره شده‌اند)
-// دوباره به شیء Date تا درج با حالت timestamp درایزل خطا ندهد.
-function coerceDateColumns(table: any, row: Record<string, unknown>): Record<string, unknown> {
-  const cols = getTableColumns(table) as Record<string, { dataType?: string }>;
-  const out: Record<string, unknown> = { ...row };
-  for (const [key, col] of Object.entries(cols)) {
-    const v = out[key];
-    if (col?.dataType === "date" && v != null && !(v instanceof Date)) {
-      out[key] = new Date(v as string | number);
-    }
-  }
-  return out;
 }
 
 // درج دسته‌ای با حفظ شناسه‌ها — تکه‌تکه تا از سقف پارامترهای SQLite عبور نکند
@@ -152,6 +146,11 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
       // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)
       await wipeClinicData(tx);
       if (hasLaserData) await wipeLaserData(tx);
+      // کلیدهای پیامک‌های زمان‌بندی‌شده به id نوبت/مراجع قدیمی اشاره می‌کنند؛ پس از
+      // جایگزینی داده‌ها معنایشان عوض می‌شود و ممکن است پیامکی را به‌اشتباه «ارسال‌شده» نشان دهند.
+      await tx.delete(scheduledSmsTable);
+      // فایل‌های قدیمی (پیش از نسخه ۵) پترن‌ها را ندارند؛ در آن صورت پترن‌های فعلی حفظ می‌شوند
+      if (Array.isArray(data.smsSavedPatterns)) await tx.delete(smsSavedPatternsTable);
 
       // ۲) درج مجدد (والد → فرزند) با حفظ شناسه‌ها
       await restoreRows(tx, patientsTable, data.patients);
@@ -182,6 +181,22 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
       await restoreRows(tx, laserSettingsTable, data.laserSettings);
       await restoreRows(tx, laserAppointmentsTable, data.laserAppointments);
       await restoreRows(tx, laserPaymentsTable, data.laserPayments);
+
+      // ۲-ج) نسخه ۵: پترن‌های پیامک و تنظیمات برنامه. تنظیمات upsert می‌شوند و
+      // کلیدهای مختص دستگاه (مسیر بکاپ و ...) حتی اگر در فایل باشند نوشته نمی‌شوند.
+      await restoreRows(tx, smsSavedPatternsTable, data.smsSavedPatterns);
+      if (Array.isArray(data.appSettings)) {
+        for (const r of data.appSettings) {
+          const key = typeof r?.key === "string" ? r.key : "";
+          if (!key || isDeviceLocalSettingKey(key)) continue;
+          const value = r.value == null ? null : String(r.value);
+          const updatedAt = Math.floor(Date.now() / 1000);
+          await tx
+            .insert(appSettingsTable)
+            .values({ key, value, updatedAt })
+            .onConflictDoUpdate({ target: appSettingsTable.key, set: { value, updatedAt } });
+        }
+      }
 
       // ۳) کاربران — فقط افزودن نام‌های کاربری جدید تا کاربر فعلی از سیستم خارج نشود.
       // شناسهٔ قدیمی کنار گذاشته می‌شود تا با کاربران فعلی تداخل نکند (این مسیر فقط برای مدیر باز است).
@@ -228,7 +243,7 @@ router.get("/backup/settings", async (_req, res): Promise<void> => {
 });
 
 // PUT /api/backup/mirror — پوشهٔ نسخهٔ دوم بکاپ خودکار (خالی = غیرفعال)
-router.put("/backup/mirror", async (req, res): Promise<void> => {
+router.put("/backup/mirror", requireAdmin, async (req, res): Promise<void> => {
   const dir = String(req.body?.mirrorDir ?? "").trim();
   if (dir) {
     const valid = validateBackupDir(dir);
@@ -255,7 +270,8 @@ router.post("/backup/run", async (_req, res): Promise<void> => {
   res.json(result);
 });
 
-router.put("/backup/settings", async (req, res): Promise<void> => {
+// تغییر مسیر ذخیره بکاپ فقط برای مدیر (مقصد فایل‌هایی که هش رمزها را دارند)
+router.put("/backup/settings", requireAdmin, async (req, res): Promise<void> => {
   const raw = req.body?.backupDir;
   // مقدار خالی یعنی بازگشت به مسیر پیش‌فرض
   if (raw == null || String(raw).trim().length === 0) {

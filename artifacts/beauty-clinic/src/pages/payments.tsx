@@ -1,15 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   useListPayments, useCreatePayment, useDeletePayment, getListPaymentsQueryKey,
-  useListAppointments, getListAppointmentsQueryKey, useUpdateAppointment,
+  useListAppointments, getListAppointmentsQueryKey,
   useListDiscounts, useListStaff, useListCommissionRecipients,
-  useCreateCommission, getListCommissionsQueryKey,
-  useCreateReminder, getListRemindersQueryKey,
+  getListCommissionsQueryKey,
+  getListRemindersQueryKey,
   useListPatients, getListPatientsQueryKey,
-  useCreatePatientAccountTransaction, getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
+  getListPatientAccountTransactionsQueryKey, getGetPatientQueryKey,
   getGetPaymentQueryOptions,
   useGetPatientLoyalty, getGetPatientLoyaltyQueryKey,
+  getListPatientAppointmentsQueryKey,
 } from "@workspace/api-client-react";
+import { onApiError } from "@/lib/api-error";
 import { LoyaltyTierBadge } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +43,13 @@ const methods: Record<string, string> = {
   transfer: "کارت به کارت",
   insurance: "بیمه",
 };
+
+// ابتدای امروز به وقت تهران (UTC+3:30 ثابت) به ثانیه — مبنای کارت «دریافتی امروز»
+const TEHRAN_OFFSET_SEC = 3.5 * 3600;
+function tehranDayStartSec(nowMs = Date.now()): number {
+  const now = Math.floor(nowMs / 1000);
+  return Math.floor((now + TEHRAN_OFFSET_SEC) / 86400) * 86400 - TEHRAN_OFFSET_SEC;
+}
 
 const SERVICE_REMINDER_TYPES: Record<string, string> = {
   followup: "پیگیری دور بعدی خدمات",
@@ -162,7 +171,7 @@ function ReceiptDialog({ receipt, open, onClose }: { receipt: ReceiptData | null
 
             {depositRow && (
               <div className="flex justify-between text-amber-700">
-                <span>بیعانه پرداخت‌شده:</span>
+                <span>پرداخت‌شده قبلی (بیعانه/قسط):</span>
                 <span>− {formatCurrency(receipt.depositAmount)}</span>
               </div>
             )}
@@ -227,12 +236,13 @@ const formSchema = z.object({
 
 export default function Payments() {
   const { data: payments, isLoading, isError, refetch } = useListPayments();
-  const { data: scheduledAppts } = useListAppointments({ status: "scheduled", limit: 1000 });
-  const { data: confirmedAppts } = useListAppointments({ status: "confirmed", limit: 1000 });
-  const allActiveAppointments = useMemo(() => [
-    ...(scheduledAppts?.data ?? []),
-    ...(confirmedAppts?.data ?? []),
-  ], [scheduledAppts, confirmedAppts]);
+  // همهٔ نوبت‌ها (نه فقط رزرو/تایید شده): نوبتی که دستی «تکمیل» شده ولی پرداخت نشده یا
+  // مانده دارد هم باید قابل تسویه باشد
+  const { data: apptList } = useListAppointments({ limit: 1000 });
+  const allActiveAppointments = useMemo(
+    () => (apptList?.data ?? []).filter(a => a.status !== "cancelled"),
+    [apptList],
+  );
   const { data: discounts } = useListDiscounts();
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
@@ -244,6 +254,7 @@ export default function Payments() {
   const [isOpen, setIsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [fullAmountChecked, setFullAmountChecked] = useState(false);
+  // جمع پرداخت‌های قبلیِ نوبت (بیعانه + اقساط قبلی؛ نقدی + کیف پول + امتیاز) — از سرور
   const [currentDeposit, setCurrentDeposit] = useState(0);
 
   // Commission state
@@ -288,7 +299,12 @@ export default function Payments() {
   );
   const isPerUnit = selectedAppt?.priceMode === "per_unit";
   const selectedPatientId = ((selectedAppt as any)?.patientId ?? null) as number | null;
-  const selectedPatient = selectedAppt ? { id: selectedPatientId, name: selectedAppt.patientName } : null;
+  const selectedPatientRow = useMemo(
+    () => patientsList?.data?.find(p => p.id === selectedPatientId) ?? null,
+    [patientsList, selectedPatientId],
+  );
+  // نوبتی که قبلاً پرداخت تسویه (غیر از بیعانه) داشته: مبلغ اصلی = قیمت ثبت‌شدهٔ نوبت
+  const isFollowupPayment = !!selectedAppt?.hasCheckoutPayment && selectedAppt?.price != null;
 
   // وضعیت باشگاه مراجعِ نوبت انتخاب‌شده
   const { data: patientLoyalty } = useGetPatientLoyalty(selectedPatientId ?? 0, {
@@ -299,15 +315,22 @@ export default function Payments() {
   const pointValue = patientLoyalty?.settings?.redeemValue ?? 0;
   const walletBalance = patientLoyalty?.walletBalance ?? 0;
 
-  // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و بیعانه را ذخیره کن
+  // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و پرداخت‌های قبلی را ذخیره کن
+  // (پرداخت‌های واقعیِ ثبت‌شده، نه appointments.deposit — اگر بیعانه حذف شده باشد دیگر کسر نمی‌شود)
   useEffect(() => {
     if (!selectedAppt) {
       setCurrentDeposit(0);
       return;
     }
-    const deposit = (selectedAppt as any).deposit ?? 0;
-    setCurrentDeposit(deposit);
-    if (selectedAppt.priceMode === "per_unit") {
+    const previous = selectedAppt.paidTotal ?? 0;
+    setCurrentDeposit(previous);
+    if (selectedAppt.hasCheckoutPayment && selectedAppt.price != null) {
+      // پرداخت بعدیِ نوبتی که قبلاً بخشی از آن پرداخت شده: مبلغ اصلی = قیمت خالص نوبت
+      form.setValue("unitsUsed", selectedAppt.unitsUsed ?? 1);
+      form.setValue("originalAmount", selectedAppt.price);
+      setDiscountEnabled(false);
+      setSelectedDiscountId(null);
+    } else if (selectedAppt.priceMode === "per_unit") {
       const u = selectedAppt.unitsUsed ?? selectedAppt.serviceUnitCount ?? 1;
       form.setValue("unitsUsed", u);
       form.setValue("originalAmount", (selectedAppt.unitPrice ?? 0) * u);
@@ -315,8 +338,8 @@ export default function Payments() {
       form.setValue("unitsUsed", 1);
       form.setValue("originalAmount", selectedAppt.servicePrice ?? 0);
     }
-    if (deposit > 0) {
-      form.setValue("notes", `مراجع مبلغ ${deposit.toLocaleString()} تومان بیعانه برای این نوبت پرداخت کرده و از مبلغ نهایی کسر می‌شود`);
+    if (previous > 0) {
+      form.setValue("notes", `مراجع مبلغ ${previous.toLocaleString()} تومان قبلاً برای این نوبت پرداخت کرده و از مبلغ نهایی کسر می‌شود`);
     } else {
       form.setValue("notes", "");
     }
@@ -324,7 +347,7 @@ export default function Payments() {
 
   // با تغییر واحد مصرفی، مبلغ اصلی خدمات per_unit بازمحاسبه می‌شود
   useEffect(() => {
-    if (!selectedAppt || selectedAppt.priceMode !== "per_unit") return;
+    if (!selectedAppt || selectedAppt.priceMode !== "per_unit" || isFollowupPayment) return;
     const u = unitsUsed && unitsUsed > 0 ? unitsUsed : 1;
     form.setValue("originalAmount", (selectedAppt.unitPrice ?? 0) * u);
   }, [unitsUsed, selectedAppt]);
@@ -375,25 +398,21 @@ export default function Payments() {
     return commCalcValue;
   }, [commCalcType, commCalcValue, paidAmount]);
 
-  const createCommission = useCreateCommission({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
-      },
-    },
-  });
-
-  const createReminder = useCreateReminder({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
-      },
-    },
-  });
-
-  const updateAppointment = useUpdateAppointment();
-
-  const createAccountTxn = useCreatePatientAccountTransaction();
+  // پورسانت خودکار معرفِ مراجع (کارمند/کمیسیون‌گیرنده/لیزر) که سرور همراه همین پرداخت ثبت می‌کند
+  const autoReferrer = useMemo(() => {
+    const p = selectedPatientRow;
+    if (!p?.referrerType || p.referrerType === "patient" || !p.referrerId || !p.referrerRate || p.referrerRate <= 0) return null;
+    return {
+      recipientType: (p.referrerType === "staff" ? "staff" : "external") as "staff" | "external",
+      recipientId: p.referrerId,
+      name: p.referrerName ?? "معرف",
+      rate: p.referrerRate,
+      amount: Math.round(((paidAmount || 0) * p.referrerRate) / 100),
+    };
+  }, [selectedPatientRow, paidAmount]);
+  // اعتبار معرفی باشگاه برای معرفِ «مراجع» خودکار است؛ گزینهٔ دستی «مراجع» پنهان می‌شود
+  const loyaltyReferralAuto = loyaltyOn && (patientLoyalty?.settings?.referralBonus ?? 0) > 0;
+  const duplicateOfAuto = !!autoReferrer && commissionEnabled && commRecipientType === autoReferrer.recipientType && commRecipientId === autoReferrer.recipientId;
 
   const createPayment = useCreatePayment({
     mutation: {
@@ -402,77 +421,15 @@ export default function Payments() {
         // امتیاز و سطح باشگاه مراجع عوض شده است
         if (selectedPatientId) queryClient.invalidateQueries({ queryKey: getGetPatientLoyaltyQueryKey(selectedPatientId) });
 
-        // وقتی پرداخت ثبت شد، نوبت مرتبط به «تکمیل شده» تبدیل می‌شود
-        const apptIdForComplete = form.getValues("appointmentId");
-        if (apptIdForComplete && apptIdForComplete > 0) {
-          updateAppointment.mutate(
-            { id: apptIdForComplete, data: { status: "completed" } },
-            {
-              onSuccess: () => {
-                queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-                queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey({ status: "scheduled" }) });
-                queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey({ status: "confirmed" }) });
-              },
-            }
-          );
-        }
-
-        // کمیسیون
-        if (commissionEnabled && commRecipientId && commissionAmount > 0) {
-          const apptId = form.getValues("appointmentId");
-          const appt = allActiveAppointments.find(a => a.id === apptId);
-          const recipientName =
-            commRecipientType === "staff"
-              ? staff?.find(s => s.id === commRecipientId)?.name
-              : recipients?.find(r => r.id === commRecipientId)?.name;
-          const desc = [
-            appt?.serviceName,
-            commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
-            `${formatCurrency(commissionAmount)}`,
-            recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
-          ].filter(Boolean).join(" — ");
-
-          if (commRecipientType === "patient") {
-            // معرف از نوع مراجع → اعتبار معرفی به حساب همان بیمارِ معرف شارژ می‌شود
-            const payerName = selectedPatient?.name;
-            createAccountTxn.mutate({
-              id: commRecipientId,
-              data: {
-                amount: commissionAmount,
-                type: "referral_credit",
-                // اتصال اعتبار معرفی به همین پرداخت تا هنگام حذف پرداخت، این اعتبار نیز برگردانده شود
-                paymentId: payment.id,
-                description: [
-                  payerName ? `اعتبار معرفی از پرداخت «${payerName}»` : "اعتبار معرفی",
-                  commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
-                ].filter(Boolean).join(" — "),
-              },
-            });
-          } else {
-            const recipientName =
-              commRecipientType === "staff"
-                ? staff?.find(s => s.id === commRecipientId)?.name
-                : recipients?.find(r => r.id === commRecipientId)?.name;
-            const desc = [
-              appt?.serviceName,
-              commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
-              `${formatCurrency(commissionAmount)}`,
-              recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
-            ].filter(Boolean).join(" — ");
-
-            createCommission.mutate({
-              data: {
-                recipientType: commRecipientType,
-                recipientId: commRecipientId,
-                appointmentId: form.getValues("appointmentId") ?? undefined,
-                paymentId: payment.id,
-                amount: commissionAmount,
-                rate: commCalcType === "percentage" ? commCalcValue : undefined,
-                description: desc || `کمیسیون پرداخت ${payment.amount.toLocaleString()} تومان`,
-                status: "pending",
-              },
-            });
-          }
+        // وضعیت نوبت (تکمیل فقط با پرداخت کامل)، کمیسیون دستی/اعتبار معرفی و یادآوری
+        // همگی سمت سرور و داخل تراکنشِ همین پرداخت ثبت شده‌اند؛ فقط کش‌ها تازه می‌شوند
+        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+        if (selectedPatientId) queryClient.invalidateQueries({ queryKey: getListPatientAppointmentsQueryKey(selectedPatientId) });
+        if (commissionEnabled && commRecipientType === "patient" && commRecipientId) {
+          queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(commRecipientId) });
+          queryClient.invalidateQueries({ queryKey: getListPatientAccountTransactionsQueryKey(commRecipientId) });
         }
 
         // کسر موجودی اکانت اکنون سمت سرور و اتمیک با ثبت پرداخت انجام می‌شود
@@ -485,30 +442,6 @@ export default function Payments() {
 
         // رسید از ردیف پرداختِ ذخیره‌شده در دیتابیس ساخته می‌شود (جزئیات کامل و دائمی)
         const receipt = receiptFromPayment(payment);
-
-        // ثبت یادآوری خدمات (اگر فعال باشد)
-        if (svcReminderEnabled && svcReminderDate) {
-          // مقدار PersianDatePicker رشتهٔ میلادی است (نه شمسی)
-          const dueAt = gregorianDateToUnix(svcReminderDate);
-          if (dueAt > 0) {
-            const apptId = form.getValues("appointmentId");
-            const appt2 = allActiveAppointments.find(a => a.id === apptId);
-            const patientId = (appt2 as any)?.patientId ?? undefined;
-            const reminderTitle = appt2
-              ? `${SERVICE_REMINDER_TYPES[svcReminderType]} — ${appt2.patientName} (${appt2.serviceName})`
-              : SERVICE_REMINDER_TYPES[svcReminderType];
-            createReminder.mutate({
-              data: {
-                title: reminderTitle,
-                type: svcReminderType,
-                status: "pending",
-                dueAt,
-                patientId,
-                description: `ثبت‌شده هنگام پرداخت در تاریخ ${formatShamsiDate(payment.paidAt)}`,
-              },
-            });
-          }
-        }
 
         setIsOpen(false);
         resetDialog();
@@ -539,8 +472,15 @@ export default function Payments() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPaymentsQueryKey() });
+        // حذف پرداخت وضعیت نوبت، کمیسیون‌ها، کیف پول و یادآوری را هم برمی‌گرداند
+        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
         toast({ title: "پرداخت حذف شد" });
       },
+      // پیام خطای سرور (مثلاً «پورسانت این پرداخت تسویه شده است…») نمایش داده می‌شود
+      onError: onApiError("حذف پرداخت ناموفق بود"),
     },
   });
 
@@ -576,6 +516,14 @@ export default function Payments() {
       toast({ title: "مبلغ دریافتی را وارد کنید", variant: "destructive" });
       return;
     }
+    if (duplicateOfAuto) {
+      toast({ title: "برای معرفِ این مراجع پورسانت خودکار ثبت می‌شود؛ کمیسیون دستی تکراری مجاز نیست", variant: "destructive" });
+      return;
+    }
+    if (svcReminderEnabled && !svcReminderDate) {
+      toast({ title: "تاریخ یادآوری را انتخاب کنید", variant: "destructive" });
+      return;
+    }
     // مبلغ تخفیف اعمال‌شده تا روی ردیف پرداخت ذخیره و در رسید نمایش داده شود
     const discountAmt = discountEnabled && selectedDiscount
       ? selectedDiscount.type === "percentage"
@@ -601,8 +549,36 @@ export default function Payments() {
         redeemPoints: redeemPoints > 0 ? redeemPoints : undefined,
         // سرور همین مبلغ را در همان تراکنش از کیف پول کم می‌کند
         applyAccountBalance: walletApplied > 0 ? walletApplied : undefined,
+        // کمیسیون دستی / اعتبار معرفی و یادآوری پیگیری — داخل تراکنش همین پرداخت در سرور
+        manualCommission: commissionEnabled && commRecipientId && commissionAmount > 0
+          ? {
+              recipientType: commRecipientType,
+              recipientId: commRecipientId,
+              amount: commissionAmount,
+              rate: commCalcType === "percentage" ? commCalcValue : undefined,
+              description: commRecipientType === "patient" ? undefined : commissionDescription(),
+            }
+          : undefined,
+        // مقدار PersianDatePicker رشتهٔ میلادی YYYY-MM-DD است
+        reminder: svcReminderEnabled && svcReminderDate
+          ? { type: svcReminderType, dueDate: svcReminderDate }
+          : undefined,
       },
     });
+  }
+
+  function commissionDescription(): string | undefined {
+    const recipientName =
+      commRecipientType === "staff"
+        ? staff?.find(s => s.id === commRecipientId)?.name
+        : recipients?.find(r => r.id === commRecipientId)?.name;
+    const desc = [
+      selectedAppt?.serviceName,
+      commCalcType === "percentage" ? `${toPersianDigits(commCalcValue)}٪` : null,
+      `${formatCurrency(commissionAmount)}`,
+      recipientName ? `${recipientName} (${commRecipientType === "staff" ? "پرسنل" : "خارجی"})` : null,
+    ].filter(Boolean).join(" — ");
+    return desc || undefined;
   }
 
   const prefetchPayment = useCallback((id: number) => {
@@ -639,23 +615,16 @@ export default function Payments() {
     }
   }
 
-  const totalToday = payments?.reduce((sum, p) => {
-    const today = Math.floor(Date.now() / 1000 / 86400) * 86400;
-    return p.paidAt >= today ? sum + p.amount : sum;
-  }, 0) ?? 0;
+  // ابتدای روز به وقت تهران (نه نیمه‌شب UTC)
+  const todayStart = tehranDayStartSec();
+  const totalToday = payments?.reduce((sum, p) => (p.paidAt >= todayStart ? sum + p.amount : sum), 0) ?? 0;
 
   const activeDiscounts = discounts?.filter(d => d.isActive) ?? [];
 
-  // نوبت‌های فعال که هنوز پرداخت کامل ندارند
-  // پرداخت بیعانه نباید نوبت را «پرداخت‌شده کامل» در نظر بگیرد
-  const paidAppointmentIds = new Set(
-    payments
-      ?.filter(p => (p as any).notes !== "بیعانه")
-      .map(p => p.appointmentId)
-      .filter(id => id && id > 0) ?? []
-  );
+  // نوبت‌های لغونشده‌ای که هنوز پرداخت تسویه ندارند یا مانده دارند (پرداخت قسطی)
+  // پرداخت بیعانه نوبت را «پرداخت‌شده کامل» نمی‌کند
   const unpaidAppointments = allActiveAppointments.filter(
-    a => !paidAppointmentIds.has(a.id)
+    a => !a.hasCheckoutPayment || (a.remaining ?? 0) > 0
   );
 
   return (
@@ -733,14 +702,16 @@ export default function Payments() {
                     <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                       <SelectItem value="none">بدون نوبت</SelectItem>
                       {unpaidAppointments.map(a => {
-                        const deposit = (a as any).deposit;
-                        const apptCode = (a as any).appointmentCode;
+                        const paid = a.paidTotal ?? 0;
+                        const apptCode = a.appointmentCode;
                         const dateStr = formatShamsiDate(a.scheduledAt);
                         return (
                           <SelectItem key={a.id} value={String(a.id)}>
                             <span className="block truncate">
                               {apptCode ? `${apptCode} — ` : ""}{a.patientName} — {a.serviceName} — {dateStr}
-                              {deposit && deposit > 0 ? ` (بیعانه: ${deposit.toLocaleString()} تومان)` : ""}
+                              {a.hasCheckoutPayment && (a.remaining ?? 0) > 0
+                                ? ` (مانده: ${a.remaining!.toLocaleString()} تومان)`
+                                : paid > 0 ? ` (پرداخت‌شده: ${paid.toLocaleString()} تومان)` : ""}
                             </span>
                           </SelectItem>
                         );
@@ -751,8 +722,22 @@ export default function Payments() {
                 </FormItem>
               )} />
 
+              {/* پرداخت‌های قبلی و مانده (بیعانه یا قسط قبلی) */}
+              {selectedAppt && currentDeposit > 0 && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/60 p-2 text-sm space-y-1" data-testid="previous-payments">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">پرداخت‌شده قبلی:</span>
+                    <span className="font-medium">{formatCurrency(currentDeposit)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">مانده:</span>
+                    <span className="font-bold text-amber-800">{formatCurrency(Math.max(0, afterDiscount - currentDeposit))}</span>
+                  </div>
+                </div>
+              )}
+
               {/* Units used (per-unit priced services only) */}
-              {isPerUnit && (
+              {isPerUnit && !isFollowupPayment && (
                 <FormField control={form.control} name="unitsUsed" render={({ field }) => (
                   <FormItem>
                     <FormLabel>واحد مورد استفاده{selectedAppt?.unitLabel ? ` (${selectedAppt.unitLabel})` : ""}</FormLabel>
@@ -998,6 +983,7 @@ export default function Payments() {
                   </Label>
                   <Switch
                     id="discount-toggle"
+                    disabled={isFollowupPayment}
                     checked={discountEnabled}
                     onCheckedChange={(v) => {
                       setDiscountEnabled(v);
@@ -1056,6 +1042,13 @@ export default function Payments() {
                   <Switch id="commission-toggle" checked={commissionEnabled} onCheckedChange={setCommissionEnabled} />
                 </div>
 
+                {autoReferrer && (
+                  <div className="text-sm bg-blue-50 rounded-md p-2 text-blue-900 flex justify-between gap-2" data-testid="auto-referrer-commission">
+                    <span>پورسانت خودکار معرف: {autoReferrer.name} ({toPersianDigits(autoReferrer.rate)}٪)</span>
+                    <span className="font-bold">{formatCurrency(autoReferrer.amount)}</span>
+                  </div>
+                )}
+
                 {commissionEnabled && (
                   <div className="space-y-3 rounded-lg border p-3 bg-muted/30">
                     <div>
@@ -1068,9 +1061,14 @@ export default function Payments() {
                         <SelectContent>
                           <SelectItem value="staff">کارمند (پرسنل)</SelectItem>
                           <SelectItem value="external">گیرنده خارجی</SelectItem>
-                          <SelectItem value="patient">مراجع (معرف)</SelectItem>
+                          {!loyaltyReferralAuto && <SelectItem value="patient">مراجع (معرف)</SelectItem>}
                         </SelectContent>
                       </Select>
+                      {loyaltyReferralAuto && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          اعتبار معرفیِ معرفِ «مراجع» به‌صورت خودکار توسط باشگاه مشتریان به کیف پولش داده می‌شود؛ ثبت دستی آن مجاز نیست.
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -1116,6 +1114,12 @@ export default function Payments() {
                         />
                       </div>
                     </div>
+
+                    {duplicateOfAuto && (
+                      <div className="text-xs text-destructive">
+                        این گیرنده معرفِ همین مراجع است و پورسانت خودکار می‌گیرد؛ کمیسیون دستی تکراری ثبت نمی‌شود.
+                      </div>
+                    )}
 
                     {commissionAmount > 0 && (
                       <div className="text-sm bg-amber-50 rounded-md p-2 text-amber-800 flex justify-between">

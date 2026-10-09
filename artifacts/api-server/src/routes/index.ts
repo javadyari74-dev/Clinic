@@ -36,29 +36,124 @@ router.use(internalBackupRouter);
 
 router.use(requireAuth);
 
-// کنترل دسترسی سمت سرور برای بخش‌های حساس. محدودیت منوی فرانت‌اند به‌تنهایی
+// کنترل دسترسی سمت سرور برای همهٔ بخش‌ها. محدودیت منوی فرانت‌اند به‌تنهایی
 // کافی نیست چون هر کاربر واردشده می‌تواند مستقیم API را صدا بزند.
-// اولین قاعده‌ای که مسیر با آن شروع شود اعمال می‌شود (ترتیب مهم است).
-const routeAccessRules: Array<{ prefix: string; check: RequestHandler }> = [
-  // عملیات مخرب پشتیبان‌گیری فقط برای مدیر
-  { prefix: "/reset", check: requireAdmin },
-  { prefix: "/backup/restore", check: requireAdmin },
-  { prefix: "/backup/merge", check: requireAdmin },
-  { prefix: "/backup", check: requirePermission("backup") },
+//
+// هر قاعده یک الگوی مسیر (بخش «:» یعنی هر مقدار، مثل /patients/:/loyalty) و در صورت
+// نیاز فهرست متدهاست؛ الگو با ابتدای مسیر مقایسه می‌شود. اولین قاعدهٔ منطبق اعمال
+// می‌شود (ترتیب مهم است: قاعده‌های خاص‌تر بالاتر).
+//
+// خواندنِ داده‌هایی که صفحه‌های دیگر به‌عنوان «فهرست انتخاب» لازم دارند (خدمات، کارمندان،
+// تخفیف‌ها، گیرندگان کمیسیون، جست‌وجوی مراجع) برای همان صفحه‌ها آزاد است؛ نوشتن فقط
+// برای دسترسی صاحب آن بخش. پیش از تغییر هر قاعده، همهٔ فراخوان‌های فرانت‌اند
+// (artifacts/beauty-clinic/src) را بررسی کنید تا صفحه‌ای با خطای ۴۰۳ نشکند.
+type Rule = { pattern: string; methods?: string[]; check: RequestHandler };
+
+const READ = ["GET", "HEAD"];
+const any = (...perms: string[]) => requirePermission(...perms);
+
+// صفحه‌هایی که مراجع را جست‌وجو/انتخاب می‌کنند (و پنجرهٔ پروفایل جست‌وجوی سراسری)
+const PATIENT_LOOKUP = ["patients", "appointments", "payments", "reminders", "sms"];
+
+export const routeAccessRules: Rule[] = [
+  // ── پشتیبان‌گیری ──
+  // عملیات مخرب و هر چیزی که هش رمز کاربران را بیرون می‌دهد یا مقصد فایل‌ها را عوض می‌کند فقط برای مدیر
+  { pattern: "/reset", check: requireAdmin },
+  { pattern: "/backup/restore", check: requireAdmin },
+  { pattern: "/backup/merge", check: requireAdmin },
+  { pattern: "/backup/download", check: requireAdmin },
+  { pattern: "/backup/mirror", check: requireAdmin },
+  { pattern: "/backup/settings", methods: ["PUT"], check: requireAdmin },
+  { pattern: "/backup", check: any("backup") },
+
+  // ── حسابداری و گزارش ──
   // صفحهٔ کارمندان هم از revenue-range استفاده می‌کند
-  { prefix: "/accounting/revenue-range", check: requirePermission("accounting", "staff") },
-  { prefix: "/accounting", check: requirePermission("accounting") },
-  { prefix: "/reports", check: requirePermission("reports") },
-  { prefix: "/sms", check: requirePermission("sms") },
-  { prefix: "/laser", check: requirePermission("laser") },
-  // صفحهٔ باشگاه؛ وضعیت امتیاز هر مراجع (/patients/:id/loyalty) برای صندوق آزاد است
-  { prefix: "/loyalty", check: requirePermission("loyalty") },
+  { pattern: "/accounting/revenue-range", check: any("accounting", "staff") },
+  { pattern: "/accounting", check: any("accounting") },
+  { pattern: "/reports", check: any("reports") },
+  // نمودار درآمد در داشبورد و صفحهٔ گزارشات
+  { pattern: "/dashboard/revenue-chart", check: any("dashboard", "reports") },
+  { pattern: "/dashboard", check: any("dashboard") },
+  { pattern: "/activity", check: any("dashboard") },
+
+  { pattern: "/sms", check: any("sms") },
+  { pattern: "/laser", check: any("laser") },
+  { pattern: "/loyalty", check: any("loyalty") },
+  { pattern: "/surveys", check: any("surveys") },
+  { pattern: "/inventory", check: any("inventory") },
+
+  // ── مراجعین ──
+  // خروجی کامل اطلاعات تماس همهٔ مراجعین؛ مثل دانلود پشتیبان فقط مدیر
+  { pattern: "/patients/export", check: requireAdmin },
+  // داشبورد و یادآوری‌ها تولدهای پیش‌رو را نشان می‌دهند
+  { pattern: "/patients/upcoming-birthdays", methods: READ, check: any("dashboard", "reminders", "patients") },
+  // وضعیت امتیاز باشگاه: صندوق، پروندهٔ مراجع و صفحهٔ باشگاه
+  { pattern: "/patients/:/loyalty", methods: READ, check: any("payments", "loyalty", "patients") },
+  // کیف پول: صندوق (شارژ/برداشت هنگام پرداخت) و پروندهٔ مراجع
+  { pattern: "/patients/:/account-transactions", check: any("payments", "patients") },
+  { pattern: "/patients/:/appointments", methods: READ, check: any(...PATIENT_LOOKUP) },
+  { pattern: "/patients/:/notes", methods: READ, check: any(...PATIENT_LOOKUP) },
+  { pattern: "/patients/:/notes", check: any("patients") },
+  { pattern: "/patients", methods: READ, check: any(...PATIENT_LOOKUP) },
+  { pattern: "/patients", check: any("patients") },
+  { pattern: "/patient-notes", check: any("patients") },
+
+  // ── نوبت‌ها ──
+  // داشبورد، صندوق و پروندهٔ مراجع فهرست نوبت‌ها را می‌خوانند
+  { pattern: "/appointments", methods: READ, check: any("appointments", "dashboard", "payments", "patients") },
+  // ثبت نوبت از پروندهٔ مراجع و پنجرهٔ جست‌وجوی سراسری هم انجام می‌شود
+  { pattern: "/appointments", methods: ["POST"], check: any("appointments", "patients", "payments") },
+  // حذف گروهی (DELETE /appointments/bulk) و حذف تکی فقط صاحب بخش
+  { pattern: "/appointments", methods: ["DELETE"], check: any("appointments") },
+  // صندوق پس از پرداخت وضعیت نوبت را «انجام‌شده» می‌کند
+  { pattern: "/appointments", check: any("appointments", "payments") },
+  { pattern: "/waiting-list", check: any("appointments") },
+
+  // ── صندوق ──
+  // حذف پرداخت (برگشت کیف پول/امتیاز/کمیسیون) فقط مدیر — در رابط کاربری هم فقط مدیر
+  { pattern: "/payments/:", methods: ["DELETE"], check: requireAdmin },
+  { pattern: "/payments", methods: READ, check: any("payments", "dashboard") },
+  { pattern: "/payments", check: any("payments") },
+
+  // ── فهرست‌های پایه (خواندن برای صفحه‌های مصرف‌کننده، نوشتن برای صاحب بخش) ──
+  { pattern: "/services", methods: READ, check: any("services", ...PATIENT_LOOKUP) },
+  { pattern: "/services", check: any("services") },
+  { pattern: "/staff", methods: READ, check: any("staff", "commissions", ...PATIENT_LOOKUP) },
+  { pattern: "/staff", check: any("staff") },
+  { pattern: "/discounts", methods: READ, check: any("discounts", "payments") },
+  { pattern: "/discounts", check: any("discounts") },
+  { pattern: "/commission-recipients/:/referrals", check: any("commissions") },
+  { pattern: "/commission-recipients", methods: READ, check: any("commissions", "payments", "patients") },
+  { pattern: "/commission-recipients", check: any("commissions") },
+  // صندوق کمیسیون پرداخت را ثبت می‌کند و فهرستش را می‌خواند
+  { pattern: "/commissions", methods: [...READ, "POST"], check: any("commissions", "payments") },
+  { pattern: "/commissions", check: any("commissions") },
+
+  // ── یادآوری‌ها ──
+  { pattern: "/reminders", methods: READ, check: any("reminders", "dashboard", "patients", "payments") },
+  { pattern: "/reminders", methods: ["POST"], check: any("reminders", "patients", "payments") },
+  { pattern: "/reminders", check: any("reminders") },
 ];
 
-router.use((req, res, next) => {
+// آیا الگو با ابتدای مسیر منطبق است؟ بخش «:» با هر مقداری منطبق می‌شود.
+export function matchesPattern(pattern: string, path: string): boolean {
+  const pp = pattern.split("/").filter(Boolean);
+  const ps = path.split("/").filter(Boolean);
+  if (ps.length < pp.length) return false;
+  return pp.every((seg, i) => seg === ":" || seg === ps[i]);
+}
+
+export function findAccessRule(method: string, path: string): Rule | undefined {
   // مسیریابی Express به حروف بزرگ/کوچک حساس نیست؛ پس مقایسه هم باید نباشد
-  const p = req.path.toLowerCase();
-  const rule = routeAccessRules.find((r) => p === r.prefix || p.startsWith(`${r.prefix}/`));
+  const p = path.toLowerCase();
+  const m = method.toUpperCase();
+  return routeAccessRules.find(
+    (r) => (!r.methods || r.methods.includes(m)) && matchesPattern(r.pattern, p),
+  );
+}
+
+router.use((req, res, next) => {
+  const rule = findAccessRule(req.method, req.path);
   if (rule) rule.check(req, res, next);
   else next();
 });

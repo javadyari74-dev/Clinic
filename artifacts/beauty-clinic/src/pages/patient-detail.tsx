@@ -5,7 +5,7 @@ import {
   useGetPatient, useListPatients, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
   useListServices, useListStaff, useListCommissionRecipients,
-  useCreateAppointment, getListAppointmentsQueryKey,
+  useCreateAppointment, getListAppointmentsQueryKey, getListPatientAppointmentsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
   useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
   useGetPatientLoyalty,
@@ -23,6 +23,23 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { onApiError } from "@/lib/api-error";
+
+// زمان نوبت میلی‌ثانیه است؛ ردیف‌های قدیمیِ ثانیه‌ای هم درست مقایسه می‌شوند
+const toMs = (ts: number) => (ts > 1e11 ? ts : ts * 1000);
+
+// قیمت / پرداخت‌شده / ماندهٔ هر نوبت (از پرداخت‌های واقعی)
+function ApptMoney({ a }: { a: { price?: number | null; paidTotal?: number | null; remaining?: number | null } }) {
+  const paid = a.paidTotal ?? 0;
+  if (a.price == null && paid <= 0) return <>—</>;
+  return (
+    <div className="space-y-0.5">
+      {a.price != null && <div>{formatCurrency(a.price)}</div>}
+      {paid > 0 && <div className="text-xs text-green-700">پرداخت: {formatCurrency(paid)}</div>}
+      {(a.remaining ?? 0) > 0 && <div className="text-xs text-red-600 font-bold">مانده: {formatCurrency(a.remaining)}</div>}
+    </div>
+  );
+}
 import { PATIENT_TIERS } from "@/lib/tiers";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -155,6 +172,7 @@ export default function PatientDetail() {
         setNoteText("");
         toast({ title: "یادداشت ثبت شد" });
       },
+      onError: onApiError("ثبت یادداشت ناموفق بود"),
     },
   });
 
@@ -164,6 +182,7 @@ export default function PatientDetail() {
         queryClient.invalidateQueries({ queryKey: getListPatientNotesQueryKey(id) });
         toast({ title: "یادداشت حذف شد" });
       },
+      onError: onApiError("حذف یادداشت ناموفق بود"),
     },
   });
 
@@ -171,11 +190,12 @@ export default function PatientDetail() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: [`/api/patients/${id}/appointments`] });
+        queryClient.invalidateQueries({ queryKey: getListPatientAppointmentsQueryKey(id) });
         toast({ title: "نوبت با موفقیت ثبت شد" });
         setApptOpen(false);
         setApptServiceId(""); setApptStaffId(""); setApptDate(""); setApptTime("10:00"); setApptNotes("");
       },
+      onError: onApiError("ثبت نوبت ناموفق بود"),
     },
   });
 
@@ -230,7 +250,8 @@ export default function PatientDetail() {
         patientId: id,
         serviceId: Number(apptServiceId),
         staffId: apptStaffId ? Number(apptStaffId) : undefined,
-        scheduledAt: Math.floor(dt.getTime() / 1000),
+        // زمان نوبت به میلی‌ثانیه (قرارداد سرور)
+        scheduledAt: dt.getTime(),
         status: "scheduled",
         notes: apptNotes || undefined,
       },
@@ -261,9 +282,13 @@ export default function PatientDetail() {
   }
 
   const apptList = appointments?.data ?? [];
-  const upcoming = apptList.filter(a => a.scheduledAt > Math.floor(Date.now() / 1000));
-  const past = apptList.filter(a => a.scheduledAt <= Math.floor(Date.now() / 1000));
-  const totalSpent = past.filter(a => a.status === "completed" && a.price).reduce((s, a) => s + (a.price ?? 0), 0);
+  const nowMs = Date.now();
+  const upcoming = apptList.filter(a => toMs(a.scheduledAt) > nowMs);
+  const past = apptList.filter(a => toMs(a.scheduledAt) <= nowMs);
+  // مجموع پرداخت‌ها از پرداخت‌های واقعی (شامل بیعانه و اقساط)، نه قیمت نوبت‌های تکمیل‌شده
+  const totalSpent = apptList.reduce((s, a) => s + (a.paidTotal ?? 0), 0);
+  // بدهی: جمع ماندهٔ نوبت‌های لغونشده
+  const totalDebt = apptList.filter(a => a.status !== "cancelled").reduce((s, a) => s + Math.max(0, a.remaining ?? 0), 0);
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
@@ -500,12 +525,18 @@ export default function PatientDetail() {
               <p className="text-sm text-amber-800"><strong>هشدار: </strong>{patient.notes}</p>
             </div>
           )}
-          {totalSpent > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground border-t pt-3">
+          {(totalSpent > 0 || totalDebt > 0) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground border-t pt-3">
               <span>مجموع پرداخت‌ها:</span>
               <span className="font-bold text-green-700">{formatCurrency(totalSpent)}</span>
               <span className="mr-2">تعداد نوبت:</span>
               <span className="font-bold">{toPersianDigits(apptList.length)} نوبت</span>
+              {totalDebt > 0 && (
+                <>
+                  <span className="mr-2">بدهی:</span>
+                  <span className="font-bold text-red-600" data-testid="patient-debt">{formatCurrency(totalDebt)}</span>
+                </>
+              )}
             </div>
           )}
         </CardContent>
@@ -649,7 +680,7 @@ export default function PatientDetail() {
                 <TableHead>تاریخ</TableHead>
                 <TableHead>خدمت</TableHead>
                 <TableHead>پزشک</TableHead>
-                <TableHead>قیمت</TableHead>
+                <TableHead>قیمت / پرداخت</TableHead>
                 <TableHead>وضعیت</TableHead>
               </TableRow>
             </TableHeader>
@@ -664,7 +695,7 @@ export default function PatientDetail() {
                   <TableCell className="font-medium text-sm">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
                   <TableCell>{a.serviceName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="font-mono text-sm">{a.price ? formatCurrency(a.price) : "—"}</TableCell>
+                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
@@ -689,7 +720,7 @@ export default function PatientDetail() {
                   <TableCell className="text-sm text-muted-foreground">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
                   <TableCell>{a.serviceName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="font-mono text-sm">{a.price ? formatCurrency(a.price) : "—"}</TableCell>
+                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">

@@ -375,7 +375,10 @@ export async function updateMembershipAfterPayment(
         INNER JOIN appointments a ON a.id = p.appointment_id
         WHERE t.type = 'referral' AND a.patient_id = ${patientId} AND p.id <> ${paymentId}
       `);
-      if (Number(count) === 1 && already.length === 0) {
+      // معرفی که دیگر وجود ندارد (مراجع حذف‌شده) اعتباری نمی‌گیرد
+      const referrerExists = await tx.select({ id: patientsTable.id }).from(patientsTable)
+        .where(eq(patientsTable.id, patient.referrerId)).get();
+      if (referrerExists && Number(count) === 1 && already.length === 0) {
         const description = `اعتبار معرفی ${args.patientName ?? "مراجع"}: ${fa(settings.referralBonus)} تومان`;
         await creditWallet(tx, patient.referrerId, settings.referralBonus, "loyalty_referral", description, paymentId);
         await tx.insert(loyaltyTransactionsTable).values({

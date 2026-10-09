@@ -239,6 +239,16 @@ export interface AppointmentWithDetails {
   originalPrice?: number | null;
   /** @nullable */
   deposit?: number | null;
+  /** @nullable */
+  appointmentCode?: string | null;
+  /** @nullable */
+  sessionNumber?: number | null;
+  /** @nullable */
+  paidTotal?: number | null;
+  /** @nullable */
+  remaining?: number | null;
+  /** @nullable */
+  hasCheckoutPayment?: boolean | null;
   createdAt: number;
   /** @nullable */
   patientName?: string | null;
@@ -336,6 +346,29 @@ export interface Payment {
   pointsAmount?: number | null;
 }
 
+export type PaymentManualCommissionRecipientType = typeof PaymentManualCommissionRecipientType[keyof typeof PaymentManualCommissionRecipientType];
+
+
+export const PaymentManualCommissionRecipientType = {
+  staff: 'staff',
+  external: 'external',
+  patient: 'patient',
+} as const;
+
+export interface PaymentManualCommission {
+  recipientType: PaymentManualCommissionRecipientType;
+  recipientId: number;
+  amount: number;
+  rate?: number;
+  description?: string;
+}
+
+export interface PaymentReminderInput {
+  type: string;
+  dueDate: string;
+  note?: string;
+}
+
 export interface PaymentInput {
   appointmentId: number;
   discountId?: number;
@@ -353,6 +386,8 @@ export interface PaymentInput {
   depositAmount?: number;
   applyAccountBalance?: number;
   redeemPoints?: number;
+  manualCommission?: PaymentManualCommission;
+  reminder?: PaymentReminderInput;
 }
 
 export interface Discount {
@@ -578,6 +613,8 @@ export interface Reminder {
   type: string;
   /** @nullable */
   patientId?: number | null;
+  /** @nullable */
+  paymentId?: number | null;
   dueAt: number;
   status: string;
   createdAt: number;
@@ -590,6 +627,7 @@ export interface ReminderInput {
   description?: string;
   type?: string;
   patientId?: number;
+  paymentId?: number;
   dueAt: number;
   status?: string;
 }
