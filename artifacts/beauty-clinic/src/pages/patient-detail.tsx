@@ -2,13 +2,15 @@ import { useState } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { useParams, useLocation } from "wouter";
 import {
-  useGetPatient, useListPatientAppointments, useListPatientNotes,
+  useGetPatient, useListPatients, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
   useListServices, useListStaff, useListCommissionRecipients,
-  useCreateAppointment, getListAppointmentsQueryKey,
+  useCreateAppointment, getListAppointmentsQueryKey, getListPatientAppointmentsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
   useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
+  useGetPatientLoyalty,
 } from "@workspace/api-client-react";
+import { LoyaltyTierBadge, loyaltyTierLabel } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,17 +23,37 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
+import { onApiError } from "@/lib/api-error";
+
+// زمان نوبت میلی‌ثانیه است؛ ردیف‌های قدیمیِ ثانیه‌ای هم درست مقایسه می‌شوند
+const toMs = (ts: number) => (ts > 1e11 ? ts : ts * 1000);
+
+// قیمت / پرداخت‌شده / ماندهٔ هر نوبت (از پرداخت‌های واقعی)
+function ApptMoney({ a }: { a: { price?: number | null; paidTotal?: number | null; remaining?: number | null } }) {
+  const paid = a.paidTotal ?? 0;
+  if (a.price == null && paid <= 0) return <>—</>;
+  return (
+    <div className="space-y-0.5">
+      {a.price != null && <div>{formatCurrency(a.price)}</div>}
+      {paid > 0 && <div className="text-xs text-green-700">پرداخت: {formatCurrency(paid)}</div>}
+      {(a.remaining ?? 0) > 0 && <div className="text-xs text-red-600 font-bold">مانده: {formatCurrency(a.remaining)}</div>}
+    </div>
+  );
+}
 import { PATIENT_TIERS } from "@/lib/tiers";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award, MessageSquare
 } from "lucide-react";
+import { LoyaltyNotifyDialog } from "@/components/loyalty-notify-dialog";
+import { useAuth } from "@/hooks/use-auth";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
+import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
 
 const editSchema = z.object({
@@ -66,6 +88,8 @@ export default function PatientDetail() {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const { hasPermission } = useAuth();
   const [noteText, setNoteText] = useState("");
   const [apptOpen, setApptOpen] = useState(false);
   const [apptServiceId, setApptServiceId] = useState("");
@@ -78,12 +102,13 @@ export default function PatientDetail() {
   const [reminderDate, setReminderDate] = useState("");
 
   const { data: patient, isLoading, isError, refetch } = useGetPatient(id);
+  const { data: loyalty } = useGetPatientLoyalty(id);
   const { data: appointments } = useListPatientAppointments(id);
   const { data: notes } = useListPatientNotes(id);
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { data: recipients } = useListCommissionRecipients();
-  const { data: patients } = useGetPatient(id);
+  const { data: allPatients } = useListPatients({ limit: 1000 });
 
   const editForm = useForm<z.infer<typeof editSchema>>({
     resolver: zodResolver(editSchema),
@@ -151,6 +176,7 @@ export default function PatientDetail() {
         setNoteText("");
         toast({ title: "یادداشت ثبت شد" });
       },
+      onError: onApiError("ثبت یادداشت ناموفق بود"),
     },
   });
 
@@ -160,6 +186,7 @@ export default function PatientDetail() {
         queryClient.invalidateQueries({ queryKey: getListPatientNotesQueryKey(id) });
         toast({ title: "یادداشت حذف شد" });
       },
+      onError: onApiError("حذف یادداشت ناموفق بود"),
     },
   });
 
@@ -167,11 +194,12 @@ export default function PatientDetail() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: [`/api/patients/${id}/appointments`] });
+        queryClient.invalidateQueries({ queryKey: getListPatientAppointmentsQueryKey(id) });
         toast({ title: "نوبت با موفقیت ثبت شد" });
         setApptOpen(false);
         setApptServiceId(""); setApptStaffId(""); setApptDate(""); setApptTime("10:00"); setApptNotes("");
       },
+      onError: onApiError("ثبت نوبت ناموفق بود"),
     },
   });
 
@@ -226,7 +254,8 @@ export default function PatientDetail() {
         patientId: id,
         serviceId: Number(apptServiceId),
         staffId: apptStaffId ? Number(apptStaffId) : undefined,
-        scheduledAt: Math.floor(dt.getTime() / 1000),
+        // زمان نوبت به میلی‌ثانیه (قرارداد سرور)
+        scheduledAt: dt.getTime(),
         status: "scheduled",
         notes: apptNotes || undefined,
       },
@@ -257,9 +286,13 @@ export default function PatientDetail() {
   }
 
   const apptList = appointments?.data ?? [];
-  const upcoming = apptList.filter(a => a.scheduledAt > Math.floor(Date.now() / 1000));
-  const past = apptList.filter(a => a.scheduledAt <= Math.floor(Date.now() / 1000));
-  const totalSpent = past.filter(a => a.status === "completed" && a.price).reduce((s, a) => s + (a.price ?? 0), 0);
+  const nowMs = Date.now();
+  const upcoming = apptList.filter(a => toMs(a.scheduledAt) > nowMs);
+  const past = apptList.filter(a => toMs(a.scheduledAt) <= nowMs);
+  // مجموع پرداخت‌ها از پرداخت‌های واقعی (شامل بیعانه و اقساط)، نه قیمت نوبت‌های تکمیل‌شده
+  const totalSpent = apptList.reduce((s, a) => s + (a.paidTotal ?? 0), 0);
+  // بدهی: جمع ماندهٔ نوبت‌های لغونشده
+  const totalDebt = apptList.filter(a => a.status !== "cancelled").reduce((s, a) => s + Math.max(0, a.remaining ?? 0), 0);
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
@@ -405,7 +438,7 @@ export default function PatientDetail() {
                       <FormControl>
                         <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background" {...field}>
                           <option value="">انتخاب معرف...</option>
-                          {editReferrerType === "patient" && (patients as any[])?.map((p: any) => (
+                          {editReferrerType === "patient" && (allPatients?.data ?? []).filter(p => p.id !== id).map(p => (
                             <option key={p.id} value={p.id}>{p.name} ({p.fileNumber})</option>
                           ))}
                           {editReferrerType === "staff" && (staff ?? []).map(s => (
@@ -496,16 +529,101 @@ export default function PatientDetail() {
               <p className="text-sm text-amber-800"><strong>هشدار: </strong>{patient.notes}</p>
             </div>
           )}
-          {totalSpent > 0 && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground border-t pt-3">
+          {(totalSpent > 0 || totalDebt > 0) && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground border-t pt-3">
               <span>مجموع پرداخت‌ها:</span>
               <span className="font-bold text-green-700">{formatCurrency(totalSpent)}</span>
               <span className="mr-2">تعداد نوبت:</span>
               <span className="font-bold">{toPersianDigits(apptList.length)} نوبت</span>
+              {totalDebt > 0 && (
+                <>
+                  <span className="mr-2">بدهی:</span>
+                  <span className="font-bold text-red-600" data-testid="patient-debt">{formatCurrency(totalDebt)}</span>
+                </>
+              )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      {patient && (
+        <LoyaltyNotifyDialog
+          open={notifyOpen}
+          onOpenChange={setNotifyOpen}
+          target={{ patientId: patient.id, patientName: patient.name }}
+        />
+      )}
+
+      {/* Loyalty Card */}
+      {loyalty?.settings?.enabled && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Award className="h-4 w-4 text-amber-600" />
+              باشگاه مشتریان
+              {loyalty.member && <LoyaltyTierBadge tier={loyalty.member.tier} />}
+              {loyalty.member && hasPermission("loyalty") && (
+                <Button variant="outline" size="sm" className="gap-1 mr-auto" onClick={() => setNotifyOpen(true)}>
+                  <MessageSquare className="h-3.5 w-3.5" /> ارسال پیام موجودی
+                </Button>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {!loyalty.member ? (
+              <p className="text-sm text-muted-foreground">هنوز عضو نیست — با اولین پرداخت خودکار عضو می‌شود.</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <div className="text-muted-foreground text-xs">کیف پول</div>
+                    <div className="text-xl font-bold text-amber-700">{formatCurrency(loyalty.walletBalance)}</div>
+                    <div className="text-xs text-muted-foreground">
+                      اعتبار هدیه‌شده تا امروز: {formatCurrency(loyalty.totalRewards)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs">خرید ۱۲ ماه اخیر</div>
+                    <div className="font-bold">{formatCurrency(loyalty.member.spend12m)}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs">عضویت از</div>
+                    <div className="font-bold">{formatShamsiDate(loyalty.member.joinedAt)}</div>
+                  </div>
+                </div>
+                {loyalty.member.nextTier && (
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>تا سطح {loyaltyTierLabel(loyalty.member.nextTier.tier)}</span>
+                      <span>{formatCurrency(loyalty.member.nextTier.remaining)} خرید دیگر</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className="h-2 rounded-full bg-amber-500"
+                        style={{ width: `${Math.min(100, Math.round((loyalty.member.spend12m / loyalty.member.nextTier.min) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+                {loyalty.transactions.length > 0 && (
+                  <div className="divide-y rounded-md border text-sm">
+                    {loyalty.transactions.slice(0, 5).map((t) => (
+                      <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-1.5">
+                        <span className="truncate text-muted-foreground">{t.description ?? "—"}</span>
+                        <span className={`font-bold shrink-0 whitespace-nowrap ${
+                          txSign(t) > 0 ? "text-emerald-600" : "text-rose-600"
+                        }`}>
+                          {txAmountText(t)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Notes Card */}
       <Card>
@@ -579,7 +697,7 @@ export default function PatientDetail() {
                 <TableHead>تاریخ</TableHead>
                 <TableHead>خدمت</TableHead>
                 <TableHead>پزشک</TableHead>
-                <TableHead>قیمت</TableHead>
+                <TableHead>قیمت / پرداخت</TableHead>
                 <TableHead>وضعیت</TableHead>
               </TableRow>
             </TableHeader>
@@ -594,7 +712,7 @@ export default function PatientDetail() {
                   <TableCell className="font-medium text-sm">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
                   <TableCell>{a.serviceName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="font-mono text-sm">{a.price ? formatCurrency(a.price) : "—"}</TableCell>
+                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
@@ -619,7 +737,7 @@ export default function PatientDetail() {
                   <TableCell className="text-sm text-muted-foreground">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
                   <TableCell>{a.serviceName}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="font-mono text-sm">{a.price ? formatCurrency(a.price) : "—"}</TableCell>
+                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">

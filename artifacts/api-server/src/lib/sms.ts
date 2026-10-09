@@ -2,6 +2,7 @@ import { eq, and, gte, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db, appSettingsTable, smsLogTable, surveysTable, appointmentsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { shamsiDateText, timeText, toMs } from "./tehran-time";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // سرویس پیامک ملی‌پیامک (Melipayamak)
@@ -37,6 +38,32 @@ export const SMS_SETTING_KEYS = {
   bodyIdBirthday: "sms_bodyid_birthday",
   bodyIdSurvey: "sms_bodyid_survey",
   bodyIdRecipientWelcome: "sms_bodyid_recipient_welcome",
+  // ── پیامک‌های زمان‌بندی‌شده (همه پیش‌فرض خاموش) ──
+  // یادآوری نوبت: روز قبل از نوبت، از ساعت appointmentReminderHour به بعد
+  enabledAppointmentReminder: "sms_enabled_appointment_reminder",
+  // یادآوری برگشت: روزِ سررسید یادآوری «پیگیری» مراجع
+  enabledFollowupReminder: "sms_enabled_followup_reminder",
+  // تبریک تولد خودکار در روز تولد
+  enabledBirthdayAuto: "sms_enabled_birthday_auto",
+  appointmentReminderHour: "sms_appointment_reminder_hour",
+  // ساعت ارسال روزانهٔ یادآوری برگشت و تبریک تولد
+  dailyAutoHour: "sms_daily_auto_hour",
+  bodyIdAppointmentReminder: "sms_bodyid_appointment_reminder",
+  bodyIdFollowupReminder: "sms_bodyid_followup_reminder",
+  // ── باشگاه مشتریان (فقط وقتی باشگاه فعال است؛ هر کدام جدا قابل خاموش کردن) ──
+  enabledLoyaltyWelcome: "sms_enabled_loyalty_welcome",
+  enabledLoyaltyTierUp: "sms_enabled_loyalty_tier_up",
+  enabledLoyaltyExpiry: "sms_enabled_loyalty_expiry",
+  enabledLoyaltyReferral: "sms_enabled_loyalty_referral",
+  bodyIdLoyaltyWelcome: "sms_bodyid_loyalty_welcome",
+  bodyIdLoyaltyTierUp: "sms_bodyid_loyalty_tier_up",
+  bodyIdLoyaltyExpiry: "sms_bodyid_loyalty_expiry",
+  bodyIdLoyaltyReferral: "sms_bodyid_loyalty_referral",
+  // پترن پرداخت همراه با امتیاز (اختیاری): اگر خالی باشد پترن پرداخت عادی استفاده می‌شود
+  bodyIdPaymentLoyalty: "sms_bodyid_payment_loyalty",
+  // پیام دستی باشگاه (موجودی/انقضای کیف پول) در حالت خدماتی:
+  // {0}=نام {1}=موجودی {2}=مبلغ در حال انقضا {3}=تاریخ انقضا
+  bodyIdLoyaltyNotify: "sms_bodyid_loyalty_notify",
 } as const;
 
 export type SmsSendMode = "normal" | "pattern";
@@ -48,6 +75,12 @@ export const SMS_TEMPLATE_KEYS = {
   birthday: "sms_template_birthday",
   survey: "sms_template_survey",
   recipientWelcome: "sms_template_recipient_welcome",
+  appointmentReminder: "sms_template_appointment_reminder",
+  followupReminder: "sms_template_followup_reminder",
+  loyaltyWelcome: "sms_template_loyalty_welcome",
+  loyaltyTierUp: "sms_template_loyalty_tier_up",
+  loyaltyExpiry: "sms_template_loyalty_expiry",
+  loyaltyReferral: "sms_template_loyalty_referral",
 } as const;
 
 export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
@@ -56,16 +89,30 @@ export type SmsTemplateName = keyof typeof SMS_TEMPLATE_KEYS;
 export const DEFAULT_TEMPLATES: Record<SmsTemplateName, string> = {
   appointment:
     "{نام} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {تاریخ} ساعت {ساعت} ثبت شد. منتظر حضور شما هستیم.\nwww.drjavadyari.ir",
+  // {باشگاه}: اگر باشگاه فعال باشد، اعتبار سودِ این خرید و موجودی کیف پول؛ وگرنه خالی
   payment:
-    "{نام} عزیز، مبلغ {مبلغ} تومان بابت {خدمت} در مطب زیبایی دکتر یاری پرداخت شد. از اعتماد شما سپاسگزاریم.\nwww.drjavadyari.ir",
+    "{نام} عزیز، مبلغ {مبلغ} تومان بابت {خدمت} در مطب زیبایی دکتر یاری پرداخت شد. از اعتماد شما سپاسگزاریم.{باشگاه}\nwww.drjavadyari.ir",
   commission:
     "{نام} عزیز، بابت معرفی، مبلغ {پورسانت} تومان ({درصد}٪ از {مبلغ} تومان) به حساب شما در مطب زیبایی دکتر یاری منظور شد.\nwww.drjavadyari.ir",
+  // {هدیه_باشگاه}: اگر امروز امتیاز هدیهٔ تولد داده شده، جملهٔ آن؛ وگرنه خالی
   birthday:
-    "{نام} عزیز، تولدتان مبارک! 🎉 به همین مناسبت از طرف مطب زیبایی دکتر یاری تخفیف ویژه‌ای برای شما در نظر گرفته شده است.\nwww.drjavadyari.ir",
+    "{نام} عزیز، تولدتان مبارک! 🎉 به همین مناسبت از طرف مطب زیبایی دکتر یاری تخفیف ویژه‌ای برای شما در نظر گرفته شده است.{هدیه_باشگاه}\nwww.drjavadyari.ir",
   survey:
     "{نام} عزیز، از مراجعه شما به مطب زیبایی دکتر یاری سپاسگزاریم. خوشحال می‌شویم میزان رضایت خود از {خدمت} را با عددی از ۱ تا ۵ در پاسخ به تماس همکاران ما اعلام کنید.\nwww.drjavadyari.ir",
   recipientWelcome:
     "{نام} عزیز، شما به عنوان معرف در مطب زیبایی دکتر یاری ثبت شدید. از این پس هر زمان فردی با معرفی شما مراجعه کند، درصدی از مبلغ پرداخت او به شما تعلق می‌گیرد.\nwww.drjavadyari.ir",
+  appointmentReminder:
+    "{نام} عزیز، یادآوری می‌کنیم نوبت شما در مطب زیبایی دکتر یاری {تاریخ} ساعت {ساعت} است. در صورت عدم امکان حضور، لطفاً به ما اطلاع دهید.\nwww.drjavadyari.ir",
+  followupReminder:
+    "{نام} عزیز، زمان جلسهٔ بعدی شما در مطب زیبایی دکتر یاری فرا رسیده است. برای رزرو نوبت با ما تماس بگیرید.\nwww.drjavadyari.ir",
+  loyaltyWelcome:
+    "{نام} عزیز، به باشگاه مشتریان مطب زیبایی دکتر یاری خوش آمدید! از این پس از هر خدمت، بخشی به‌صورت اعتبار به کیف پول شما برمی‌گردد و می‌توانید در مراجعه‌های بعدی از آن استفاده کنید. موجودی کیف پول شما: {موجودی} تومان.\nwww.drjavadyari.ir",
+  loyaltyTierUp:
+    "{نام} عزیز، تبریک! سطح شما در باشگاه مشتریان مطب زیبایی دکتر یاری به «{سطح}» ارتقا یافت و از این پس از هر خدمت اعتبار بیشتری به کیف پول شما برمی‌گردد.\nwww.drjavadyari.ir",
+  loyaltyExpiry:
+    "{نام} عزیز، {اعتبار} تومان از اعتبار کیف پول شما در مطب زیبایی دکتر یاری تا {تاریخ} منقضی می‌شود. برای استفاده از آن نوبت بگیرید.\nwww.drjavadyari.ir",
+  loyaltyReferral:
+    "{نام} عزیز، از معرفی دوستتان سپاسگزاریم! {اعتبار} تومان اعتبار هدیه به کیف پول شما در مطب زیبایی دکتر یاری اضافه شد. موجودی کیف پول: {موجودی} تومان.\nwww.drjavadyari.ir",
 };
 
 // ── ابزارهای قالب و قالب‌بندی ─────────────────────────────────────────────────
@@ -81,60 +128,14 @@ export function formatToman(amount: number): string {
   return toPersianDigits(Math.round(amount).toLocaleString("en-US"));
 }
 
-function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
-  const gDaysInMonth = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  const gy2 = gm > 2 ? gy + 1 : gy;
-  let days =
-    355666 +
-    365 * gy +
-    Math.floor((gy2 + 3) / 4) -
-    Math.floor((gy2 + 99) / 100) +
-    Math.floor((gy2 + 399) / 400) +
-    gd +
-    gDaysInMonth[gm - 1];
-
-  let jy = -1595 + 33 * Math.floor(days / 12053);
-  days %= 12053;
-  jy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-
-  let jm: number, jd: number;
-  if (days < 186) {
-    jm = 1 + Math.floor(days / 31);
-    jd = 1 + (days % 31);
-  } else {
-    jm = 7 + Math.floor((days - 186) / 30);
-    jd = 1 + ((days - 186) % 30);
-  }
-  return [jy, jm, jd];
-}
-
-const SHAMSI_MONTHS = [
-  "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-  "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
-];
-
-// برخی رکوردها زمان را به میلی‌ثانیه و برخی به ثانیه ذخیره کرده‌اند؛ خودکار تشخیص می‌دهیم.
-function toDate(timestamp: number): Date {
-  const ms = timestamp > 100_000_000_000 ? timestamp : timestamp * 1000;
-  return new Date(ms);
-}
-
+// تاریخ و ساعت پیامک همیشه به وقت تهران است (مستقل از منطقهٔ زمانی سرور).
+// ورودی میلی‌ثانیه یا ثانیه است؛ خودکار تشخیص داده می‌شود.
 export function formatShamsiDateForSms(timestamp: number): string {
-  const d = toDate(timestamp);
-  const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-  return `${toPersianDigits(jd)} ${SHAMSI_MONTHS[jm - 1]} ${toPersianDigits(jy)}`;
+  return shamsiDateText(toMs(timestamp));
 }
 
 export function formatTimeForSms(timestamp: number): string {
-  const d = toDate(timestamp);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return toPersianDigits(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  return timeText(toMs(timestamp));
 }
 
 // جایگذاری متغیرها در قالب: {نام}، {تاریخ}، {ساعت}، {مبلغ}، {خدمت}، {درصد}، {پورسانت}
@@ -179,11 +180,38 @@ export interface SmsSettings {
   bodyIdBirthday: string;
   bodyIdSurvey: string;
   bodyIdRecipientWelcome: string;
+  enabledAppointmentReminder: boolean;
+  enabledFollowupReminder: boolean;
+  enabledBirthdayAuto: boolean;
+  appointmentReminderHour: number;
+  dailyAutoHour: number;
+  bodyIdAppointmentReminder: string;
+  bodyIdFollowupReminder: string;
+  enabledLoyaltyWelcome: boolean;
+  enabledLoyaltyTierUp: boolean;
+  enabledLoyaltyExpiry: boolean;
+  enabledLoyaltyReferral: boolean;
+  bodyIdLoyaltyWelcome: string;
+  bodyIdLoyaltyTierUp: string;
+  bodyIdLoyaltyExpiry: string;
+  bodyIdLoyaltyReferral: string;
+  bodyIdPaymentLoyalty: string;
+  bodyIdLoyaltyNotify: string;
 }
 
 // حداقل فاصله نظرسنجی: عدد صحیح بین ۰ تا ۳۶۵ روز (پیش‌فرض ۳۰)
 export const SURVEY_THROTTLE_DEFAULT_DAYS = 30;
 export const SURVEY_THROTTLE_MAX_DAYS = 365;
+
+// ساعت ارسال پیامک‌های زمان‌بندی‌شده: عدد صحیح ۰ تا ۲۳ (به وقت تهران)
+export const APPOINTMENT_REMINDER_DEFAULT_HOUR = 18;
+export const DAILY_AUTO_DEFAULT_HOUR = 10;
+
+export function clampHour(raw: string | number | null | undefined, fallback: number): number {
+  const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(Math.trunc(n), 0), 23);
+}
 
 export function clampSurveyThrottleDays(raw: string | number | null | undefined): number {
   const n = typeof raw === "number" ? raw : parseInt(String(raw ?? ""), 10);
@@ -222,6 +250,25 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     bodyIdBirthday: (map.get(SMS_SETTING_KEYS.bodyIdBirthday) ?? "").trim(),
     bodyIdSurvey: (map.get(SMS_SETTING_KEYS.bodyIdSurvey) ?? "").trim(),
     bodyIdRecipientWelcome: (map.get(SMS_SETTING_KEYS.bodyIdRecipientWelcome) ?? "").trim(),
+    // پیامک‌های زمان‌بندی‌شده هزینه دارند؛ باید صریحاً روشن شوند (پیش‌فرض خاموش)
+    enabledAppointmentReminder: map.get(SMS_SETTING_KEYS.enabledAppointmentReminder) === "true",
+    enabledFollowupReminder: map.get(SMS_SETTING_KEYS.enabledFollowupReminder) === "true",
+    enabledBirthdayAuto: map.get(SMS_SETTING_KEYS.enabledBirthdayAuto) === "true",
+    appointmentReminderHour: clampHour(map.get(SMS_SETTING_KEYS.appointmentReminderHour), APPOINTMENT_REMINDER_DEFAULT_HOUR),
+    dailyAutoHour: clampHour(map.get(SMS_SETTING_KEYS.dailyAutoHour), DAILY_AUTO_DEFAULT_HOUR),
+    bodyIdAppointmentReminder: (map.get(SMS_SETTING_KEYS.bodyIdAppointmentReminder) ?? "").trim(),
+    bodyIdFollowupReminder: (map.get(SMS_SETTING_KEYS.bodyIdFollowupReminder) ?? "").trim(),
+    // پیامک‌های باشگاه فقط وقتی باشگاه روشن است فرستاده می‌شوند؛ خودشان پیش‌فرض روشن‌اند
+    enabledLoyaltyWelcome: flag(SMS_SETTING_KEYS.enabledLoyaltyWelcome),
+    enabledLoyaltyTierUp: flag(SMS_SETTING_KEYS.enabledLoyaltyTierUp),
+    enabledLoyaltyExpiry: flag(SMS_SETTING_KEYS.enabledLoyaltyExpiry),
+    enabledLoyaltyReferral: flag(SMS_SETTING_KEYS.enabledLoyaltyReferral),
+    bodyIdLoyaltyWelcome: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyWelcome) ?? "").trim(),
+    bodyIdLoyaltyTierUp: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyTierUp) ?? "").trim(),
+    bodyIdLoyaltyExpiry: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyExpiry) ?? "").trim(),
+    bodyIdLoyaltyReferral: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyReferral) ?? "").trim(),
+    bodyIdPaymentLoyalty: (map.get(SMS_SETTING_KEYS.bodyIdPaymentLoyalty) ?? "").trim(),
+    bodyIdLoyaltyNotify: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyNotify) ?? "").trim(),
   };
 }
 
@@ -317,6 +364,14 @@ function describePatternFailure(resp: MelipayamakResponse): string {
 //   birthday:    {0}=نام
 //   survey:      {0}=نام  {1}=خدمت
 //   recipientWelcome: {0}=نام
+//   appointmentReminder: {0}=نام  {1}=تاریخ  {2}=ساعت
+//   followupReminder: {0}=نام
+//   (مبالغ باشگاه به تومان؛ «موجودی» = موجودی کیف پول)
+//   loyaltyWelcome:  {0}=نام  {1}=موجودی
+//   loyaltyTierUp:   {0}=نام  {1}=سطح
+//   loyaltyExpiry:   {0}=نام  {1}=اعتبار  {2}=تاریخ
+//   loyaltyReferral: {0}=نام  {1}=اعتبار  {2}=موجودی
+//   پرداخت با اعتبار باشگاه (کد جدا): {0}=نام  {1}=مبلغ  {2}=خدمت  {3}=اعتبار این خرید  {4}=موجودی
 export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   appointment: ["نام", "تاریخ", "ساعت"],
   payment: ["نام", "مبلغ", "خدمت"],
@@ -324,6 +379,12 @@ export const PATTERN_VAR_ORDER: Record<SmsTemplateName, string[]> = {
   birthday: ["نام"],
   survey: ["نام", "خدمت"],
   recipientWelcome: ["نام"],
+  appointmentReminder: ["نام", "تاریخ", "ساعت"],
+  followupReminder: ["نام"],
+  loyaltyWelcome: ["نام", "موجودی"],
+  loyaltyTierUp: ["نام", "سطح"],
+  loyaltyExpiry: ["نام", "اعتبار", "تاریخ"],
+  loyaltyReferral: ["نام", "اعتبار", "موجودی"],
 };
 
 // متغیرهای پترن با «;» جدا می‌شوند؛ پس «;» و خط جدید داخل مقادیر مجاز نیست.
@@ -340,7 +401,10 @@ export function buildPatternText(args: string[]): string {
 export interface SendSmsInput {
   to: string;
   text: string;
-  eventType: "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey" | "recipient_welcome";
+  eventType:
+    | "appointment" | "payment" | "commission" | "birthday" | "manual" | "waiting_list" | "survey" | "recipient_welcome"
+    | "appointment_reminder" | "followup_reminder"
+    | "loyalty_welcome" | "loyalty_tier_up" | "loyalty_expiry" | "loyalty_referral" | "loyalty_bulk";
   recipientName?: string | null;
   patientId?: number | null;
   // در حالت خدماتی: به‌جای متن آزاد، با کد پترن و متغیرها ارسال می‌شود.
@@ -500,6 +564,8 @@ export function firePaymentSms(args: {
   phone: string | null;
   amount: number;
   serviceName?: string | null;
+  /** اگر باشگاه فعال و مراجع عضو است: اعتبار سودِ این پرداخت و موجودی کیف پول (تومان) و سطح */
+  loyalty?: { earned: number; balance: number; tierLabel: string } | null;
 }): void {
   void (async () => {
     try {
@@ -510,21 +576,37 @@ export function firePaymentSms(args: {
       const name = args.patientName ?? "";
       const amount = formatToman(args.amount);
       const service = args.serviceName || "خدمات";
+      const loyalty = args.loyalty ?? null;
+      const points = loyalty ? formatToman(loyalty.earned) : "";
+      const balance = loyalty ? formatToman(loyalty.balance) : "";
       const text = renderTemplate(templates.payment, {
         "نام": name,
         "مبلغ": amount,
         "خدمت": service,
+        "اعتبار": points,
+        "امتیاز": points,
+        "موجودی": balance,
+        "سطح": loyalty?.tierLabel ?? "",
+        "باشگاه": !loyalty
+          ? ""
+          : loyalty.earned > 0
+            ? ` ${points} تومان اعتبار هدیه از سود این خدمت به کیف پول شما اضافه شد؛ موجودی کیف پول: ${balance} تومان.`
+            : ` موجودی کیف پول شما: ${balance} تومان.`,
       });
+      // پترن پرداختِ همراه با امتیاز فقط وقتی کدش تنظیم شده؛ وگرنه همان پترن پرداخت عادی
+      const usePaymentLoyaltyPattern = !!loyalty && settings.bodyIdPaymentLoyalty !== "";
       await sendSms({
         to: args.phone ?? "",
         text,
         eventType: "payment",
         recipientName: args.patientName,
         patientId: args.patientId ?? null,
-        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment
+        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment (+ امتیاز و موجودی در پترن باشگاهی)
         pattern:
           settings.sendMode === "pattern"
-            ? { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
+            ? usePaymentLoyaltyPattern
+              ? { bodyId: settings.bodyIdPaymentLoyalty, args: [name, amount, service, points, balance] }
+              : { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
             : undefined,
       });
     } catch (err) {
@@ -679,8 +761,14 @@ export function fireSurveySms(args: {
 }): void {
   void (async () => {
     try {
+      // پیش از رزرو سهمیه بررسی می‌شود که اصلاً پیامکی قابل ارسال هست؛ وگرنه
+      // سهمیهٔ محدودیت تکرار بی‌دلیل مصرف می‌شد و نظرسنجی بعدیِ واقعی جا می‌ماند.
+      if (!normalizePhone(args.phone)) return;
       const settings = await getSmsSettings();
       if (!settings.enabledSurvey) return;
+      if (!settings.username || !settings.password) return;
+      if (settings.sendMode === "normal" && !settings.from) return;
+      if (settings.sendMode === "pattern" && !settings.bodyIdSurvey) return;
 
       const now = Math.floor(Date.now() / 1000);
 

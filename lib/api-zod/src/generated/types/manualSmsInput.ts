@@ -10,5 +10,6 @@ export interface ManualSmsInput {
   message: string;
   patientIds?: number[];
   birthdayDays?: number;
+  loyaltyTiers?: string[];
   eventType?: string;
 }

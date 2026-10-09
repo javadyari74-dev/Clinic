@@ -14,5 +14,11 @@ export interface SmsTemplates {
   birthday: string;
   survey: string;
   recipientWelcome: string;
+  appointmentReminder: string;
+  followupReminder: string;
+  loyaltyWelcome: string;
+  loyaltyTierUp: string;
+  loyaltyExpiry: string;
+  loyaltyReferral: string;
   defaults: SmsTemplatesDefaults;
 }

@@ -14,6 +14,7 @@ import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { PriceInput } from "@/components/price-input";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -365,6 +366,7 @@ export default function Services() {
         toast({ title: "خدمت با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت خدمت ناموفق بود"),
     },
   });
 
@@ -376,6 +378,7 @@ export default function Services() {
         setIsOpen(false);
         toast({ title: "خدمت با موفقیت ویرایش شد" });
       },
+      onError: onApiError("ویرایش خدمت ناموفق بود"),
     },
   });
 
@@ -385,6 +388,7 @@ export default function Services() {
         queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
         toast({ title: "خدمت حذف شد" });
       },
+      onError: onApiError("حذف خدمت ناموفق بود"),
     },
   });
 

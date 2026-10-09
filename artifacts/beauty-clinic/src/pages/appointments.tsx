@@ -31,20 +31,42 @@ import { TierBadge } from "@/components/tier-badge";
 import { AppointmentCalendar } from "@/components/appointment-calendar";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/hooks/use-auth";
 
-const ACTIVE_STATUSES = ["scheduled", "confirmed"];
+// Statuses the server's dashboard counts as "still open" (arrived/in_progress
+// can come from older data or other clients, so keep them visible here too).
+const ACTIVE_STATUSES = ["scheduled", "confirmed", "arrived", "in_progress"];
 
+// Display labels for every status the backend may hold (kept in sync with
+// dashboard / patient-detail labels) — never show a raw English enum value.
 const statuses: Record<string, { label: string; color: string }> = {
-  scheduled:   { label: "رزرو شده",   color: "bg-blue-100 text-blue-700 border-blue-200" },
-  confirmed:   { label: "تایید شده",  color: "bg-cyan-100 text-cyan-700 border-cyan-200" },
-  completed:   { label: "تکمیل شده", color: "bg-green-100 text-green-700 border-green-200" },
-  cancelled:   { label: "لغو شده",   color: "bg-red-100 text-red-700 border-red-200" },
+  scheduled:   { label: "رزرو شده",     color: "bg-blue-100 text-blue-700 border-blue-200" },
+  confirmed:   { label: "تایید شده",    color: "bg-cyan-100 text-cyan-700 border-cyan-200" },
+  arrived:     { label: "حاضر شده",     color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  in_progress: { label: "در حال انجام", color: "bg-purple-100 text-purple-700 border-purple-200" },
+  completed:   { label: "تکمیل شده",   color: "bg-green-100 text-green-700 border-green-200" },
+  cancelled:   { label: "لغو شده",     color: "bg-red-100 text-red-700 border-red-200" },
+  no_show:     { label: "غیبت",         color: "bg-orange-100 text-orange-700 border-orange-200" },
 };
+
+// Statuses staff may set by hand on this page. arrived/in_progress are not
+// offered: the cashier only lists scheduled/confirmed appointments, so moving
+// an appointment into them would hide it from payment.
+const SETTABLE_STATUSES = ["scheduled", "confirmed", "completed", "cancelled", "no_show"];
+
+/** Settable statuses, plus the current one if it is display-only. */
+function statusOptions(current?: string): string[] {
+  return current && !SETTABLE_STATUSES.includes(current)
+    ? [current, ...SETTABLE_STATUSES]
+    : SETTABLE_STATUSES;
+}
+
+const COMPLETED_HINT = "تکمیل نهایی و تسویه پرداخت نوبت از بخش صندوق انجام می‌شود.";
 
 const formSchema = z.object({
   patientId: z.coerce.number().min(1, "مراجع را انتخاب کنید"),
@@ -123,14 +145,20 @@ function tsToTimeStr(ts: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 async function bulkDeleteAppointments(ids: number[]): Promise<void> {
   const token = localStorage.getItem("clinic_auth_token");
-  const res = await fetch("/api/appointments/bulk", {
+  const res = await fetch(`${API_BASE}/api/appointments/bulk`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({ ids }),
   });
-  if (!res.ok) throw new Error("خطا در حذف دسته‌جمعی");
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    // Mirror ApiError's shape so the shared toast helper can read `.data.error`.
+    throw Object.assign(new Error("خطا در حذف دسته‌جمعی"), { data });
+  }
 }
 
 type AppRow = {
@@ -196,11 +224,12 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
             </Badge>
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(statuses).map(([key, { label, color }]) => (
-              <SelectItem key={key} value={key}>
-                <span className={`inline-block px-2 py-0.5 rounded text-xs ${color}`}>{label}</span>
+            {statusOptions(app.status).map((key) => (
+              <SelectItem key={key} value={key} disabled={!SETTABLE_STATUSES.includes(key)}>
+                <span className={`inline-block px-2 py-0.5 rounded text-xs ${statuses[key]?.color ?? "bg-gray-100 text-gray-600"}`}>{statuses[key]?.label ?? key}</span>
               </SelectItem>
             ))}
+            <p className="px-2 pt-1 pb-1.5 text-[11px] leading-5 text-muted-foreground max-w-[14rem]">{COMPLETED_HINT}</p>
           </SelectContent>
         </Select>
       </TableCell>
@@ -208,10 +237,10 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
       {isAdmin && (
         <TableCell>
           <div className="flex gap-1">
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => onEdit(app)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" aria-label="ویرایش نوبت" onClick={() => onEdit(app)}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => onDelete(app.id)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="حذف نوبت" onClick={() => onDelete(app.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -270,19 +299,19 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   const createEntry = useCreateWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setDialogOpen(false); toast({ title: "به لیست انتظار اضافه شد" }); },
-      onError: () => toast({ title: "افزودن به لیست انتظار ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "افزودن به لیست انتظار ناموفق بود"),
     },
   });
   const updateEntry = useUpdateWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setEditEntry(null); setDialogOpen(false); toast({ title: "لیست انتظار به‌روزرسانی شد" }); },
-      onError: () => toast({ title: "به‌روزرسانی ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "به‌روزرسانی ناموفق بود"),
     },
   });
   const deleteEntry = useDeleteWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setDeleteId(null); toast({ title: "از لیست انتظار حذف شد" }); },
-      onError: () => toast({ title: "حذف ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "حذف ناموفق بود"),
     },
   });
   const notifyEntry = useNotifyWaitingEntry({
@@ -292,7 +321,7 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
           ? toast({ title: "پیامک اطلاع‌رسانی جای خالی ارسال شد" })
           : toast({ title: "ارسال پیامک ناموفق بود", description: res.error ?? undefined, variant: "destructive" });
       },
-      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "ارسال پیامک ناموفق بود"),
       onSettled: () => setNotifyingId(null),
     },
   });
@@ -678,6 +707,15 @@ export default function Appointments() {
           toast({ title: `وضعیت نوبت به «${statuses[newStatus]?.label ?? newStatus}» تغییر کرد` });
         }
       },
+      onError: (error, vars) => {
+        const d = vars.data as { scheduledAt?: number; serviceId?: number; status?: string };
+        const title = d.scheduledAt && !d.serviceId
+          ? "جابه‌جایی نوبت ناموفق بود"
+          : d.scheduledAt || d.serviceId
+            ? "ویرایش نوبت ناموفق بود"
+            : "تغییر وضعیت نوبت ناموفق بود";
+        toastApiError(error, title);
+      },
     },
   });
 
@@ -689,6 +727,8 @@ export default function Appointments() {
         toast({ title: "نوبت حذف شد" });
         setConfirmDeleteIds(null);
       },
+      // e.g. the server refuses to delete an appointment that has payments.
+      onError: (error) => toastApiError(error, "حذف نوبت ناموفق بود"),
     },
   });
 
@@ -824,7 +864,9 @@ export default function Appointments() {
     if (!moveTarget) return;
     updateAppointment.mutate(
       { id: moveTarget.app.id, data: { scheduledAt: dateTimeToMs(moveTarget.date, moveTarget.time) } },
-      { onSettled: () => setMoveTarget(null) },
+      // On failure the hook-level onError toasts the server message and the
+      // dialog stays open so the user can retry or cancel.
+      { onSuccess: () => setMoveTarget(null) },
     );
   }
 
@@ -848,8 +890,8 @@ export default function Appointments() {
       setSelected(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
       invalidate();
       toast({ title: `${toPersianDigits(ids.length)} نوبت حذف شدند` });
-    } catch {
-      toast({ title: "خطا در حذف دسته‌جمعی", variant: "destructive" });
+    } catch (err) {
+      toastApiError(err, "خطا در حذف دسته‌جمعی");
     } finally {
       setIsBulkDeleting(false);
       setConfirmDeleteIds(null);
@@ -1126,11 +1168,14 @@ export default function Appointments() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب وضعیت" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {Object.entries(statuses).map(([key, { label }]) => (
-                        <SelectItem key={key} value={key}>{label}</SelectItem>
+                      {statusOptions(editAppt?.status).map((key) => (
+                        <SelectItem key={key} value={key} disabled={!SETTABLE_STATUSES.includes(key)}>{statuses[key]?.label ?? key}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {field.value === "completed" && (
+                    <p className="text-xs text-muted-foreground">{COMPLETED_HINT}</p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )} />

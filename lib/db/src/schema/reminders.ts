@@ -10,6 +10,8 @@ export const remindersTable = sqliteTable("reminders", {
   description: text("description"),
   type: text("type").notNull().default("custom"),
   patientId: integer("patient_id"),
+  // پرداختی که این یادآوری هنگام ثبتش ساخته شد (یادآوری پیگیری صندوق)؛ با حذف پرداخت حذف می‌شود
+  paymentId: integer("payment_id"),
   dueAt: integer("due_at").notNull(),
   status: text("status").notNull().default("pending"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),

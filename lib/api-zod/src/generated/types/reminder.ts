@@ -14,6 +14,8 @@ export interface Reminder {
   type: string;
   /** @nullable */
   patientId?: number | null;
+  /** @nullable */
+  paymentId?: number | null;
   dueAt: number;
   status: string;
   createdAt: number;

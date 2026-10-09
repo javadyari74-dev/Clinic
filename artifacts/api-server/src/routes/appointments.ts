@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, gte, lt, sql, isNull, inArray } from "drizzle-orm";
-import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable } from "@workspace/db";
+import { eq, desc, and, gte, lt, sql, inArray, like } from "drizzle-orm";
+import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable, scheduledSmsTable, waitingListTable } from "@workspace/db";
 import {
   ListAppointmentsQueryParams,
   CreateAppointmentBody,
@@ -12,43 +12,33 @@ import {
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
 import { fireAppointmentSms } from "../lib/sms";
+import {
+  appointmentWithDetails,
+  normalizeScheduledAt,
+  tehranDayRangeMs,
+  tehranDateRangeMs,
+  nextSessionNumber,
+  appointmentStatusLabel,
+} from "../lib/appointment-details";
+import { recordDepositPayment, fireReferrerCommissionSms, type Tx } from "../lib/payment-effects";
+
+const HAS_PAYMENTS_MESSAGE = "این نوبت پرداخت ثبت‌شده دارد؛ ابتدا پرداخت‌ها را از صندوق حذف کنید";
+
+// پاک‌کردن داده‌های وابسته به نوبتِ در حال حذف (داخل تراکنش حذف):
+// پیامک‌های زمان‌بندی‌شدهٔ همین نوبت و ارجاع لیست انتظار به آن
+async function cleanupAppointmentLinks(tx: Tx, appointmentIds: number[]): Promise<void> {
+  if (appointmentIds.length === 0) return;
+  for (const id of appointmentIds) {
+    await tx.delete(scheduledSmsTable).where(like(scheduledSmsTable.key, `appointment:${id}:%`));
+  }
+  await tx.update(waitingListTable).set({ appointmentId: null }).where(inArray(waitingListTable.appointmentId, appointmentIds));
+}
 
 const router: IRouter = Router();
 
-const appointmentWithDetails = {
-  id: appointmentsTable.id,
-  appointmentCode: appointmentsTable.appointmentCode,
-  patientId: appointmentsTable.patientId,
-  serviceId: appointmentsTable.serviceId,
-  staffId: appointmentsTable.staffId,
-  scheduledAt: appointmentsTable.scheduledAt,
-  status: appointmentsTable.status,
-  notes: appointmentsTable.notes,
-  price: appointmentsTable.price,
-  discountId: appointmentsTable.discountId,
-  originalPrice: appointmentsTable.originalPrice,
-  deposit: appointmentsTable.deposit,
-  sessionNumber: appointmentsTable.sessionNumber,
-  createdAt: appointmentsTable.createdAt,
-  patientName: patientsTable.name,
-  patientPhone: patientsTable.phone,
-  patientFileNumber: patientsTable.fileNumber,
-  patientTier: patientsTable.tier,
-  serviceName: servicesTable.name,
-  servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${appointmentsTable.unitsUsed}, ${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
-  serviceCode: servicesTable.serviceCode,
-  staffName: staffTable.name,
-  unitsUsed: appointmentsTable.unitsUsed,
-  priceMode: servicesTable.priceMode,
-  unitPrice: servicesTable.price,
-  unitLabel: servicesTable.unitLabel,
-  serviceUnitCount: servicesTable.unitCount,
-};
-
 router.get("/appointments/today/waiting-list", async (_req, res): Promise<void> => {
-  const now = Math.floor(Date.now() / 1000);
-  const startOfDay = now - (now % 86400);
-  const endOfDay = startOfDay + 86400;
+  // scheduled_at میلی‌ثانیه است؛ «امروز» = روز تهران
+  const { start: startOfDay, end: endOfDay } = tehranDayRangeMs(Date.now());
 
   const rows = await db
     .select(appointmentWithDetails)
@@ -79,11 +69,12 @@ router.get("/appointments", async (req, res): Promise<void> => {
   if (patientId) conditions.push(eq(appointmentsTable.patientId, patientId));
   if (staffId) conditions.push(eq(appointmentsTable.staffId, staffId));
   if (date) {
-    const d = new Date(date);
-    const start = Math.floor(d.getTime() / 1000);
-    const end = start + 86400;
-    conditions.push(gte(appointmentsTable.scheduledAt, start));
-    conditions.push(lt(appointmentsTable.scheduledAt, end));
+    // مرزهای روز تهران به میلی‌ثانیه (scheduled_at میلی‌ثانیه است)
+    const range = tehranDateRangeMs(String(date));
+    if (range) {
+      conditions.push(gte(appointmentsTable.scheduledAt, range.start));
+      conditions.push(lt(appointmentsTable.scheduledAt, range.end));
+    }
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -114,21 +105,34 @@ router.post("/appointments", async (req, res): Promise<void> => {
     return;
   }
 
-  const existing = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(appointmentsTable)
-    .where(and(
-      eq(appointmentsTable.patientId, parsed.data.patientId),
-      eq(appointmentsTable.serviceId, parsed.data.serviceId)
-    ));
-  const sessionNumber = Number(existing[0].count) + 1;
-
+  const scheduledAt = normalizeScheduledAt(parsed.data.scheduledAt);
   const appointmentCode = await generateUniqueAppointmentCode();
 
-  const [appt] = await db
-    .insert(appointmentsTable)
-    .values({ ...parsed.data, sessionNumber, appointmentCode })
-    .returning();
+  // ساخت نوبت + ردیف بیعانه (و پورسانت معرف روی بیعانه) در یک تراکنش
+  const { appt, accrual } = await db.transaction(async (tx) => {
+    const sessionNumber = await nextSessionNumber(tx, parsed.data.patientId, parsed.data.serviceId);
+    const [created] = await tx
+      .insert(appointmentsTable)
+      .values({ ...parsed.data, scheduledAt, sessionNumber, appointmentCode })
+      .returning();
+    let accrual = null;
+    // بیعانه نیز یک تراکنش صندوق است — با جزئیات کامل تا در رسید/صندوق و پشتیبان‌گیری بماند
+    if (created.deposit && created.deposit > 0) {
+      const svc = await tx.select({ name: servicesTable.name, unitLabel: servicesTable.unitLabel })
+        .from(servicesTable).where(eq(servicesTable.id, created.serviceId)).get();
+      const dep = await recordDepositPayment(tx, {
+        appointmentId: created.id,
+        deposit: created.deposit,
+        patientId: created.patientId,
+        serviceName: svc?.name ?? null,
+        sessionNumber: created.sessionNumber,
+        unitLabel: svc?.unitLabel ?? null,
+      });
+      accrual = dep?.accrual ?? null;
+    }
+    return { appt: created, accrual };
+  });
+  fireReferrerCommissionSms(accrual);
 
   const [detail] = await db
     .select(appointmentWithDetails)
@@ -137,23 +141,6 @@ router.post("/appointments", async (req, res): Promise<void> => {
     .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
     .leftJoin(staffTable, eq(appointmentsTable.staffId, staffTable.id))
     .where(eq(appointmentsTable.id, appt.id));
-
-  // بیعانه نیز یک تراکنش صندوق است — با جزئیات کامل تا در رسید/صندوق و پشتیبان‌گیری بماند
-  if (appt.deposit && appt.deposit > 0) {
-    const paidAt = Math.floor(Date.now() / 1000);
-    await db.insert(paymentsTable).values({
-      appointmentId: appt.id,
-      amount: appt.deposit,
-      originalAmount: appt.deposit,
-      method: "cash",
-      notes: "بیعانه",
-      patientName: detail?.patientName ?? null,
-      serviceName: detail?.serviceName ?? null,
-      sessionNumber: detail?.sessionNumber ?? null,
-      unitLabel: detail?.unitLabel ?? null,
-      paidAt,
-    });
-  }
 
   await logActivity("create", "appointment", appt.id, `نوبت جدید ${appointmentCode} برای "${detail?.patientName ?? ''}" ثبت شد`);
 
@@ -199,9 +186,28 @@ router.delete("/appointments/bulk", async (req, res): Promise<void> => {
     res.status(400).json({ error: "آرایه‌ای از شناسه‌های معتبر ارسال کنید" });
     return;
   }
-  const deleted = await db.delete(appointmentsTable).where(inArray(appointmentsTable.id, ids)).returning({ id: appointmentsTable.id });
-  await logActivity("delete", "appointment", 0, `${deleted.length} نوبت به‌صورت دسته‌جمعی حذف شدند`);
-  res.json({ deleted: deleted.length });
+  // نوبت‌هایی که پرداخت دارند حذف نمی‌شوند (تا پرداخت/کمیسیون/کیف پول یتیم نماند)
+  const result = await db.transaction(async (tx) => {
+    const withPayments = await tx.selectDistinct({ id: paymentsTable.appointmentId }).from(paymentsTable)
+      .where(inArray(paymentsTable.appointmentId, ids));
+    const skipped = withPayments.map((r) => r.id);
+    const deletable = ids.filter((id) => !skipped.includes(id));
+    const deleted = deletable.length > 0
+      ? await tx.delete(appointmentsTable).where(inArray(appointmentsTable.id, deletable)).returning({ id: appointmentsTable.id })
+      : [];
+    await cleanupAppointmentLinks(tx, deleted.map((d) => d.id));
+    return { deleted: deleted.length, skipped };
+  });
+  if (result.deleted === 0 && result.skipped.length > 0) {
+    res.status(400).json({ error: `${HAS_PAYMENTS_MESSAGE} (${result.skipped.length} نوبت)`, deleted: 0, skipped: result.skipped });
+    return;
+  }
+  await logActivity("delete", "appointment", 0, `${result.deleted} نوبت به‌صورت دسته‌جمعی حذف شدند`);
+  res.json({
+    deleted: result.deleted,
+    skipped: result.skipped,
+    ...(result.skipped.length > 0 ? { message: `${result.skipped.length} نوبت به‌دلیل داشتن پرداخت حذف نشد` } : {}),
+  });
 });
 
 router.put("/appointments/:id", async (req, res): Promise<void> => {
@@ -215,17 +221,31 @@ router.put("/appointments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [appt] = await db
-    .update(appointmentsTable)
-    .set(parsed.data)
-    .where(eq(appointmentsTable.id, params.data.id))
-    .returning();
+  const changes: typeof parsed.data & { sessionNumber?: number } = { ...parsed.data };
+  if (typeof changes.scheduledAt === "number") changes.scheduledAt = normalizeScheduledAt(changes.scheduledAt);
+  const appt = await db.transaction(async (tx) => {
+    const current = await tx.select().from(appointmentsTable).where(eq(appointmentsTable.id, params.data.id)).get();
+    if (!current) return null;
+    // تغییر خدمت/مراجع → شمارهٔ جلسه برای ترکیب جدید دوباره حساب می‌شود
+    const patientId = changes.patientId ?? current.patientId;
+    const serviceId = changes.serviceId ?? current.serviceId;
+    if (patientId !== current.patientId || serviceId !== current.serviceId) {
+      changes.sessionNumber = await nextSessionNumber(tx, patientId, serviceId, current.id);
+    }
+    if (Object.keys(changes).length === 0) return current;
+    const [updated] = await tx
+      .update(appointmentsTable)
+      .set(changes)
+      .where(eq(appointmentsTable.id, params.data.id))
+      .returning();
+    return updated;
+  });
   if (!appt) {
     res.status(404).json({ error: "نوبت یافت نشد" });
     return;
   }
   if (parsed.data.status) {
-    await logActivity("update", "appointment", appt.id, `وضعیت نوبت به "${parsed.data.status}" تغییر کرد`);
+    await logActivity("update", "appointment", appt.id, `وضعیت نوبت به «${appointmentStatusLabel(parsed.data.status)}» تغییر کرد`);
   }
   const [detail] = await db
     .select(appointmentWithDetails)
@@ -243,14 +263,30 @@ router.delete("/appointments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [appt] = await db
-    .delete(appointmentsTable)
-    .where(eq(appointmentsTable.id, params.data.id))
-    .returning();
-  if (!appt) {
-    res.status(404).json({ error: "نوبت یافت نشد" });
-    return;
+  // نوبتی که پرداخت (بیعانه/تسویه) دارد حذف نمی‌شود تا پرداخت، کمیسیون و کیف پول یتیم نماند
+  const NOT_FOUND = "NOT_FOUND";
+  const HAS_PAYMENTS = "HAS_PAYMENTS";
+  try {
+    await db.transaction(async (tx) => {
+      const pays = await tx.select({ id: paymentsTable.id }).from(paymentsTable)
+        .where(eq(paymentsTable.appointmentId, params.data.id)).limit(1);
+      if (pays.length > 0) throw new Error(HAS_PAYMENTS);
+      const [deleted] = await tx.delete(appointmentsTable).where(eq(appointmentsTable.id, params.data.id)).returning();
+      if (!deleted) throw new Error(NOT_FOUND);
+      await cleanupAppointmentLinks(tx, [deleted.id]);
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === NOT_FOUND) {
+      res.status(404).json({ error: "نوبت یافت نشد" });
+      return;
+    }
+    if (err instanceof Error && err.message === HAS_PAYMENTS) {
+      res.status(400).json({ error: HAS_PAYMENTS_MESSAGE });
+      return;
+    }
+    throw err;
   }
+  await logActivity("delete", "appointment", params.data.id, `نوبت حذف شد`);
   res.sendStatus(204);
 });
 

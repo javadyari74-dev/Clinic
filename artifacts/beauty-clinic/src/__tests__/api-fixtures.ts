@@ -142,6 +142,10 @@ const appointment = {
   unitPrice: 1_200_000,
   unitLabel: "جلسه",
   serviceUnitCount: 1,
+  // وضعیت پرداخت نوبت (از پرداخت‌های واقعی)
+  paidTotal: 0,
+  remaining: 1_200_000,
+  hasCheckoutPayment: false,
 };
 
 const appointmentsList = { data: [appointment], total: 1 };
@@ -344,8 +348,8 @@ const accountingByService = [
 ];
 
 const accountingChart = [
-  { date: "2026-06-28", revenue: 800_000, expenses: 100_000, profit: 700_000 },
-  { date: "2026-06-29", revenue: 1_200_000, expenses: 200_000, profit: 1_000_000 },
+  { date: "2026-06-28", revenue: 800_000, serviceCosts: 150_000, expenses: 100_000, commissions: 0, totalCosts: 250_000, profit: 550_000 },
+  { date: "2026-06-29", revenue: 1_200_000, serviceCosts: 0, expenses: 200_000, commissions: 120_000, totalCosts: 320_000, profit: 880_000 },
 ];
 
 const expenses = [
@@ -462,6 +466,32 @@ const laserReminders = [
 
 const laserSettings = { id: 1, commissionRate: 15 };
 
+// ── باشگاه مشتریان ──
+export const LOYALTY_MEMBER_NAME = PATIENT_ONE_NAME;
+const loyaltySettings = {
+  enabled: true, earnAmount: 100_000, redeemValue: 10_000, minRedeem: 10,
+  silverMin: 20_000_000, goldMin: 50_000_000, diamondMin: 100_000_000,
+  silverRate: 120, goldRate: 150, diamondRate: 200,
+  expiryMonths: 12, profitRewardPercent: 5, birthdayBonus: 100_000, referralBonus: 200_000,
+};
+const loyaltyTxn = {
+  id: 1, patientId: 1, paymentId: 1, delta: 0, amount: 60_000, type: "cashback",
+  description: "اعتبار سود خدمت: ۵٪ سود — ۶۰٬۰۰۰ تومان", createdAt: NOW - DAY, patientName: PATIENT_ONE_NAME,
+};
+const loyaltyOverview = {
+  totalMembers: 1, membersByTier: { bronze: 0, silver: 1, gold: 0, diamond: 0 },
+  totalEarned: 0, totalRedeemed: 0, totalExpired: 0, totalOutstanding: 0,
+  totalRewards: 60_000, walletTotal: 60_000,
+  expiringSoonAmount: 0, expiringSoonMembers: 0, recent: [loyaltyTxn],
+};
+const loyaltyMembers = [
+  { patientId: 1, tier: "silver", joinedAt: NOW - 30 * DAY, patientName: PATIENT_ONE_NAME, fileNumber: "1001", phone: "09120000000", balance: 0, spend12m: 25_000_000, walletBalance: 60_000, totalRewards: 60_000 },
+];
+const patientLoyalty = {
+  balance: 0, walletBalance: 60_000, totalRewards: 60_000, settings: loyaltySettings, transactions: [loyaltyTxn],
+  member: { tier: "silver", joinedAt: NOW - 30 * DAY, spend12m: 25_000_000, nextTier: { tier: "gold", min: 50_000_000, remaining: 25_000_000 } },
+};
+
 type Handler = () => unknown;
 
 // Empty equivalents, matching the *shape* the API uses when there are no rows:
@@ -496,6 +526,10 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/patients\/\d+\/appointments$/, () => appointmentsList, emptyList],
   [/\/api\/patients\/\d+\/account-transactions$/, emptyArr, emptyArr],
   [/\/api\/patients\/\d+\/notes$/, emptyArr, emptyArr],
+  [/\/api\/patients\/\d+\/loyalty$/, () => patientLoyalty, () => ({ ...patientLoyalty, balance: 0, transactions: [], member: null })],
+  [/\/api\/loyalty\/settings$/, () => loyaltySettings, () => loyaltySettings],
+  [/\/api\/loyalty\/overview$/, () => loyaltyOverview, () => ({ ...loyaltyOverview, totalMembers: 0, recent: [] })],
+  [/\/api\/loyalty\/members$/, () => loyaltyMembers, emptyArr],
   [/\/api\/patients\/\d+$/, () => patientOne, () => patientOne],
   [/\/api\/patients$/, () => patientsList, emptyList],
   [/\/api\/appointments\/today\/waiting-list$/, () => appointmentsList, emptyList],

@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { ErrorNotice } from "@/components/error-notice";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { tehranTodayISO, tehranNowHHMM } from "@/lib/tehran-date";
 import {
   Plus, Edit2, Trash2, Zap, User, CalendarDays, CreditCard, Scissors,
   CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight, BellRing, Phone,
@@ -32,7 +34,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: "خطای سرور" }));
-    throw new Error(err.message || "خطا");
+    throw new Error(err?.message || err?.error || "خطا");
   }
   if (res.status === 204) return null;
   return res.json();
@@ -344,9 +346,9 @@ function ClientsTab() {
     } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
   const del = async (id: number) => {
-    if (!confirm("مراجع حذف شود؟")) return;
-    try { await api(`/laser/clients/${id}`, "DELETE"); load(); } catch (e: any) {
+    try { await api(`/laser/clients/${id}`, "DELETE"); toast({ title: "مراجع حذف شد" }); load(); } catch (e: any) {
       toast({ title: "خطا", description: e.message, variant: "destructive" });
     }
   };
@@ -357,6 +359,13 @@ function ClientsTab() {
 
   return (
     <div className="space-y-4">
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="حذف مراجع"
+        description={`آیا از حذف «${deleteTarget?.name ?? ""}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        onConfirm={() => { if (deleteTarget) del(deleteTarget.id); setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <div className="flex gap-3 items-center">
         <Input placeholder="جستجو نام، تلفن، پرونده..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs" />
         <Button onClick={openNew} className="mr-auto bg-rose-700 hover:bg-rose-800 text-white">
@@ -396,7 +405,7 @@ function ClientsTab() {
                     <div className="flex gap-1 justify-end">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(c)}><Edit2 className="h-3.5 w-3.5" /></Button>
                       {user?.role === "admin" && (
-                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => del(c.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(c)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       )}
                     </div>
                   </td>
@@ -481,15 +490,22 @@ function ServicesTab() {
     } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
   const del = async (id: number) => {
-    if (!confirm("این خدمت حذف شود؟")) return;
-    try { await api(`/laser/services/${id}`, "DELETE"); load(); } catch (e: any) {
+    try { await api(`/laser/services/${id}`, "DELETE"); toast({ title: "خدمت حذف شد" }); load(); } catch (e: any) {
       toast({ title: "خطا", description: e.message, variant: "destructive" });
     }
   };
 
   return (
     <div className="space-y-4">
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="حذف خدمت"
+        description={`آیا از حذف خدمت «${deleteTarget?.name ?? ""}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        onConfirm={() => { if (deleteTarget) del(deleteTarget.id); setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <div className="flex items-center gap-3">
         <div className="flex rounded-lg overflow-hidden border">
           <button onClick={() => setGenderTab("female")} className={`px-4 py-2 text-sm font-medium transition-colors ${genderTab === "female" ? "bg-rose-700 text-white" : "hover:bg-muted"}`}>
@@ -542,7 +558,7 @@ function ServicesTab() {
                     <div className="flex gap-1 justify-end">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Edit2 className="h-3.5 w-3.5" /></Button>
                       {user?.role === "admin" && (
-                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => del(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(s)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       )}
                     </div>
                   </td>
@@ -629,10 +645,8 @@ function AppointmentsTab({ refreshKey }: { refreshKey?: number }) {
   const shown = statusTab === "scheduled" ? active : history;
 
   const openNew = () => {
-    const now = new Date();
-    const gregDate = now.toISOString().split("T")[0];
-    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    setForm({ scheduledDate: gregDate, scheduledTime: time });
+    // Tehran calendar date (UTC date is "yesterday" between 00:00 and 03:30).
+    setForm({ scheduledDate: tehranTodayISO(), scheduledTime: tehranNowHHMM() });
     setOpen(true);
   };
 
@@ -1033,7 +1047,7 @@ function RemindersTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = tehranTodayISO();
 
   function diffDays(dateStr: string) {
     const d = new Date(dateStr).getTime() - new Date(today).getTime();

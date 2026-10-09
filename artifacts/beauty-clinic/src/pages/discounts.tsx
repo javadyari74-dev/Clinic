@@ -13,6 +13,7 @@ import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -46,6 +47,7 @@ export default function Discounts() {
         toast({ title: "تخفیف با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت تخفیف ناموفق بود"),
     },
   });
 
@@ -57,6 +59,7 @@ export default function Discounts() {
         setIsOpen(false);
         toast({ title: "تخفیف ویرایش شد" });
       },
+      onError: onApiError("ویرایش تخفیف ناموفق بود"),
     },
   });
 
@@ -66,6 +69,7 @@ export default function Discounts() {
         queryClient.invalidateQueries({ queryKey: getListDiscountsQueryKey() });
         toast({ title: "تخفیف حذف شد" });
       },
+      onError: onApiError("حذف تخفیف ناموفق بود"),
     },
   });
 

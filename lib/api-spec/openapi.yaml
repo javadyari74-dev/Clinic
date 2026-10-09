@@ -1465,6 +1465,77 @@ paths:
               schema:
                 $ref: "#/components/schemas/LoyaltyOverview"
 
+  /loyalty/members:
+    get:
+      operationId: listLoyaltyMembers
+      tags: [loyalty]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/LoyaltyMember"
+
+  /loyalty/adjust:
+    post:
+      operationId: adjustLoyaltyPoints
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdjustLoyaltyInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [balance]
+                properties:
+                  balance: { type: integer }
+
+  /loyalty/retro-cashback:
+    post:
+      operationId: retroLoyaltyCashback
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetroCashbackInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetroCashbackResult"
+
+  /loyalty/notify:
+    post:
+      operationId: notifyLoyaltyMembers
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoyaltyNotifyInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoyaltyNotifyResult"
+
   /patients/{id}/loyalty:
     get:
       operationId: getPatientLoyalty
@@ -1702,6 +1773,14 @@ components:
         discountId: { type: ["integer", "null"] }
         originalPrice: { type: ["integer", "null"] }
         deposit: { type: ["integer", "null"] }
+        appointmentCode: { type: ["string", "null"] }
+        sessionNumber: { type: ["integer", "null"] }
+        # جمع پرداخت‌های این نوبت (نقدی + کیف پول + امتیاز، شامل بیعانه)
+        paidTotal: { type: ["integer", "null"] }
+        # مانده = price − paidTotal (وقتی price ثبت شده باشد)
+        remaining: { type: ["integer", "null"] }
+        # آیا پرداخت تسویه (غیر از بیعانه) برای این نوبت ثبت شده است
+        hasCheckoutPayment: { type: ["boolean", "null"] }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
         patientPhone: { type: ["string", "null"] }
@@ -1776,6 +1855,9 @@ components:
         discountName: { type: ["string", "null"] }
         discountAmount: { type: ["integer", "null"] }
         depositAmount: { type: ["integer", "null"] }
+        # بخش پرداخت‌شده از کیف پول / امتیاز باشگاه (تومان)؛ amount فقط نقدی است
+        walletAmount: { type: ["integer", "null"] }
+        pointsAmount: { type: ["integer", "null"] }
 
     PaymentInput:
       type: object
@@ -1797,6 +1879,31 @@ components:
         depositAmount: { type: integer }
         applyAccountBalance: { type: integer }
         redeemPoints: { type: integer }
+        # کمیسیون/اعتبار معرفی دستی — داخل تراکنش همین پرداخت ثبت می‌شود
+        manualCommission:
+          $ref: "#/components/schemas/PaymentManualCommission"
+        # یادآوری پیگیری — داخل تراکنش همین پرداخت ثبت و با حذف پرداخت حذف می‌شود
+        reminder:
+          $ref: "#/components/schemas/PaymentReminderInput"
+
+    PaymentManualCommission:
+      type: object
+      required: [recipientType, recipientId, amount]
+      properties:
+        recipientType: { type: string, enum: [staff, external, patient] }
+        recipientId: { type: integer }
+        amount: { type: integer }
+        rate: { type: integer }
+        description: { type: string }
+
+    PaymentReminderInput:
+      type: object
+      required: [type, dueDate]
+      properties:
+        type: { type: string }
+        # تاریخ میلادی YYYY-MM-DD
+        dueDate: { type: string }
+        note: { type: string }
 
     # ── Discount ──────────────────────────────────────────────────────────────
     Discount:
@@ -2021,6 +2128,7 @@ components:
         description: { type: ["string", "null"] }
         type: { type: string }
         patientId: { type: ["integer", "null"] }
+        paymentId: { type: ["integer", "null"] }
         dueAt: { type: integer }
         status: { type: string }
         createdAt: { type: integer }
@@ -2034,6 +2142,7 @@ components:
         description: { type: string }
         type: { type: string }
         patientId: { type: integer }
+        paymentId: { type: integer }
         dueAt: { type: integer }
         status: { type: string }
 
@@ -2118,7 +2227,7 @@ components:
     # ── SMS ───────────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder, enabledLoyaltyWelcome, enabledLoyaltyTierUp, enabledLoyaltyExpiry, enabledLoyaltyReferral, bodyIdLoyaltyWelcome, bodyIdLoyaltyTierUp, bodyIdLoyaltyExpiry, bodyIdLoyaltyReferral, bodyIdPaymentLoyalty, bodyIdLoyaltyNotify]
       properties:
         username: { type: string }
         from: { type: string }
@@ -2129,6 +2238,17 @@ components:
         enabledRecipientWelcome: { type: boolean }
         enabledSurvey: { type: boolean }
         surveyThrottleDays: { type: integer }
+        # پیامک‌های زمان‌بندی‌شده (یادآوری نوبت روز قبل، یادآوری برگشت، تبریک تولد)
+        enabledAppointmentReminder: { type: boolean }
+        enabledFollowupReminder: { type: boolean }
+        enabledBirthdayAuto: { type: boolean }
+        # ساعت ارسال (۰ تا ۲۳، به وقت تهران)
+        appointmentReminderHour: { type: integer }
+        dailyAutoHour: { type: integer }
+        enabledLoyaltyWelcome: { type: boolean }
+        enabledLoyaltyTierUp: { type: boolean }
+        enabledLoyaltyExpiry: { type: boolean }
+        enabledLoyaltyReferral: { type: boolean }
         sendMode: { type: string, enum: [normal, pattern] }
         bodyIdAppointment: { type: string }
         bodyIdPayment: { type: string }
@@ -2136,6 +2256,14 @@ components:
         bodyIdBirthday: { type: string }
         bodyIdSurvey: { type: string }
         bodyIdRecipientWelcome: { type: string }
+        bodyIdAppointmentReminder: { type: string }
+        bodyIdFollowupReminder: { type: string }
+        bodyIdLoyaltyWelcome: { type: string }
+        bodyIdLoyaltyTierUp: { type: string }
+        bodyIdLoyaltyExpiry: { type: string }
+        bodyIdLoyaltyReferral: { type: string }
+        bodyIdPaymentLoyalty: { type: string }
+        bodyIdLoyaltyNotify: { type: string }
 
     SmsSettingsInput:
       type: object
@@ -2149,6 +2277,17 @@ components:
         enabledRecipientWelcome: { type: boolean }
         enabledSurvey: { type: boolean }
         surveyThrottleDays: { type: integer }
+        # پیامک‌های زمان‌بندی‌شده (یادآوری نوبت روز قبل، یادآوری برگشت، تبریک تولد)
+        enabledAppointmentReminder: { type: boolean }
+        enabledFollowupReminder: { type: boolean }
+        enabledBirthdayAuto: { type: boolean }
+        # ساعت ارسال (۰ تا ۲۳، به وقت تهران)
+        appointmentReminderHour: { type: integer }
+        dailyAutoHour: { type: integer }
+        enabledLoyaltyWelcome: { type: boolean }
+        enabledLoyaltyTierUp: { type: boolean }
+        enabledLoyaltyExpiry: { type: boolean }
+        enabledLoyaltyReferral: { type: boolean }
         sendMode: { type: string, enum: [normal, pattern] }
         bodyIdAppointment: { type: string }
         bodyIdPayment: { type: string }
@@ -2156,10 +2295,18 @@ components:
         bodyIdBirthday: { type: string }
         bodyIdSurvey: { type: string }
         bodyIdRecipientWelcome: { type: string }
+        bodyIdAppointmentReminder: { type: string }
+        bodyIdFollowupReminder: { type: string }
+        bodyIdLoyaltyWelcome: { type: string }
+        bodyIdLoyaltyTierUp: { type: string }
+        bodyIdLoyaltyExpiry: { type: string }
+        bodyIdLoyaltyReferral: { type: string }
+        bodyIdPaymentLoyalty: { type: string }
+        bodyIdLoyaltyNotify: { type: string }
 
     SmsTemplates:
       type: object
-      required: [appointment, payment, commission, birthday, survey, recipientWelcome, defaults]
+      required: [appointment, payment, commission, birthday, survey, recipientWelcome, appointmentReminder, followupReminder, loyaltyWelcome, loyaltyTierUp, loyaltyExpiry, loyaltyReferral, defaults]
       properties:
         appointment: { type: string }
         payment: { type: string }
@@ -2167,9 +2314,15 @@ components:
         birthday: { type: string }
         survey: { type: string }
         recipientWelcome: { type: string }
+        appointmentReminder: { type: string }
+        followupReminder: { type: string }
+        loyaltyWelcome: { type: string }
+        loyaltyTierUp: { type: string }
+        loyaltyExpiry: { type: string }
+        loyaltyReferral: { type: string }
         defaults:
           type: object
-          required: [appointment, payment, commission, birthday, survey, recipientWelcome]
+          required: [appointment, payment, commission, birthday, survey, recipientWelcome, appointmentReminder, followupReminder, loyaltyWelcome, loyaltyTierUp, loyaltyExpiry, loyaltyReferral]
           properties:
             appointment: { type: string }
             payment: { type: string }
@@ -2177,6 +2330,12 @@ components:
             birthday: { type: string }
             survey: { type: string }
             recipientWelcome: { type: string }
+            appointmentReminder: { type: string }
+            followupReminder: { type: string }
+            loyaltyWelcome: { type: string }
+            loyaltyTierUp: { type: string }
+            loyaltyExpiry: { type: string }
+            loyaltyReferral: { type: string }
 
     SmsTemplatesInput:
       type: object
@@ -2187,6 +2346,12 @@ components:
         birthday: { type: string }
         survey: { type: string }
         recipientWelcome: { type: string }
+        appointmentReminder: { type: string }
+        followupReminder: { type: string }
+        loyaltyWelcome: { type: string }
+        loyaltyTierUp: { type: string }
+        loyaltyExpiry: { type: string }
+        loyaltyReferral: { type: string }
 
     SmsCredit:
       type: object
@@ -2205,6 +2370,10 @@ components:
           type: array
           items: { type: integer }
         birthdayDays: { type: integer }
+        # ارسال به اعضای باشگاه: فهرست سطح‌ها (آرایهٔ خالی = همهٔ اعضا)
+        loyaltyTiers:
+          type: array
+          items: { type: string }
         eventType: { type: string }
 
     ManualSmsResult:
@@ -2428,12 +2597,23 @@ components:
     # ── Loyalty ───────────────────────────────────────────────────────────────
     LoyaltySettings:
       type: object
-      required: [enabled, earnAmount, redeemValue, minRedeem]
+      required: [enabled, earnAmount, redeemValue, minRedeem, silverMin, goldMin, diamondMin, silverRate, goldRate, diamondRate, expiryMonths, profitRewardPercent, birthdayBonus, referralBonus]
       properties:
         enabled: { type: boolean }
         earnAmount: { type: number }
         redeemValue: { type: number }
         minRedeem: { type: number }
+        silverMin: { type: number }
+        goldMin: { type: number }
+        diamondMin: { type: number }
+        silverRate: { type: number }
+        goldRate: { type: number }
+        diamondRate: { type: number }
+        expiryMonths: { type: number }
+        # درصد سود خدمت که اعتبار کیف پول می‌شود
+        profitRewardPercent: { type: number }
+        birthdayBonus: { type: number }
+        referralBonus: { type: number }
 
     LoyaltySettingsInput:
       type: object
@@ -2443,6 +2623,16 @@ components:
         earnAmount: { type: number, minimum: 1000 }
         redeemValue: { type: number, minimum: 1000 }
         minRedeem: { type: number, minimum: 1 }
+        silverMin: { type: number, minimum: 0 }
+        goldMin: { type: number, minimum: 0 }
+        diamondMin: { type: number, minimum: 0 }
+        silverRate: { type: number, minimum: 100 }
+        goldRate: { type: number, minimum: 100 }
+        diamondRate: { type: number, minimum: 100 }
+        expiryMonths: { type: number, minimum: 0 }
+        profitRewardPercent: { type: number, minimum: 0, maximum: 100 }
+        birthdayBonus: { type: number, minimum: 0 }
+        referralBonus: { type: number, minimum: 0 }
 
     LoyaltyTransaction:
       type: object
@@ -2453,41 +2643,153 @@ components:
         paymentId: { type: ["integer", "null"] }
         delta: { type: integer }
         amount: { type: integer }
-        type: { type: string, enum: [earn, redeem, reverse] }
+        type: { type: string, enum: [earn, redeem, reverse, expire, birthday, referral, adjust, cashback] }
         description: { type: ["string", "null"] }
         createdAt: { type: integer }
         patientName: { type: ["string", "null"] }
 
     LoyaltyOverview:
       type: object
-      required: [totalMembers, totalEarned, totalRedeemed, totalOutstanding, topPatients, recent]
+      required: [totalMembers, membersByTier, totalEarned, totalRedeemed, totalExpired, totalOutstanding, totalRewards, walletTotal, expiringSoonAmount, expiringSoonMembers, recent]
       properties:
         totalMembers: { type: integer }
+        membersByTier:
+          type: object
+          required: [bronze, silver, gold, diamond]
+          properties:
+            bronze: { type: integer }
+            silver: { type: integer }
+            gold: { type: integer }
+            diamond: { type: integer }
         totalEarned: { type: integer }
         totalRedeemed: { type: integer }
+        totalExpired: { type: integer }
         totalOutstanding: { type: integer }
-        topPatients:
-          type: array
-          items:
-            type: object
-            required: [patientId, patientName, balance, earnedTotal]
-            properties:
-              patientId: { type: integer }
-              patientName: { type: string }
-              fileNumber: { type: ["string", "null"] }
-              phone: { type: ["string", "null"] }
-              balance: { type: integer }
-              earnedTotal: { type: integer }
+        # جمع اعتبار تومانیِ داده‌شده (سود خدمت، تولد، معرفی، دستی) و موجودی کیف پول اعضا
+        totalRewards: { type: integer }
+        walletTotal: { type: integer }
+        # اعتبار (تومان) و تعداد اعضایی که ظرف ۳۰ روز آینده اعتبارشان منقضی می‌شود
+        expiringSoonAmount: { type: integer }
+        expiringSoonMembers: { type: integer }
         recent:
           type: array
           items:
             $ref: "#/components/schemas/LoyaltyTransaction"
 
+    LoyaltyMember:
+      type: object
+      required: [patientId, tier, joinedAt, patientName, balance, spend12m, walletBalance, totalRewards]
+      properties:
+        patientId: { type: integer }
+        tier: { type: string, enum: [bronze, silver, gold, diamond] }
+        joinedAt: { type: integer }
+        patientName: { type: string }
+        fileNumber: { type: ["string", "null"] }
+        phone: { type: ["string", "null"] }
+        balance: { type: integer }
+        spend12m: { type: number }
+        walletBalance: { type: integer }
+        totalRewards: { type: integer }
+
+    AdjustLoyaltyInput:
+      type: object
+      required: [patientId, amount]
+      properties:
+        patientId: { type: integer }
+        # تومان؛ مثبت = افزودن به کیف پول، منفی = کسر
+        amount: { type: integer }
+        description: { type: string }
+
+    RetroCashbackInput:
+      type: object
+      required: [apply]
+      properties:
+        # تاریخ میلادی YYYY-MM-DD (روز تهران)؛ خالی = بدون محدودیت
+        from: { type: string, nullable: true }
+        to: { type: string, nullable: true }
+        # false = فقط پیش‌نمایش
+        apply: { type: boolean }
+        # متن پیامک اختیاری؛ متغیرها: {نام} {اعتبار} {موجودی}
+        smsText: { type: string, nullable: true }
+
+    RetroCashbackResult:
+      type: object
+      required: [appointments, total, patients, smsSent, smsFailed]
+      properties:
+        appointments: { type: integer }
+        total: { type: integer }
+        smsSent: { type: integer }
+        smsFailed: { type: integer }
+        patients:
+          type: array
+          items:
+            type: object
+            required: [patientId, name, amount, appointments]
+            properties:
+              patientId: { type: integer }
+              name: { type: string }
+              amount: { type: integer }
+              appointments: { type: integer }
+
+    LoyaltyNotifyInput:
+      type: object
+      required: [message]
+      properties:
+        # متغیرها: {نام} {موجودی} {اعتبار} {سطح} {مبلغ_انقضا} {تاریخ_انقضا}
+        message: { type: string }
+        # گیرندگان مشخص؛ اگر خالی/نبود، همهٔ اعضا (با فیلترهای زیر)
+        patientIds: { type: array, items: { type: integer } }
+        tiers: { type: array, items: { type: string } }
+        onlyWithBalance: { type: boolean }
+        onlyExpiring: { type: boolean }
+        # روزهای آینده برای «مبلغ در حال انقضا» (پیش‌فرض ۳۰)
+        expiringWithinDays: { type: integer }
+        # true = فقط پیش‌نمایش، بدون ارسال
+        dryRun: { type: boolean }
+
+    LoyaltyNotifyResult:
+      type: object
+      required: [total, sent, failed, usesPattern, recipients]
+      properties:
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        usesPattern: { type: boolean }
+        recipients:
+          type: array
+          items:
+            type: object
+            required: [patientId, name, text, balance, expiringAmount]
+            properties:
+              patientId: { type: integer }
+              name: { type: string }
+              phone: { type: ["string", "null"] }
+              text: { type: string }
+              balance: { type: integer }
+              expiringAmount: { type: integer }
+              expiresAt: { type: ["integer", "null"] }
+
     PatientLoyalty:
       type: object
-      required: [balance, settings, transactions]
+      required: [balance, settings, transactions, member, walletBalance, totalRewards]
       properties:
         balance: { type: integer }
+        walletBalance: { type: integer }
+        totalRewards: { type: integer }
+        member:
+          type: ["object", "null"]
+          required: [tier, joinedAt, spend12m, nextTier]
+          properties:
+            tier: { type: string, enum: [bronze, silver, gold, diamond] }
+            joinedAt: { type: integer }
+            spend12m: { type: number }
+            nextTier:
+              type: ["object", "null"]
+              required: [tier, min, remaining]
+              properties:
+                tier: { type: string }
+                min: { type: number }
+                remaining: { type: number }
         settings:
           $ref: "#/components/schemas/LoyaltySettings"
         transactions:

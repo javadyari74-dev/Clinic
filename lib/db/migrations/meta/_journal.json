@@ -148,6 +148,41 @@
       "when": 1784106468716,
       "tag": "0020_add_sms_saved_patterns",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791300000000,
+      "tag": "0021_add_scheduled_sms",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1791400000000,
+      "tag": "0022_add_loyalty_members",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1791500000000,
+      "tag": "0023_add_payment_credit_amounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1791600000000,
+      "tag": "0024_laser_uuids_appointment_ms",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1791700000000,
+      "tag": "0025_payment_integrity",
+      "breakpoints": true
     }
   ]
 }

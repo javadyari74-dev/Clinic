@@ -95,7 +95,7 @@ export class ErrorBoundary extends Component<
     if (!shouldReport(signature)) return;
 
     try {
-      const response = await fetch("/api/client-errors", {
+      const response = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/client-errors`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

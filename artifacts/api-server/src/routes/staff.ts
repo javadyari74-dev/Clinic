@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, staffTable } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { db, staffTable, patientsTable, commissionsTable } from "@workspace/db";
 import {
   CreateStaffBody,
   UpdateStaffParams,
@@ -48,6 +48,20 @@ router.delete("/staff/:id", async (req, res): Promise<void> => {
   const params = DeleteStaffParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+  // کارمندی که معرفِ مراجعی است یا پورسانت تسویه‌نشده دارد حذف نمی‌شود
+  // (وگرنه مراجع به معرفِ ناموجود اشاره می‌کند و پورسانتش بی‌صاحب می‌ماند)
+  const referenced = await db.select({ id: patientsTable.id }).from(patientsTable)
+    .where(and(eq(patientsTable.referrerType, "staff"), eq(patientsTable.referrerId, params.data.id))).limit(1);
+  if (referenced.length > 0) {
+    res.status(400).json({ error: "این کارمند معرفِ یک یا چند مراجع است؛ ابتدا معرفِ آن مراجعین را تغییر دهید" });
+    return;
+  }
+  const unpaid = await db.select({ id: commissionsTable.id }).from(commissionsTable)
+    .where(and(eq(commissionsTable.recipientType, "staff"), eq(commissionsTable.recipientId, params.data.id), eq(commissionsTable.isPaid, false))).limit(1);
+  if (unpaid.length > 0) {
+    res.status(400).json({ error: "این کارمند پورسانت تسویه‌نشده دارد؛ ابتدا پورسانت‌ها را تسویه یا حذف کنید" });
     return;
   }
   const [member] = await db.delete(staffTable).where(eq(staffTable.id, params.data.id)).returning();

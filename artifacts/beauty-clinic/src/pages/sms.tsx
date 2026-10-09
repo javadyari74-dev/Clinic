@@ -34,11 +34,13 @@ import {
 } from "@/components/ui/table";
 import { toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import {
   MessageSquare, PlugZap, FileText, Send, History, Zap,
   CheckCircle2, XCircle, RotateCcw, Cake, Plus, Trash2,
-  BookmarkPlus, Pencil, Check, X,
+  BookmarkPlus, Pencil, Check, X, Award,
 } from "lucide-react";
+import { LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTierKey } from "@/components/loyalty-tier-badge";
 
 // ─── Settings tab ──────────────────────────────────────────────────────────────
 
@@ -53,6 +55,7 @@ function SettingsTab() {
   const [creditEnabled, setCreditEnabled] = useState(false);
   const [patternDraft, setPatternDraft] = useState<Record<string, string>>({});
   const [throttleDraft, setThrottleDraft] = useState<string | null>(null);
+  const [hourDraft, setHourDraft] = useState<Partial<Record<"appointmentReminderHour" | "dailyAutoHour", string>>>({});
 
   const { data: credit, isFetching: creditFetching } = useGetSmsCredit({
     query: { enabled: creditEnabled, queryKey: getGetSmsCreditQueryKey() },
@@ -65,7 +68,7 @@ function SettingsTab() {
         setPassword("");
         toast({ title: "تنظیمات پنل پیامکی ذخیره شد" });
       },
-      onError: () => toast({ title: "خطا در ذخیره تنظیمات", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ذخیره تنظیمات"),
     },
   });
 
@@ -114,6 +117,16 @@ function SettingsTab() {
     }
   }
 
+  function saveHour(key: "appointmentReminderHour" | "dailyAutoHour") {
+    const draft = hourDraft[key];
+    if (draft === undefined) return;
+    setHourDraft((prev) => ({ ...prev, [key]: undefined }));
+    const n = parseInt(draft, 10);
+    if (Number.isFinite(n) && n !== settings?.[key]) {
+      update.mutate({ data: { [key]: Math.min(Math.max(n, 0), 23) } });
+    }
+  }
+
   function savePattern() {
     update.mutate({
       data: {
@@ -123,6 +136,14 @@ function SettingsTab() {
         bodyIdBirthday: patternDraft.bodyIdBirthday ?? settings?.bodyIdBirthday ?? "",
         bodyIdSurvey: patternDraft.bodyIdSurvey ?? settings?.bodyIdSurvey ?? "",
         bodyIdRecipientWelcome: patternDraft.bodyIdRecipientWelcome ?? settings?.bodyIdRecipientWelcome ?? "",
+        bodyIdAppointmentReminder: patternDraft.bodyIdAppointmentReminder ?? settings?.bodyIdAppointmentReminder ?? "",
+        bodyIdFollowupReminder: patternDraft.bodyIdFollowupReminder ?? settings?.bodyIdFollowupReminder ?? "",
+        bodyIdLoyaltyWelcome: patternDraft.bodyIdLoyaltyWelcome ?? settings?.bodyIdLoyaltyWelcome ?? "",
+        bodyIdLoyaltyTierUp: patternDraft.bodyIdLoyaltyTierUp ?? settings?.bodyIdLoyaltyTierUp ?? "",
+        bodyIdLoyaltyExpiry: patternDraft.bodyIdLoyaltyExpiry ?? settings?.bodyIdLoyaltyExpiry ?? "",
+        bodyIdLoyaltyReferral: patternDraft.bodyIdLoyaltyReferral ?? settings?.bodyIdLoyaltyReferral ?? "",
+        bodyIdPaymentLoyalty: patternDraft.bodyIdPaymentLoyalty ?? settings?.bodyIdPaymentLoyalty ?? "",
+        bodyIdLoyaltyNotify: patternDraft.bodyIdLoyaltyNotify ?? settings?.bodyIdLoyaltyNotify ?? "",
       },
     });
   }
@@ -134,6 +155,14 @@ function SettingsTab() {
     { key: "bodyIdBirthday", label: "کد متن تولد" },
     { key: "bodyIdSurvey", label: "کد متن نظرسنجی" },
     { key: "bodyIdRecipientWelcome", label: "کد متن خوش‌آمد معرف" },
+    { key: "bodyIdAppointmentReminder", label: "کد متن یادآوری نوبت (روز قبل)" },
+    { key: "bodyIdFollowupReminder", label: "کد متن یادآوری برگشت" },
+    { key: "bodyIdPaymentLoyalty", label: "کد متن پرداخت همراه با اعتبار باشگاه (اختیاری)" },
+    { key: "bodyIdLoyaltyWelcome", label: "کد متن خوش‌آمد باشگاه" },
+    { key: "bodyIdLoyaltyTierUp", label: "کد متن ارتقای سطح باشگاه" },
+    { key: "bodyIdLoyaltyExpiry", label: "کد متن هشدار انقضای اعتبار" },
+    { key: "bodyIdLoyaltyReferral", label: "کد متن اعتبار معرفی دوست" },
+    { key: "bodyIdLoyaltyNotify", label: "کد متن پیام دستی باشگاه (موجودی و انقضا)" },
   ] as const;
 
   return (
@@ -309,6 +338,122 @@ function SettingsTab() {
         </CardContent>
       </Card>
 
+      {/* Scheduled SMS */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle>پیامک‌های زمان‌بندی‌شده</CardTitle>
+          <CardDescription>
+            این پیامک‌ها بدون نیاز به کاری از طرف شما، سر وقت خودشان فرستاده می‌شوند (تا وقتی برنامه روی کامپیوتر مطب باز است). اگر برنامه سر ساعت باز نباشد، با باز شدن برنامه فرستاده می‌شوند. هیچ پیامکی دوبار فرستاده نمی‌شود و همه در «تاریخچه» ثبت می‌شوند.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">یادآوری نوبت (یک روز قبل)</div>
+              <div className="text-sm text-muted-foreground">
+                برای نوبت‌های «رزرو شده» و «تایید شده»؛ نوبت لغوشده یادآوری نمی‌شود و اگر نوبت جابه‌جا شود، برای تاریخ جدید دوباره یادآوری می‌شود
+              </div>
+            </div>
+            <Switch
+              checked={settings.enabledAppointmentReminder}
+              onCheckedChange={(v) => toggleFlag("enabledAppointmentReminder", v)}
+              data-testid="switch-sms-appointment-reminder"
+            />
+          </div>
+          {settings.enabledAppointmentReminder && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/40 p-3">
+              <Label htmlFor="sms-appointment-reminder-hour" className="text-sm font-normal leading-6">
+                ساعت ارسال در روز قبل از نوبت (۰ تا ۲۳)
+              </Label>
+              <Input
+                id="sms-appointment-reminder-hour"
+                dir="ltr"
+                inputMode="numeric"
+                className="w-24 shrink-0"
+                value={hourDraft.appointmentReminderHour ?? String(settings.appointmentReminderHour)}
+                onChange={(e) => setHourDraft((prev) => ({ ...prev, appointmentReminderHour: e.target.value.replace(/[^0-9]/g, "") }))}
+                onBlur={() => saveHour("appointmentReminderHour")}
+                data-testid="input-appointment-reminder-hour"
+              />
+            </div>
+          )}
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">یادآوری برگشت مراجع</div>
+              <div className="text-sm text-muted-foreground">
+                در روز سررسید یادآوری‌های «پیگیری» (مثل یادآوری‌ای که هنگام پرداخت در صندوق برای دور بعدی تعیین می‌کنید)
+              </div>
+            </div>
+            <Switch
+              checked={settings.enabledFollowupReminder}
+              onCheckedChange={(v) => toggleFlag("enabledFollowupReminder", v)}
+              data-testid="switch-sms-followup-reminder"
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="font-medium">تبریک تولد خودکار</div>
+              <div className="text-sm text-muted-foreground">در روز تولد مراجعینی که تاریخ تولدشان ثبت شده است</div>
+            </div>
+            <Switch
+              checked={settings.enabledBirthdayAuto}
+              onCheckedChange={(v) => toggleFlag("enabledBirthdayAuto", v)}
+              data-testid="switch-sms-birthday-auto"
+            />
+          </div>
+          {(settings.enabledFollowupReminder || settings.enabledBirthdayAuto) && (
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/40 p-3">
+              <Label htmlFor="sms-daily-auto-hour" className="text-sm font-normal leading-6">
+                ساعت ارسال یادآوری برگشت و تبریک تولد (۰ تا ۲۳)
+              </Label>
+              <Input
+                id="sms-daily-auto-hour"
+                dir="ltr"
+                inputMode="numeric"
+                className="w-24 shrink-0"
+                value={hourDraft.dailyAutoHour ?? String(settings.dailyAutoHour)}
+                onChange={(e) => setHourDraft((prev) => ({ ...prev, dailyAutoHour: e.target.value.replace(/[^0-9]/g, "") }))}
+                onBlur={() => saveHour("dailyAutoHour")}
+                data-testid="input-daily-auto-hour"
+              />
+            </div>
+          )}
+          {!settings.hasPassword && (
+            <p className="text-sm text-amber-700">ابتدا اتصال به پنل ملی‌پیامک را تنظیم کنید؛ بدون آن پیامکی فرستاده نمی‌شود.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Loyalty club SMS */}
+      <Card className="lg:col-span-2">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Award className="size-5 text-amber-600" /> پیامک‌های باشگاه مشتریان</CardTitle>
+          <CardDescription>
+            فقط وقتی باشگاه مشتریان فعال است فرستاده می‌شوند. اعتبار سودِ هر خرید و موجودی کیف پول، داخل همان پیامک پرداخت گفته می‌شود (متغیر {"{باشگاه}"} در قالب پرداخت). مراجعینی که هنگام فعال‌سازی باشگاه یک‌جا عضو می‌شوند پیامک خوش‌آمد نمی‌گیرند.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-5 sm:grid-cols-2">
+          {([
+            ["enabledLoyaltyWelcome", "خوش‌آمد عضویت", "وقتی مراجع با اولین پرداختش عضو باشگاه می‌شود"],
+            ["enabledLoyaltyTierUp", "ارتقای سطح", "وقتی سطح عضو (نقره‌ای، طلایی، الماسی) بالا می‌رود"],
+            ["enabledLoyaltyExpiry", "هشدار انقضای اعتبار", "یک هفته پیش از منقضی شدن اعتبار هدیه، در ساعت ارسال روزانه"],
+            ["enabledLoyaltyReferral", "اعتبار معرفی دوست", "به معرف، وقتی دوستش اولین پرداخت را انجام می‌دهد"],
+          ] as const).map(([key, title, desc]) => (
+            <div key={key} className="flex items-center justify-between gap-4">
+              <div>
+                <div className="font-medium">{title}</div>
+                <div className="text-sm text-muted-foreground">{desc}</div>
+              </div>
+              <Switch
+                checked={settings[key]}
+                onCheckedChange={(v) => toggleFlag(key, v)}
+                data-testid={`switch-sms-${key}`}
+              />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
       {/* Pattern (service) send */}
       <Card className="lg:col-span-2">
         <CardHeader>
@@ -336,6 +481,14 @@ function SettingsTab() {
               <div>• تولد: {"{0}"} نام</div>
               <div>• نظرسنجی: {"{0}"} نام — {"{1}"} خدمت</div>
               <div>• خوش‌آمد معرف: {"{0}"} نام</div>
+              <div>• یادآوری نوبت (روز قبل): {"{0}"} نام — {"{1}"} تاریخ — {"{2}"} ساعت</div>
+              <div>• یادآوری برگشت: {"{0}"} نام</div>
+              <div>• پرداخت همراه با اعتبار باشگاه: {"{0}"} نام — {"{1}"} مبلغ — {"{2}"} خدمت — {"{3}"} اعتبار این خرید (تومان) — {"{4}"} موجودی کیف پول (اگر خالی بماند، پترن پرداخت معمولی استفاده می‌شود)</div>
+              <div>• خوش‌آمد باشگاه: {"{0}"} نام — {"{1}"} موجودی کیف پول</div>
+              <div>• ارتقای سطح: {"{0}"} نام — {"{1}"} سطح</div>
+              <div>• هشدار انقضا: {"{0}"} نام — {"{1}"} مبلغ اعتبار — {"{2}"} تاریخ</div>
+              <div>• اعتبار معرفی: {"{0}"} نام — {"{1}"} مبلغ اعتبار — {"{2}"} موجودی کیف پول</div>
+              <div>• پیام دستی باشگاه: {"{0}"} نام — {"{1}"} موجودی کیف پول — {"{2}"} مبلغ در حال انقضا — {"{3}"} تاریخ انقضا</div>
               <div className="pt-1">
                 نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم. www.drjavadyari.ir»
               </div>
@@ -376,11 +529,17 @@ function SettingsTab() {
 
 const TEMPLATE_DEFS = [
   { key: "appointment", title: "تأیید نوبت", vars: ["{نام}", "{تاریخ}", "{ساعت}", "{خدمت}"] },
-  { key: "payment", title: "رسید پرداخت", vars: ["{نام}", "{مبلغ}", "{خدمت}"] },
+  { key: "payment", title: "رسید پرداخت", vars: ["{نام}", "{مبلغ}", "{خدمت}", "{باشگاه}", "{اعتبار}", "{موجودی}", "{سطح}"] },
   { key: "commission", title: "پورسانت معرف", vars: ["{نام}", "{پورسانت}", "{درصد}", "{مبلغ}"] },
-  { key: "birthday", title: "تبریک تولد", vars: ["{نام}"] },
+  { key: "birthday", title: "تبریک تولد", vars: ["{نام}", "{هدیه_باشگاه}"] },
   { key: "survey", title: "نظرسنجی پس از مراجعه", vars: ["{نام}", "{خدمت}"] },
   { key: "recipientWelcome", title: "خوش‌آمد معرف جدید", vars: ["{نام}"] },
+  { key: "appointmentReminder", title: "یادآوری نوبت (یک روز قبل)", vars: ["{نام}", "{تاریخ}", "{ساعت}", "{خدمت}"] },
+  { key: "followupReminder", title: "یادآوری برگشت مراجع", vars: ["{نام}", "{تاریخ}"] },
+  { key: "loyaltyWelcome", title: "باشگاه: خوش‌آمد عضویت", vars: ["{نام}", "{موجودی}"] },
+  { key: "loyaltyTierUp", title: "باشگاه: ارتقای سطح", vars: ["{نام}", "{سطح}"] },
+  { key: "loyaltyExpiry", title: "باشگاه: هشدار انقضای اعتبار", vars: ["{نام}", "{اعتبار}", "{تاریخ}"] },
+  { key: "loyaltyReferral", title: "باشگاه: اعتبار معرفی دوست", vars: ["{نام}", "{اعتبار}", "{موجودی}"] },
 ] as const;
 
 type TemplateKey = (typeof TEMPLATE_DEFS)[number]["key"];
@@ -397,7 +556,7 @@ function TemplatesTab() {
         refetch();
         toast({ title: "قالب‌های پیامک ذخیره شد" });
       },
-      onError: () => toast({ title: "خطا در ذخیره قالب‌ها", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ذخیره قالب‌ها"),
     },
   });
 
@@ -682,7 +841,9 @@ function SavedPatternsPicker({
 function SendTab() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [mode, setMode] = useState<"manual" | "birthday" | "pattern">("manual");
+  const [mode, setMode] = useState<"manual" | "birthday" | "pattern" | "members">("manual");
+  // اعضای باشگاه: سطح‌های انتخاب‌شده (خالی = همهٔ اعضا)
+  const [memberTiers, setMemberTiers] = useState<LoyaltyTierKey[]>([]);
   const [message, setMessage] = useState("");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Map<number, string>>(new Map());
@@ -710,7 +871,7 @@ function SendTab() {
         });
         if (res.sent > 0) setSelected(new Map());
       },
-      onError: () => toast({ title: "خطا در ارسال پیامک", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ارسال پیامک"),
     },
   });
 
@@ -772,6 +933,8 @@ function SendTab() {
         return;
       }
       send.mutate({ data: { message, patientIds: Array.from(selected.keys()) } });
+    } else if (mode === "members") {
+      send.mutate({ data: { message, loyaltyTiers: memberTiers } });
     } else {
       const days = Math.max(0, parseInt(birthdayDays, 10) || 0);
       send.mutate({ data: { message, birthdayDays: days, eventType: "birthday" } });
@@ -791,7 +954,7 @@ function SendTab() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant={mode === "manual" ? "default" : "outline"}
               size="sm"
@@ -809,6 +972,15 @@ function SendTab() {
             >
               <Cake className="size-4" />
               تبریک تولد
+            </Button>
+            <Button
+              variant={mode === "members" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setMode("members")}
+              data-testid="button-mode-members"
+            >
+              <Award className="size-4" />
+              اعضای باشگاه
             </Button>
             <Button
               variant={mode === "pattern" ? "default" : "outline"}
@@ -845,6 +1017,33 @@ function SendTab() {
                   استفاده از قالب تبریک تولد
                 </Button>
               )}
+            </div>
+          )}
+
+          {mode === "members" && (
+            <div className="space-y-2">
+              <Label>ارسال به اعضای کدام سطح‌ها؟</Label>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant={memberTiers.length === 0 ? "default" : "outline"} onClick={() => setMemberTiers([])}>
+                  همهٔ اعضا
+                </Button>
+                {LOYALTY_TIER_KEYS.map((t) => (
+                  <Button
+                    key={t}
+                    size="sm"
+                    variant={memberTiers.includes(t) ? "default" : "outline"}
+                    onClick={() =>
+                      setMemberTiers((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]))
+                    }
+                    data-testid={`button-member-tier-${t}`}
+                  >
+                    {LOYALTY_TIER_META[t].emoji} {LOYALTY_TIER_META[t].label}
+                  </Button>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                در متن می‌توانید از {"{نام}"}، {"{اعتبار}"} (موجودی کیف پول هر نفر به تومان) و {"{سطح}"} استفاده کنید؛ مثلاً «{"{نام}"} عزیز، {"{اعتبار}"} تومان اعتبار در کیف پول شما منتظر است».
+              </p>
             </div>
           )}
 
@@ -982,7 +1181,13 @@ function SendTab() {
           {mode !== "pattern" && (
             <Button onClick={handleSend} disabled={send.isPending} data-testid="button-send-sms">
               {send.isPending ? <Spinner className="size-4" /> : <Send className="size-4" />}
-              {mode === "birthday" ? "ارسال تبریک تولد" : `ارسال به ${toPersianDigits(selected.size)} نفر`}
+              {mode === "birthday"
+                ? "ارسال تبریک تولد"
+                : mode === "members"
+                  ? memberTiers.length === 0
+                    ? "ارسال به همهٔ اعضای باشگاه"
+                    : `ارسال به اعضای ${memberTiers.map((t) => LOYALTY_TIER_META[t].label).join("، ")}`
+                  : `ارسال به ${toPersianDigits(selected.size)} نفر`}
             </Button>
           )}
         </CardContent>
@@ -1096,6 +1301,13 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   manual: "دستی",
   waiting_list: "لیست انتظار",
   recipient_welcome: "ثبت معرف",
+  appointment_reminder: "یادآوری نوبت",
+  followup_reminder: "یادآوری برگشت",
+  loyalty_welcome: "خوش‌آمد باشگاه",
+  loyalty_tier_up: "ارتقای سطح",
+  loyalty_expiry: "انقضای امتیاز",
+  loyalty_referral: "معرفی دوست",
+  loyalty_bulk: "گروهی باشگاه",
 };
 
 function LogsTab() {

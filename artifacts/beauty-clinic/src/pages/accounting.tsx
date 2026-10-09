@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { PersianDateRangePicker } from "@/components/persian-date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,8 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, Legend,
+  ComposedChart, Bar, Line, Cell, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Wallet, Plus, Trash2,
@@ -21,11 +22,17 @@ import {
 } from "lucide-react";
 import { formatCurrency, toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   useAccountingSummary, useAccountingByService, useAccountingChart,
   useExpenses, useCreateExpense, useDeleteExpense,
-  type Period,
+  type DateRange, type ChartPoint, type Expense,
 } from "@/hooks/use-accounting";
+import {
+  PRESET_LABELS, presetRange, formatRangeLabel, buildChartSeries, formatAxisAmount,
+  type RangePreset,
+} from "@/lib/shamsi-range";
 
 const CATEGORIES: { value: string; label: string; icon: React.ReactNode; color: string }[] = [
   { value: "salary",       label: "حقوق و دستمزد",    icon: <Users className="h-4 w-4" />,       color: "bg-blue-100 text-blue-700" },
@@ -35,12 +42,20 @@ const CATEGORIES: { value: string; label: string; icon: React.ReactNode; color: 
   { value: "other",        label: "سایر هزینه‌ها",     icon: <MoreHorizontal className="h-4 w-4" />, color: "bg-gray-100 text-gray-700" },
 ];
 
-const PERIOD_LABELS: Record<string, string> = {
-  today: "امروز",
-  month: "این ماه",
-  year: "امسال",
-  all:   "همه",
+const SERIES_LABELS: Record<string, string> = {
+  revenue: "درآمد",
+  serviceCosts: "هزینه خدمات",
+  expenses: "هزینه‌های ثابت",
+  commissions: "پورسانت",
+  laserRevenue: "درآمد لیزر",
+  laserCommissions: "پورسانت لیزر",
+  profit: "سود / زیان",
+  cumulativeProfit: "سود انباشته",
 };
+
+function localDateString(d = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 function catLabel(v: string) {
   return CATEGORIES.find(c => c.value === v)?.label ?? v;
@@ -86,19 +101,28 @@ function StatCard({ title, value, sub, trend, icon, colorClass, onClick }: {
 
 export default function Accounting() {
   const { toast } = useToast();
-  const [period, setPeriod] = useState<Period>("month");
-  const [chartPeriod, setChartPeriod] = useState<"month" | "year">("month");
+  const [preset, setPreset] = useState<RangePreset>("month");
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [expOpen, setExpOpen] = useState(false);
   const [svcCostOpen, setSvcCostOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
   const [newCat, setNewCat] = useState("salary");
   const [newAmount, setNewAmount] = useState("");
   const [newDesc, setNewDesc] = useState("");
-  const [newDate, setNewDate] = useState(() => new Date().toISOString().split("T")[0]);
+  // تاریخ محلی (نه UTC) تا بین ۰۰:۰۰ تا ۰۳:۳۰ بامداد، «دیروز» پیش‌فرض نشود
+  const [newDate, setNewDate] = useState(() => localDateString());
 
-  const { data: summary, isError: summaryError, refetch: refetchSummary } = useAccountingSummary(period);
-  const { data: byService, isError: byServiceError, refetch: refetchByService } = useAccountingByService(period);
-  const { data: chart, isError: chartError, refetch: refetchChart } = useAccountingChart(chartPeriod);
-  const { data: expenses, isError: expensesError, refetch: refetchExpenses } = useExpenses();
+  const range = useMemo<DateRange>(
+    () => (preset === "custom" && customRange ? customRange : presetRange(preset === "custom" ? "month" : preset)),
+    [preset, customRange],
+  );
+  const periodLabel = preset === "custom" ? "بازه انتخابی" : PRESET_LABELS[preset];
+  const rangeLabel = formatRangeLabel(range);
+
+  const { data: summary, isError: summaryError, refetch: refetchSummary } = useAccountingSummary(range);
+  const { data: byService, isError: byServiceError, refetch: refetchByService } = useAccountingByService(range);
+  const { data: chart, isError: chartError, refetch: refetchChart } = useAccountingChart(range);
+  const { data: expenses, isError: expensesError, refetch: refetchExpenses } = useExpenses(range);
   const isError = summaryError || byServiceError || chartError || expensesError;
   const retry = () => { refetchSummary(); refetchByService(); refetchChart(); refetchExpenses(); };
   const createExpense = useCreateExpense();
@@ -135,7 +159,8 @@ export default function Accounting() {
     );
   }
 
-  const topService = byService?.[0];
+  // ردیف‌های ساختگی («بدون نوبت / حذف‌شده»، «بدون خدمت») شناسهٔ منفی دارند و خدمت برتر نیستند
+  const topService = byService?.find(s => s.serviceId > 0);
 
   const svcCostRows = (byService ?? [])
     .filter(s => s.totalServiceCost > 0)
@@ -151,10 +176,48 @@ export default function Accounting() {
   );
   const svcCostTotal = svcCostComponents.doctor + svcCostComponents.material + svcCostComponents.other;
 
-  const chartFormatted = (chart ?? []).map(p => ({
-    ...p,
-    label: new Intl.DateTimeFormat("fa-IR", { calendar: "persian", month: "short", day: "numeric" }).format(new Date(p.date)),
-  }));
+  // لیزر جدا از درآمد/پورسانت مطب گروه می‌شود (همان ستون‌های زمانی) تا در نمودار سری جدا داشته باشد؛
+  // profit و totalCosts سرور از قبل لیزر را شامل می‌شوند.
+  const { buckets: chartData, monthly: chartMonthly } = useMemo(() => {
+    const points = chart ?? [];
+    const main = buildChartSeries(points, range);
+    const laserPoints: ChartPoint[] = points.map(p => ({
+      date: p.date,
+      revenue: p.laserRevenue ?? 0,
+      commissions: p.laserCommissions ?? 0,
+      serviceCosts: 0, expenses: 0, laserRevenue: 0, laserCommissions: 0,
+      totalCosts: 0, profit: 0,
+    }));
+    const laserByKey = new Map(buildChartSeries(laserPoints, range).buckets.map(b => [b.key, b]));
+    return {
+      monthly: main.monthly,
+      buckets: main.buckets.map(b => ({
+        ...b,
+        laserRevenue: laserByKey.get(b.key)?.revenue ?? 0,
+        laserCommissions: laserByKey.get(b.key)?.commissions ?? 0,
+      })),
+    };
+  }, [chart, range]);
+  const chartHasData = chartData.some(b => b.revenue !== 0 || b.laserRevenue !== 0 || b.totalCosts !== 0);
+  const hasLaser = !!summary && (summary.laserRevenue !== 0 || summary.laserCommissions !== 0);
+
+  function confirmDeleteExpense() {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
+    deleteExpense.mutate(id, {
+      onSuccess: () => toast({ title: "هزینه حذف شد" }),
+      onError: (error) => {
+        toast({
+          title: "حذف هزینه ناموفق بود",
+          description: apiErrorMessage(error) ?? "حذف هزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
+    });
+  }
+  const tooltipStyle = { fontFamily: "Vazirmatn", textAlign: "right" as const, direction: "rtl" as const };
+  const axisTick = { fontFamily: "Vazirmatn", fontSize: 10 };
 
   return (
     <div className="space-y-6">
@@ -164,36 +227,54 @@ export default function Accounting() {
           <h1 className="text-3xl font-bold tracking-tight">حسابداری و سود و زیان</h1>
           <p className="text-muted-foreground mt-1">تحلیل مالی دقیق مطب — درآمد، هزینه، و سود خالص</p>
         </div>
-        <div className="flex gap-2">
-          <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
-            <SelectTrigger className="w-36">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(PERIOD_LABELS).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button className="gap-2" onClick={() => setExpOpen(true)}>
-            <Plus className="h-4 w-4" />
-            ثبت هزینه
+        <Button className="gap-2" onClick={() => setExpOpen(true)}>
+          <Plus className="h-4 w-4" />
+          ثبت هزینه
+        </Button>
+      </div>
+
+      {/* انتخاب بازهٔ زمانی (تقویم شمسی) */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(Object.keys(PRESET_LABELS) as Array<keyof typeof PRESET_LABELS>).map(k => (
+          <Button
+            key={k}
+            size="sm"
+            variant={preset === k ? "default" : "outline"}
+            onClick={() => setPreset(k)}
+          >
+            {PRESET_LABELS[k]}
           </Button>
-        </div>
+        ))}
+        <PersianDateRangePicker
+          value={preset === "custom" ? customRange : null}
+          active={preset === "custom"}
+          onChange={(r) => { setCustomRange(r); setPreset("custom"); }}
+        />
+        <span className="text-sm text-muted-foreground mr-auto">
+          بازه: <span className="font-medium text-foreground">{rangeLabel}</span>
+        </span>
       </div>
 
       {isError && <ErrorNotice onRetry={retry} />}
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
-          title={`درآمد کل — ${PERIOD_LABELS[period]}`}
+          title={`درآمد مطب — ${periodLabel}`}
           value={formatCurrency(summary?.revenue)}
+          sub="پرداخت‌های نقدی، بدون لیزر"
           icon={<Wallet className="h-5 w-5 text-primary" />}
           colorClass="text-foreground"
         />
         <StatCard
-          title={`هزینه خدمات — ${PERIOD_LABELS[period]}`}
+          title={`درآمد لیزر — ${periodLabel}`}
+          value={formatCurrency(summary?.laserRevenue)}
+          sub={summary ? `پورسانت لیزر: ${formatCurrency(summary.laserCommissions)}` : undefined}
+          icon={<Zap className="h-5 w-5 text-teal-600" />}
+          colorClass="text-teal-600"
+        />
+        <StatCard
+          title={`هزینه خدمات — ${periodLabel}`}
           value={formatCurrency(summary?.serviceCosts)}
           sub="پزشک + مواد + سایر"
           icon={<Package className="h-5 w-5 text-purple-600" />}
@@ -201,19 +282,19 @@ export default function Accounting() {
           onClick={() => setSvcCostOpen(true)}
         />
         <StatCard
-          title={`هزینه‌های ثابت — ${PERIOD_LABELS[period]}`}
+          title={`هزینه‌های ثابت — ${periodLabel}`}
           value={formatCurrency(summary?.expenses)}
           icon={<TrendingDown className="h-5 w-5 text-orange-600" />}
           colorClass="text-orange-600"
         />
         <StatCard
-          title={`پورسانت پرداختی — ${PERIOD_LABELS[period]}`}
+          title={`پورسانت پرداختی — ${periodLabel}`}
           value={formatCurrency(summary?.commissions)}
           icon={<Users className="h-5 w-5 text-blue-600" />}
           colorClass="text-blue-600"
         />
         <StatCard
-          title={`سود خالص — ${PERIOD_LABELS[period]}`}
+          title={`سود خالص — ${periodLabel}`}
           value={formatCurrency(summary?.netProfit)}
           sub={summary ? `مجموع هزینه: ${formatCurrency(summary.totalCosts)}` : undefined}
           icon={<PiggyBank className="h-5 w-5 text-green-700" />}
@@ -229,6 +310,13 @@ export default function Accounting() {
             <div className="flex flex-wrap items-center gap-2 text-sm font-mono justify-center">
               <span className="text-green-700 font-bold">{formatCurrency(summary.revenue)}</span>
               <span className="text-muted-foreground">درآمد</span>
+              {hasLaser && (
+                <>
+                  <span className="text-xl text-muted-foreground mx-1">+</span>
+                  <span className="text-teal-600 font-bold">{formatCurrency(summary.laserRevenue)}</span>
+                  <span className="text-muted-foreground">درآمد لیزر</span>
+                </>
+              )}
               <span className="text-xl text-muted-foreground mx-1">−</span>
               <span className="text-purple-600 font-bold">{formatCurrency(summary.serviceCosts)}</span>
               <span className="text-muted-foreground">هزینه خدمات</span>
@@ -238,6 +326,13 @@ export default function Accounting() {
               <span className="text-xl text-muted-foreground mx-1">−</span>
               <span className="text-blue-600 font-bold">{formatCurrency(summary.commissions)}</span>
               <span className="text-muted-foreground">پورسانت</span>
+              {hasLaser && (
+                <>
+                  <span className="text-xl text-muted-foreground mx-1">−</span>
+                  <span className="text-teal-700 font-bold">{formatCurrency(summary.laserCommissions)}</span>
+                  <span className="text-muted-foreground">پورسانت لیزر</span>
+                </>
+              )}
               <span className="text-xl text-muted-foreground mx-1">=</span>
               <span className={`font-bold text-lg ${(summary.netProfit) >= 0 ? "text-green-700" : "text-red-600"}`}>
                 {formatCurrency(summary.netProfit)} سود خالص
@@ -258,59 +353,73 @@ export default function Accounting() {
         <TabsContent value="chart" className="space-y-4">
           <Card>
             <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">نمودار درآمد و هزینه</CardTitle>
-                <Select value={chartPeriod} onValueChange={(v) => setChartPeriod(v as "month" | "year")}>
-                  <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="month">۳۰ روز گذشته</SelectItem>
-                    <SelectItem value="year">۳۶۵ روز گذشته</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <CardTitle className="text-base">
+                درآمد، هزینه‌ها و سود — {chartMonthly ? "ماهانه" : "روزانه"}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground" dir="rtl">بازه: {rangeLabel}</p>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={chartFormatted} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis dataKey="label" tick={{ fontFamily: "Vazirmatn", fontSize: 10 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontFamily: "Vazirmatn", fontSize: 10 }} tickLine={false} axisLine={false}
-                    tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} width={60} />
-                  <Tooltip
-                    formatter={(v: number, name: string) => [
-                      formatCurrency(v),
-                      name === "revenue" ? "درآمد" : name === "expenses" ? "هزینه" : "سود"
-                    ]}
-                    labelFormatter={(l) => l}
-                    contentStyle={{ fontFamily: "Vazirmatn", textAlign: "right", direction: "rtl" }}
-                  />
-                  <Legend formatter={(v) => v === "revenue" ? "درآمد" : v === "expenses" ? "هزینه" : "سود خالص"} />
-                  <Bar dataKey="revenue" fill="#be185d" radius={[3,3,0,0]} name="revenue" />
-                  <Bar dataKey="expenses" fill="#f97316" radius={[3,3,0,0]} name="expenses" />
-                </BarChart>
-              </ResponsiveContainer>
+              {chartHasData ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={8} />
+                    <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={formatAxisAmount} width={60} />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [formatCurrency(v), SERIES_LABELS[name] ?? name]}
+                      contentStyle={tooltipStyle}
+                    />
+                    <Legend formatter={(v) => SERIES_LABELS[v] ?? v} wrapperStyle={{ fontFamily: "Vazirmatn", fontSize: 12 }} />
+                    <ReferenceLine y={0} stroke="#9ca3af" />
+                    <Bar dataKey="revenue" name="revenue" stackId="income" fill="#be185d" />
+                    <Bar dataKey="laserRevenue" name="laserRevenue" stackId="income" fill="#0d9488" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="serviceCosts" name="serviceCosts" stackId="costs" fill="#9333ea" />
+                    <Bar dataKey="expenses" name="expenses" stackId="costs" fill="#f97316" />
+                    <Bar dataKey="commissions" name="commissions" stackId="costs" fill="#2563eb" />
+                    <Bar dataKey="laserCommissions" name="laserCommissions" stackId="costs" fill="#5eead4" radius={[3, 3, 0, 0]} />
+                    <Line type="linear" dataKey="profit" name="profit" stroke="#16a34a" strokeWidth={2}
+                      dot={chartData.length <= 31} activeDot={{ r: 5, fill: "#16a34a" }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="py-16 text-center text-sm text-muted-foreground">در این بازه درآمد یا هزینه‌ای ثبت نشده است</p>
+              )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">سود خالص روزانه</CardTitle>
+              <CardTitle className="text-base">
+                سود و زیان {chartMonthly ? "ماهانه" : "روزانه"}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                ستون سبز = سود، ستون قرمز = زیان؛ خط = سود انباشته از ابتدای بازه
+              </p>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart data={chartFormatted}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                  <XAxis dataKey="label" tick={{ fontFamily: "Vazirmatn", fontSize: 10 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontFamily: "Vazirmatn", fontSize: 10 }} tickLine={false} axisLine={false}
-                    tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} width={60} />
-                  <Tooltip
-                    formatter={(v: number) => [formatCurrency(v), "سود"]}
-                    contentStyle={{ fontFamily: "Vazirmatn", textAlign: "right", direction: "rtl" }}
-                  />
-                  <Line type="monotone" dataKey="profit" stroke="#16a34a" strokeWidth={2} dot={false}
-                    activeDot={{ r: 5, fill: "#16a34a" }} name="profit" />
-                </LineChart>
-              </ResponsiveContainer>
+              {chartHasData ? (
+                <ResponsiveContainer width="100%" height={240}>
+                  <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                    <XAxis dataKey="label" tick={axisTick} tickLine={false} axisLine={false} interval="preserveStartEnd" minTickGap={8} />
+                    <YAxis tick={axisTick} tickLine={false} axisLine={false} tickFormatter={formatAxisAmount} width={60} />
+                    <Tooltip
+                      formatter={(v: number, name: string) => [formatCurrency(v), SERIES_LABELS[name] ?? name]}
+                      contentStyle={tooltipStyle}
+                    />
+                    <ReferenceLine y={0} stroke="#9ca3af" />
+                    <Bar dataKey="profit" name="profit" radius={[3, 3, 0, 0]}>
+                      {chartData.map(b => (
+                        <Cell key={b.key} fill={b.profit >= 0 ? "#16a34a" : "#dc2626"} />
+                      ))}
+                    </Bar>
+                    <Line type="linear" dataKey="cumulativeProfit" name="cumulativeProfit" stroke="#0f766e"
+                      strokeWidth={2} strokeDasharray="5 3" dot={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="py-12 text-center text-sm text-muted-foreground">داده‌ای برای نمایش وجود ندارد</p>
+              )}
             </CardContent>
           </Card>
 
@@ -350,7 +459,7 @@ export default function Accounting() {
                   <div className="flex items-center gap-3">
                     <TrendingUp className="h-6 w-6 text-primary" />
                     <div>
-                      <p className="text-sm text-muted-foreground">پرفروش‌ترین خدمت — {PERIOD_LABELS[period]}</p>
+                      <p className="text-sm text-muted-foreground">پرفروش‌ترین خدمت — {periodLabel}</p>
                       <p className="font-bold text-lg">{topService.serviceName}</p>
                       <p className="text-sm text-muted-foreground">
                         درآمد: {formatCurrency(topService.revenue)} |
@@ -378,8 +487,13 @@ export default function Accounting() {
                   </TableHeader>
                   <TableBody>
                     {(byService ?? []).map(svc => (
-                      <TableRow key={svc.serviceId}>
-                        <TableCell className="font-medium">{svc.serviceName}</TableCell>
+                      <TableRow key={svc.serviceId} className={svc.serviceId < 0 ? "bg-muted/20 text-muted-foreground" : undefined}>
+                        <TableCell className="font-medium">
+                          {svc.serviceName}
+                          {svc.serviceId < 0 && (
+                            <span className="block text-[11px] font-normal">پرداخت/پورسانتی که به خدمتی وصل نیست</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-left font-mono">{toPersianDigits(svc.completedCount)}</TableCell>
                         <TableCell className="text-left font-mono text-green-700">{formatCurrency(svc.revenue)}</TableCell>
                         <TableCell className="text-left font-mono text-purple-600">
@@ -458,7 +572,9 @@ export default function Accounting() {
                           <Button
                             variant="ghost" size="sm"
                             className="text-destructive h-7 w-7 p-0"
-                            onClick={() => deleteExpense.mutate(exp.id)}
+                            aria-label="حذف هزینه"
+                            disabled={deleteExpense.isPending}
+                            onClick={() => setPendingDelete(exp)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -468,7 +584,7 @@ export default function Accounting() {
                     {!expenses?.length && (
                       <TableRow>
                         <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
-                          هزینه‌ای ثبت نشده — با دکمه «هزینه جدید» شروع کنید
+                          در این بازه هزینه‌ای ثبت نشده — با دکمه «هزینه جدید» شروع کنید
                         </TableCell>
                       </TableRow>
                     )}
@@ -541,7 +657,7 @@ export default function Accounting() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Package className="h-5 w-5 text-purple-600" />
-              جزئیات هزینه خدمات — {PERIOD_LABELS[period]}
+              جزئیات هزینه خدمات — {periodLabel}
             </DialogTitle>
           </DialogHeader>
 
@@ -610,6 +726,16 @@ export default function Accounting() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDeleteDialog
+        open={pendingDelete !== null}
+        title="حذف هزینه"
+        description={pendingDelete
+          ? `هزینهٔ «${pendingDelete.description}» به مبلغ ${formatCurrency(pendingDelete.amount)} حذف شود؟ این عمل قابل بازگشت نیست.`
+          : undefined}
+        onConfirm={confirmDeleteExpense}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }

@@ -415,7 +415,46 @@ if (!gotLock) {
   });
 }
 
-app.on("before-quit", () => {
+// هنگام بستن برنامه، پیش از خاموش کردن سرور یک بکاپ خودکار گرفته می‌شود.
+// حداکثر SHUTDOWN_BACKUP_TIMEOUT_MS صبر می‌کنیم تا بستن برنامه هرگز گیر نکند.
+const SHUTDOWN_BACKUP_TIMEOUT_MS = 20000;
+let shutdownBackupDone = false;
+
+function requestShutdownBackup(port) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ reason: "shutdown" });
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/backup/auto",
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        timeout: SHUTDOWN_BACKUP_TIMEOUT_MS,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", resolve);
+        res.on("error", resolve);
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve();
+    });
+    req.on("error", resolve);
+    req.end(body);
+  });
+}
+
+app.on("before-quit", (event) => {
+  if (!shutdownBackupDone && serverProcess) {
+    shutdownBackupDone = true;
+    event.preventDefault();
+    for (const win of BrowserWindow.getAllWindows()) win.hide();
+    requestShutdownBackup(activePort).finally(() => app.quit());
+    return;
+  }
   app.isQuitting = true;
   if (serverProcess) {
     try {

@@ -36,11 +36,13 @@ import {
   reverseLoyaltyForPayment,
   getLoyaltySettings,
   LOYALTY_ERRORS,
+  LOYALTY_DEFAULTS,
   type LoyaltySettings,
 } from "../src/lib/loyalty";
 import { db, loyaltyTransactionsTable, appSettingsTable } from "@workspace/db";
 
 const SETTINGS: LoyaltySettings = {
+  ...LOYALTY_DEFAULTS,
   enabled: true,
   earnAmount: 100_000,
   redeemValue: 10_000,

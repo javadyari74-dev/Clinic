@@ -30,6 +30,7 @@ router.get("/reminders", async (req, res): Promise<void> => {
       description: remindersTable.description,
       type: remindersTable.type,
       patientId: remindersTable.patientId,
+      paymentId: remindersTable.paymentId,
       dueAt: remindersTable.dueAt,
       status: remindersTable.status,
       createdAt: remindersTable.createdAt,

@@ -18,6 +18,7 @@ import { PersianDatePicker } from "@/components/persian-date-picker";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { Star, Phone, Trash2, ChevronRight, ChevronLeft, Loader2 } from "lucide-react";
 
 const LIMIT = 30;
@@ -77,7 +78,7 @@ function ScoreDialog({ survey, onClose }: { survey: Survey; onClose: () => void 
         toast({ title: "امتیاز نظرسنجی ثبت شد" });
         onClose();
       },
-      onError: () => toast({ title: "خطا در ثبت امتیاز", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ثبت امتیاز"),
     },
   });
 
@@ -193,7 +194,7 @@ export default function Surveys() {
         toast({ title: "نظرسنجی حذف شد" });
         setDeleteTarget(null);
       },
-      onError: () => toast({ title: "خطا در حذف نظرسنجی", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در حذف نظرسنجی"),
     },
   });
 

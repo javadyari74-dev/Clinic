@@ -20,6 +20,7 @@ import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format"
 import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -208,6 +209,7 @@ export default function CommissionRecipients() {
         toast({ title: "گیرنده خارجی ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت گیرنده ناموفق بود"),
     },
   });
 
@@ -219,6 +221,7 @@ export default function CommissionRecipients() {
         setIsOpen(false);
         toast({ title: "اطلاعات ویرایش شد" });
       },
+      onError: onApiError("ویرایش گیرنده ناموفق بود"),
     },
   });
 
@@ -228,6 +231,7 @@ export default function CommissionRecipients() {
         queryClient.invalidateQueries({ queryKey: getListCommissionRecipientsQueryKey() });
         toast({ title: "گیرنده حذف شد" });
       },
+      onError: onApiError("حذف گیرنده ناموفق بود"),
     },
   });
 

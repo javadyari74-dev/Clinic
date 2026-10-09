@@ -90,6 +90,7 @@ const METHOD_MAP: Record<string, string> = {
   card:     "کارت",
   transfer: "انتقال",
   online:   "آنلاین",
+  insurance: "بیمه",
 };
 
 // ─── Birthday Types & Hook ────────────────────────────────────────────────────
@@ -263,6 +264,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{formatCurrency(summary?.monthlyRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">ماه شمسی جاری · بدون لیزر</p>
           </CardContent>
         </Card>
 
@@ -633,7 +635,7 @@ export default function Dashboard() {
         {/* Revenue Chart */}
         <Card className="md:col-span-4 shadow-sm">
           <CardHeader>
-            <CardTitle>نمودار درآمد (۳۰ روز گذشته)</CardTitle>
+            <CardTitle>نمودار درآمد (۳۰ روز گذشته، بدون لیزر)</CardTitle>
           </CardHeader>
           <CardContent className="h-[300px] w-full">
             {chartData && chartData.length > 0 ? (
@@ -643,9 +645,10 @@ export default function Dashboard() {
                   <XAxis
                     dataKey="date"
                     tickFormatter={(v) =>
+                      // v روز تهران است (YYYY-MM-DD)؛ ظهر UTC تا در هر منطقهٔ زمانی همان روز بماند
                       new Intl.DateTimeFormat("fa-IR", {
-                        day: "numeric", month: "short",
-                      }).format(new Date(v))
+                        calendar: "persian", day: "numeric", month: "short",
+                      }).format(new Date(`${v}T12:00:00Z`))
                     }
                     stroke="#888888"
                     fontSize={12}
@@ -665,8 +668,8 @@ export default function Dashboard() {
                   <RechartsTooltip
                     formatter={(v: number) => [formatCurrency(v), "درآمد"]}
                     labelFormatter={(l) =>
-                      new Intl.DateTimeFormat("fa-IR", { dateStyle: "full" }).format(
-                        new Date(l),
+                      new Intl.DateTimeFormat("fa-IR", { calendar: "persian", dateStyle: "full" }).format(
+                        new Date(`${l}T12:00:00Z`),
                       )
                     }
                   />

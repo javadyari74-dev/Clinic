@@ -11,6 +11,7 @@ import { formatCurrency, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -45,6 +46,7 @@ export default function Inventory() {
         toast({ title: "آیتم به انبار اضافه شد" });
         form.reset();
       },
+      onError: onApiError("ثبت کالا ناموفق بود"),
     },
   });
 
@@ -56,6 +58,7 @@ export default function Inventory() {
         setIsOpen(false);
         toast({ title: "آیتم انبار ویرایش شد" });
       },
+      onError: onApiError("ویرایش کالا ناموفق بود"),
     },
   });
 
@@ -65,6 +68,7 @@ export default function Inventory() {
         queryClient.invalidateQueries({ queryKey: getListInventoryQueryKey() });
         toast({ title: "آیتم حذف شد" });
       },
+      onError: onApiError("حذف کالا ناموفق بود"),
     },
   });
 

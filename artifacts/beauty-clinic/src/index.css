@@ -373,3 +373,11 @@
 .rmdp-panel-body li {
   font-family: "Vazirmatn", sans-serif !important;
 }
+.rmdp-range {
+  background-color: #be185d !important;
+  box-shadow: none !important;
+}
+.rmdp-range-hover {
+  background-color: #fce7f3 !important;
+  color: #9d174d !important;
+}

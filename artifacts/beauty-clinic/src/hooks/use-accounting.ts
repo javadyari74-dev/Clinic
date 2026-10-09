@@ -3,6 +3,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const TOKEN_KEY = "clinic_auth_token";
 
+/**
+ * خطای درخواست حسابداری؛ همان شکل ApiError کلاینت تولیدشده (status و data.error) تا
+ * apiErrorMessage پیام سرور را نشان دهد و handleUnauthorized در App روی ۴۰۱ کاربر را به ورود ببرد.
+ */
+export class AccountingApiError extends Error {
+  readonly status: number;
+  readonly data: { error?: string; message?: string } | null;
+  constructor(status: number, data: { error?: string; message?: string } | null, text: string) {
+    super(data?.error ?? data?.message ?? (text || `HTTP ${status}`));
+    this.name = "AccountingApiError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${BASE}${path}`, {
@@ -13,15 +28,28 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
       ...(opts?.headers ?? {}),
     },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let data: { error?: string; message?: string } | null = null;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") data = parsed;
+    } catch { /* پاسخ JSON نیست */ }
+    throw new AccountingApiError(res.status, data, text);
+  }
   if (res.status === 204) return undefined as T;
   return res.json();
 }
 
 export interface AccountingSummary {
+  /** درآمد نقدی مطب (بدون لیزر) */
   revenue: number;
+  /** درآمد لیزر (laser_payments) */
+  laserRevenue: number;
   expenses: number;
   commissions: number;
+  /** پورسانت اپراتور لیزر */
+  laserCommissions: number;
   serviceCosts: number;
   totalCosts: number;
   netProfit: number;
@@ -47,9 +75,15 @@ export interface ServiceProfit {
 }
 
 export interface ChartPoint {
+  /** روز محلی، میلادی YYYY-MM-DD */
   date: string;
   revenue: number;
+  serviceCosts: number;
   expenses: number;
+  commissions: number;
+  laserRevenue: number;
+  laserCommissions: number;
+  totalCosts: number;
   profit: number;
 }
 
@@ -73,26 +107,34 @@ export interface CreateExpenseInput {
   staffId?: number;
 }
 
-export type Period = "today" | "month" | "year" | "all";
+/** بازهٔ گزارش به ثانیهٔ یونیکس؛ to انحصاری است (ابتدای روزِ بعد از آخرین روز). */
+export interface DateRange {
+  from: number;
+  to: number;
+}
 
-export function useAccountingSummary(period: Period = "month") {
+const rangeQuery = (r: DateRange) => `from=${r.from}&to=${r.to}`;
+
+export function useAccountingSummary(range: DateRange) {
   return useQuery<AccountingSummary>({
-    queryKey: ["accounting", "summary", period],
-    queryFn: () => apiFetch(`/api/accounting/summary?period=${period}`),
+    queryKey: ["accounting", "summary", range.from, range.to],
+    queryFn: () => apiFetch(`/api/accounting/summary?${rangeQuery(range)}`),
   });
 }
 
-export function useAccountingByService(period: Period = "month") {
+export function useAccountingByService(range: DateRange) {
   return useQuery<ServiceProfit[]>({
-    queryKey: ["accounting", "by-service", period],
-    queryFn: () => apiFetch(`/api/accounting/by-service?period=${period}`),
+    queryKey: ["accounting", "by-service", range.from, range.to],
+    queryFn: () => apiFetch(`/api/accounting/by-service?${rangeQuery(range)}`),
   });
 }
 
-export function useAccountingChart(period: "month" | "year" = "month") {
+export function useAccountingChart(range: DateRange) {
+  // مرز روزها بر اساس منطقهٔ زمانی همین دستگاه (دقیقه، شرق UTC مثبت)
+  const tz = -new Date().getTimezoneOffset();
   return useQuery<ChartPoint[]>({
-    queryKey: ["accounting", "chart", period],
-    queryFn: () => apiFetch(`/api/accounting/chart?period=${period}`),
+    queryKey: ["accounting", "chart", range.from, range.to, tz],
+    queryFn: () => apiFetch(`/api/accounting/chart?${rangeQuery(range)}&tz=${tz}`),
   });
 }
 
@@ -110,10 +152,18 @@ export function useRevenueRange(from: number | null, to: number | null) {
   });
 }
 
-export function useExpenses(category?: string) {
+export function useExpenses(range?: DateRange, category?: string) {
+  const params = new URLSearchParams();
+  if (range) {
+    params.set("from", String(range.from));
+    params.set("to", String(range.to));
+    params.set("limit", "500");
+  }
+  if (category) params.set("category", category);
+  const qs = params.toString();
   return useQuery<Expense[]>({
-    queryKey: ["accounting", "expenses", category],
-    queryFn: () => apiFetch(`/api/accounting/expenses${category ? `?category=${category}` : ""}`),
+    queryKey: ["accounting", "expenses", range?.from, range?.to, category],
+    queryFn: () => apiFetch(`/api/accounting/expenses${qs ? `?${qs}` : ""}`),
   });
 }
 
