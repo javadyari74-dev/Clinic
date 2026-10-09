@@ -12,6 +12,7 @@ import {
   ListSmsLogsQueryParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { logger } from "../lib/logger";
 import {
   SMS_SETTING_KEYS,
   SMS_TEMPLATE_KEYS,
@@ -32,6 +33,7 @@ import {
   formatToman,
 } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
+import { birthdaySmsKey, markScheduledSms, upcomingBirthdayShamsiYear } from "../lib/scheduled-sms";
 
 const router: IRouter = Router();
 
@@ -235,6 +237,7 @@ router.post("/sms/send", async (req, res): Promise<void> => {
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
+  const birthdaySent: number[] = [];
   // متغیرهای باشگاه برای هر گیرنده: {اعتبار} (یا {امتیاز}) = موجودی کیف پول به تومان، {سطح}
   const usesLoyaltyVars = /\{\s*(امتیاز|اعتبار|سطح)\s*\}/.test(message);
   const memberTiers = new Map<number, string>();
@@ -264,10 +267,31 @@ router.post("/sms/send", async (req, res): Promise<void> => {
       patientId: r.id,
       pattern: usePattern ? { bodyId: settings.bodyIdBirthday, args: [r.name] } : undefined,
     });
-    if (result.ok) sent++;
-    else {
+    if (result.ok) {
+      sent++;
+      if (eventType === "birthday") birthdaySent.push(r.id);
+    } else {
       failed++;
       if (result.error && errors.length < 5 && !errors.includes(result.error)) errors.push(result.error);
+    }
+  }
+
+  // تبریک تولد دستی همان پیامک خودکار روز تولد است؛ کلید scheduled_sms همان تولد
+  // (birthday:{شناسه}:{سال شمسی تولد پیش رو}) «ارسال‌شده» ثبت می‌شود تا خودکار دوباره نفرستد.
+  if (birthdaySent.length > 0) {
+    try {
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
+      const rows = await db
+        .select({ id: patientsTable.id, birthdate: patientsTable.birthdate })
+        .from(patientsTable)
+        .where(inArray(patientsTable.id, birthdaySent));
+      for (const p of rows) {
+        const year = upcomingBirthdayShamsiYear(p.birthdate, nowMs);
+        if (year != null) await markScheduledSms(birthdaySmsKey(p.id, year), "birthday", "sent", nowSec);
+      }
+    } catch (err) {
+      logger.warn({ err }, "marking manual birthday SMS failed");
     }
   }
 

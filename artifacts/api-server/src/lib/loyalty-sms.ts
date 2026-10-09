@@ -121,8 +121,14 @@ const LAST_DAILY_KEY = "loyalty_daily_last_run";
  * عضویت یک‌جای مراجعین دارای پرداخت، بازمحاسبهٔ سطح (کاهش بی‌صدا)، انقضای امتیاز،
  * امتیاز هدیهٔ تولد. پیامک هشدار انقضا در هر دور (بعد از ساعت ارسال روزانه) بررسی می‌شود.
  */
+// جلوگیری از دو اجرای هم‌زمان در همین فرایند (نشانگر «اجرا شد» حالا بعد از کار
+// نوشته می‌شود، پس بدون این قفل دو دور هم‌زمان هر دو کار روزانه را انجام می‌دادند)
+let dailyRunning = false;
+
 export async function runLoyaltyDaily(nowMs = Date.now()): Promise<{ ran: boolean; expired: number; birthdays: number; warnings: number }> {
   const result = { ran: false, expired: 0, birthdays: 0, warnings: 0 };
+  if (dailyRunning) return result;
+  dailyRunning = true;
   try {
     const settings = await getLoyaltySettings();
     if (!settings.enabled) return result;
@@ -131,7 +137,6 @@ export async function runLoyaltyDaily(nowMs = Date.now()): Promise<{ ran: boolea
     const today = `${t.y}-${t.m}-${t.d}`;
 
     if ((await getSetting(LAST_DAILY_KEY)) !== today) {
-      await setSetting(LAST_DAILY_KEY, today);
       result.ran = true;
       await backfillLoyaltyMembers(nowSec);
       await recomputeAllTiers(nowSec, settings);
@@ -148,11 +153,16 @@ export async function runLoyaltyDaily(nowMs = Date.now()): Promise<{ ran: boolea
           if (b && b.m === jm && b.d === jd && (await grantBirthdayBonus(r.id, nowSec, settings)) > 0) result.birthdays++;
         }
       }
+      // نشانگر فقط پس از موفقیت کار نوشته می‌شود؛ اگر وسط کار خطا رخ دهد، دور بعدی
+      // دوباره تلاش می‌کند (همهٔ مراحل بالا تکرارپذیرند: هدیهٔ تولد سالی یک‌بار است)
+      await setSetting(LAST_DAILY_KEY, today);
     }
 
     result.warnings = await sendExpiryWarnings(nowMs);
   } catch (err) {
     logger.warn({ err }, "loyalty daily run failed");
+  } finally {
+    dailyRunning = false;
   }
   return result;
 }
@@ -172,7 +182,7 @@ async function sendExpiryWarnings(nowMs: number): Promise<number> {
     const p = await patientContact(s.patientId);
     if (!p || !normalizePhone(p.phone)) continue;
     const key = `loyalty-expiry:${s.patientId}:${Math.min(...s.lotIds)}`;
-    if (!(await claimScheduledSms(key, "loyalty_expiry", nowSec))) continue;
+    if (!(await claimScheduledSms(key, "loyalty_expiry", nowSec, { patientId: s.patientId }))) continue;
     const name = p.name ?? "";
     const pts = formatToman(s.points);
     const date = shamsiDateText(s.expiresAt * 1000);

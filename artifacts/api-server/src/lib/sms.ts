@@ -2,6 +2,7 @@ import { eq, and, gte, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db, appSettingsTable, smsLogTable, surveysTable, appointmentsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { shamsiDateText, timeText, toMs } from "./tehran-time";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // سرویس پیامک ملی‌پیامک (Melipayamak)
@@ -124,60 +125,14 @@ export function formatToman(amount: number): string {
   return toPersianDigits(Math.round(amount).toLocaleString("en-US"));
 }
 
-function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
-  const gDaysInMonth = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  const gy2 = gm > 2 ? gy + 1 : gy;
-  let days =
-    355666 +
-    365 * gy +
-    Math.floor((gy2 + 3) / 4) -
-    Math.floor((gy2 + 99) / 100) +
-    Math.floor((gy2 + 399) / 400) +
-    gd +
-    gDaysInMonth[gm - 1];
-
-  let jy = -1595 + 33 * Math.floor(days / 12053);
-  days %= 12053;
-  jy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-
-  let jm: number, jd: number;
-  if (days < 186) {
-    jm = 1 + Math.floor(days / 31);
-    jd = 1 + (days % 31);
-  } else {
-    jm = 7 + Math.floor((days - 186) / 30);
-    jd = 1 + ((days - 186) % 30);
-  }
-  return [jy, jm, jd];
-}
-
-const SHAMSI_MONTHS = [
-  "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
-  "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
-];
-
-// برخی رکوردها زمان را به میلی‌ثانیه و برخی به ثانیه ذخیره کرده‌اند؛ خودکار تشخیص می‌دهیم.
-function toDate(timestamp: number): Date {
-  const ms = timestamp > 100_000_000_000 ? timestamp : timestamp * 1000;
-  return new Date(ms);
-}
-
+// تاریخ و ساعت پیامک همیشه به وقت تهران است (مستقل از منطقهٔ زمانی سرور).
+// ورودی میلی‌ثانیه یا ثانیه است؛ خودکار تشخیص داده می‌شود.
 export function formatShamsiDateForSms(timestamp: number): string {
-  const d = toDate(timestamp);
-  const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-  return `${toPersianDigits(jd)} ${SHAMSI_MONTHS[jm - 1]} ${toPersianDigits(jy)}`;
+  return shamsiDateText(toMs(timestamp));
 }
 
 export function formatTimeForSms(timestamp: number): string {
-  const d = toDate(timestamp);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return toPersianDigits(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  return timeText(toMs(timestamp));
 }
 
 // جایگذاری متغیرها در قالب: {نام}، {تاریخ}، {ساعت}، {مبلغ}، {خدمت}، {درصد}، {پورسانت}
@@ -801,8 +756,14 @@ export function fireSurveySms(args: {
 }): void {
   void (async () => {
     try {
+      // پیش از رزرو سهمیه بررسی می‌شود که اصلاً پیامکی قابل ارسال هست؛ وگرنه
+      // سهمیهٔ محدودیت تکرار بی‌دلیل مصرف می‌شد و نظرسنجی بعدیِ واقعی جا می‌ماند.
+      if (!normalizePhone(args.phone)) return;
       const settings = await getSmsSettings();
       if (!settings.enabledSurvey) return;
+      if (!settings.username || !settings.password) return;
+      if (settings.sendMode === "normal" && !settings.from) return;
+      if (settings.sendMode === "pattern" && !settings.bodyIdSurvey) return;
 
       const now = Math.floor(Date.now() / 1000);
 

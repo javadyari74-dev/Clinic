@@ -18,24 +18,41 @@ async function smsTick(): Promise<void> {
   if (smsRunning) return; // دور قبلی هنوز تمام نشده (مثلاً اینترنت کند)
   smsRunning = true;
   try {
-    // اول کارهای روزانهٔ باشگاه (امتیاز هدیهٔ تولد باید پیش از پیامک تبریک داده شود)
-    const l = await runLoyaltyDaily();
-    if (l.ran || l.warnings) logger.info(l, "Loyalty daily run");
-    const r = await runScheduledSms();
-    if (r.appointmentReminders || r.followupReminders || r.birthdays) {
-      logger.info(r, "Scheduled SMS sent");
+    // اول کارهای روزانهٔ باشگاه (امتیاز هدیهٔ تولد باید پیش از پیامک تبریک داده شود).
+    // خطای یک مرحله نباید مرحلهٔ بعد را از کار بیندازد یا به promise رهاشده تبدیل شود.
+    try {
+      const l = await runLoyaltyDaily();
+      if (l.ran || l.warnings) logger.info(l, "Loyalty daily run");
+    } catch (err) {
+      logger.warn({ err }, "Loyalty daily run failed");
+    }
+    try {
+      const r = await runScheduledSms();
+      if (r.appointmentReminders || r.followupReminders || r.birthdays) {
+        logger.info(r, "Scheduled SMS sent");
+      }
+    } catch (err) {
+      logger.warn({ err }, "Scheduled SMS run failed");
     }
   } finally {
     smsRunning = false;
   }
 }
 
+let backupRunning = false;
+
 async function backupTick(): Promise<void> {
+  // نشانگر آخرین بکاپ پس از نوشتن فایل ثبت می‌شود؛ پس بکاپ کندی که هنوز تمام
+  // نشده نباید با دور بعدی دوباره شروع شود
+  if (backupRunning) return;
+  backupRunning = true;
   try {
     const r = await runDailyBackupIfDue();
     if (r && !r.ok) logger.warn({ error: r.error }, "Daily backup failed");
   } catch (err) {
     logger.warn({ err }, "Daily backup failed");
+  } finally {
+    backupRunning = false;
   }
 }
 
