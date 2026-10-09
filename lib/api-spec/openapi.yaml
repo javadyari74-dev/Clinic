@@ -1518,6 +1518,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/RetroCashbackResult"
 
+  /loyalty/notify:
+    post:
+      operationId: notifyLoyaltyMembers
+      tags: [loyalty]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoyaltyNotifyInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LoyaltyNotifyResult"
+
   /patients/{id}/loyalty:
     get:
       operationId: getPatientLoyalty
@@ -2209,7 +2227,7 @@ components:
     # ── SMS ───────────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder, enabledLoyaltyWelcome, enabledLoyaltyTierUp, enabledLoyaltyExpiry, enabledLoyaltyReferral, bodyIdLoyaltyWelcome, bodyIdLoyaltyTierUp, bodyIdLoyaltyExpiry, bodyIdLoyaltyReferral, bodyIdPaymentLoyalty]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder, enabledLoyaltyWelcome, enabledLoyaltyTierUp, enabledLoyaltyExpiry, enabledLoyaltyReferral, bodyIdLoyaltyWelcome, bodyIdLoyaltyTierUp, bodyIdLoyaltyExpiry, bodyIdLoyaltyReferral, bodyIdPaymentLoyalty, bodyIdLoyaltyNotify]
       properties:
         username: { type: string }
         from: { type: string }
@@ -2245,6 +2263,7 @@ components:
         bodyIdLoyaltyExpiry: { type: string }
         bodyIdLoyaltyReferral: { type: string }
         bodyIdPaymentLoyalty: { type: string }
+        bodyIdLoyaltyNotify: { type: string }
 
     SmsSettingsInput:
       type: object
@@ -2283,6 +2302,7 @@ components:
         bodyIdLoyaltyExpiry: { type: string }
         bodyIdLoyaltyReferral: { type: string }
         bodyIdPaymentLoyalty: { type: string }
+        bodyIdLoyaltyNotify: { type: string }
 
     SmsTemplates:
       type: object
@@ -2710,6 +2730,44 @@ components:
               name: { type: string }
               amount: { type: integer }
               appointments: { type: integer }
+
+    LoyaltyNotifyInput:
+      type: object
+      required: [message]
+      properties:
+        # متغیرها: {نام} {موجودی} {اعتبار} {سطح} {مبلغ_انقضا} {تاریخ_انقضا}
+        message: { type: string }
+        # گیرندگان مشخص؛ اگر خالی/نبود، همهٔ اعضا (با فیلترهای زیر)
+        patientIds: { type: array, items: { type: integer } }
+        tiers: { type: array, items: { type: string } }
+        onlyWithBalance: { type: boolean }
+        onlyExpiring: { type: boolean }
+        # روزهای آینده برای «مبلغ در حال انقضا» (پیش‌فرض ۳۰)
+        expiringWithinDays: { type: integer }
+        # true = فقط پیش‌نمایش، بدون ارسال
+        dryRun: { type: boolean }
+
+    LoyaltyNotifyResult:
+      type: object
+      required: [total, sent, failed, usesPattern, recipients]
+      properties:
+        total: { type: integer }
+        sent: { type: integer }
+        failed: { type: integer }
+        usesPattern: { type: boolean }
+        recipients:
+          type: array
+          items:
+            type: object
+            required: [patientId, name, text, balance, expiringAmount]
+            properties:
+              patientId: { type: integer }
+              name: { type: string }
+              phone: { type: ["string", "null"] }
+              text: { type: string }
+              balance: { type: integer }
+              expiringAmount: { type: integer }
+              expiresAt: { type: ["integer", "null"] }
 
     PatientLoyalty:
       type: object

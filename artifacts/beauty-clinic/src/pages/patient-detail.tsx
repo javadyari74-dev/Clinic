@@ -46,8 +46,10 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award, MessageSquare
 } from "lucide-react";
+import { LoyaltyNotifyDialog } from "@/components/loyalty-notify-dialog";
+import { useAuth } from "@/hooks/use-auth";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
@@ -86,6 +88,8 @@ export default function PatientDetail() {
   const queryClient = useQueryClient();
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const { hasPermission } = useAuth();
   const [noteText, setNoteText] = useState("");
   const [apptOpen, setApptOpen] = useState(false);
   const [apptServiceId, setApptServiceId] = useState("");
@@ -542,6 +546,14 @@ export default function PatientDetail() {
         </CardContent>
       </Card>
 
+      {patient && (
+        <LoyaltyNotifyDialog
+          open={notifyOpen}
+          onOpenChange={setNotifyOpen}
+          target={{ patientId: patient.id, patientName: patient.name }}
+        />
+      )}
+
       {/* Loyalty Card */}
       {loyalty?.settings?.enabled && (
         <Card>
@@ -550,6 +562,11 @@ export default function PatientDetail() {
               <Award className="h-4 w-4 text-amber-600" />
               باشگاه مشتریان
               {loyalty.member && <LoyaltyTierBadge tier={loyalty.member.tier} />}
+              {loyalty.member && hasPermission("loyalty") && (
+                <Button variant="outline" size="sm" className="gap-1 mr-auto" onClick={() => setNotifyOpen(true)}>
+                  <MessageSquare className="h-3.5 w-3.5" /> ارسال پیام موجودی
+                </Button>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">

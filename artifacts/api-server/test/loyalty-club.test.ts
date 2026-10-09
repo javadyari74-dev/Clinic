@@ -464,3 +464,62 @@ describe("wallet and checkout stay in step", () => {
     expect(rows.filter((r) => Number(r.balance) !== Number(r.ledger))).toEqual([]);
   });
 });
+
+describe("manual club messages", () => {
+  it("previews and sends a ready message with each member's wallet and expiring credit", async () => {
+    await setLoyalty({ expiryMonths: 6 });
+    const p = await patient("ملکی");
+    await pay(p.id, 4_000_000); // ۲۰۰ هزار اعتبار (تازه)
+    // ۸۰ هزار اعتبار هدیهٔ قدیمی که ۱۰ روز دیگر منقضی می‌شود
+    const sixMonths = 6 * 30 * DAY;
+    const old = Math.floor(Date.now() / 1000) - sixMonths + 10 * DAY;
+    await dbm.db.transaction((tx) => loyalty.creditWallet(tx, p.id, 80_000, "loyalty_birthday", "هدیه قدیمی", null, old));
+    expect(await wallet(p.id)).toBe(280_000);
+
+    const message = "{نام} عزیز، موجودی {موجودی} تومان؛ {مبلغ_انقضا} تومان تا {تاریخ_انقضا} منقضی می‌شود.";
+    const preview = await call("POST", "/loyalty/notify", { message, patientIds: [p.id], dryRun: true });
+    expect(preview.status).toBe(200);
+    expect(preview.json).toMatchObject({ total: 1, sent: 0 });
+    const r = preview.json.recipients[0];
+    expect(r).toMatchObject({ patientId: p.id, balance: 280_000, expiringAmount: 80_000 });
+    expect(r.text).toContain("ملکی عزیز، موجودی ۲۸۰,۰۰۰ تومان؛ ۸۰,۰۰۰ تومان تا");
+    expect(r.text).not.toContain("{");
+    expect(sent.filter((s) => s.eventType === "loyalty_bulk")).toHaveLength(0);
+
+    const send = await call("POST", "/loyalty/notify", { message, patientIds: [p.id] });
+    expect(send.json).toMatchObject({ total: 1, sent: 1, failed: 0 });
+    const msg = sent.find((s) => s.eventType === "loyalty_bulk" && s.patientId === p.id);
+    expect(msg?.text).toBe(r.text);
+    await setLoyalty({ expiryMonths: 0 });
+  });
+
+  it("sends to all members with filters, and uses the club pattern in service-line mode", async () => {
+    const empty = await patient("بی‌موجودی");
+    await dbm.db.insert(dbm.loyaltyMembersTable).values({ patientId: empty.id, tier: "bronze", joinedAt: 1, tierUpdatedAt: 1, welcomed: true });
+
+    const all = await call("POST", "/loyalty/notify", { message: "{نام}: {موجودی}", dryRun: true });
+    const withBalance = await call("POST", "/loyalty/notify", { message: "{نام}: {موجودی}", onlyWithBalance: true, dryRun: true });
+    expect(all.json.total).toBeGreaterThan(withBalance.json.total);
+    expect(withBalance.json.recipients.every((r: { balance: number }) => r.balance > 0)).toBe(true);
+    const gold = await call("POST", "/loyalty/notify", { message: "x", tiers: ["gold"], dryRun: true });
+    const goldMembers = (await call("GET", "/loyalty/members")).json.filter((m: { tier: string }) => m.tier === "gold");
+    expect(gold.json.total).toBe(goldMembers.length);
+    // هیچ عضوی اعتبار در حال انقضا ندارد (انقضا خاموش است) → ارسال رد می‌شود
+    const none = await call("POST", "/loyalty/notify", { message: "x", onlyExpiring: true });
+    expect(none.status).toBe(400);
+
+    await sms.setAppSetting("sms_send_mode", "pattern");
+    await sms.setAppSetting("sms_bodyid_loyalty_notify", "777");
+    try {
+      const p = await patient("پترنی");
+      await pay(p.id, 2_000_000);
+      sent.length = 0;
+      const r = await call("POST", "/loyalty/notify", { message: "متن آزاد", patientIds: [p.id] });
+      expect(r.json).toMatchObject({ sent: 1, usesPattern: true });
+      expect(sent[0].pattern).toEqual({ bodyId: "777", args: ["پترنی", "۱۰۰,۰۰۰", "۰", "—"] });
+    } finally {
+      await sms.setAppSetting("sms_send_mode", "normal");
+      await sms.setAppSetting("sms_bodyid_loyalty_notify", "");
+    }
+  });
+});

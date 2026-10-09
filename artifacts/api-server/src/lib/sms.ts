@@ -61,6 +61,9 @@ export const SMS_SETTING_KEYS = {
   bodyIdLoyaltyReferral: "sms_bodyid_loyalty_referral",
   // پترن پرداخت همراه با امتیاز (اختیاری): اگر خالی باشد پترن پرداخت عادی استفاده می‌شود
   bodyIdPaymentLoyalty: "sms_bodyid_payment_loyalty",
+  // پیام دستی باشگاه (موجودی/انقضای کیف پول) در حالت خدماتی:
+  // {0}=نام {1}=موجودی {2}=مبلغ در حال انقضا {3}=تاریخ انقضا
+  bodyIdLoyaltyNotify: "sms_bodyid_loyalty_notify",
 } as const;
 
 export type SmsSendMode = "normal" | "pattern";
@@ -193,6 +196,7 @@ export interface SmsSettings {
   bodyIdLoyaltyExpiry: string;
   bodyIdLoyaltyReferral: string;
   bodyIdPaymentLoyalty: string;
+  bodyIdLoyaltyNotify: string;
 }
 
 // حداقل فاصله نظرسنجی: عدد صحیح بین ۰ تا ۳۶۵ روز (پیش‌فرض ۳۰)
@@ -264,6 +268,7 @@ export async function getSmsSettings(): Promise<SmsSettings> {
     bodyIdLoyaltyExpiry: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyExpiry) ?? "").trim(),
     bodyIdLoyaltyReferral: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyReferral) ?? "").trim(),
     bodyIdPaymentLoyalty: (map.get(SMS_SETTING_KEYS.bodyIdPaymentLoyalty) ?? "").trim(),
+    bodyIdLoyaltyNotify: (map.get(SMS_SETTING_KEYS.bodyIdLoyaltyNotify) ?? "").trim(),
   };
 }
 

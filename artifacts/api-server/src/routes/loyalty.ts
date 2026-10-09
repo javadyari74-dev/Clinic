@@ -1,11 +1,12 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { db, loyaltyTransactionsTable, loyaltyMembersTable, patientsTable } from "@workspace/db";
 import {
   UpdateLoyaltySettingsBody,
   GetPatientLoyaltyParams,
   AdjustLoyaltyPointsBody,
   RetroLoyaltyCashbackBody,
+  NotifyLoyaltyMembersBody,
 } from "@workspace/api-zod";
 import {
   LOYALTY_SETTING_KEYS,
@@ -22,8 +23,11 @@ import {
   isLoyaltyTier,
   getWalletBalance,
   retroProfitCashback,
+  getMemberWalletInfo,
+  TIER_LABELS,
 } from "../lib/loyalty";
-import { setAppSetting, sendSms, renderTemplate, formatToman } from "../lib/sms";
+import { setAppSetting, sendSms, renderTemplate, formatToman, getSmsSettings } from "../lib/sms";
+import { shamsiDateText } from "../lib/tehran-time";
 import { tehranInstant } from "../lib/scheduled-sms";
 import { logActivity } from "../lib/activity";
 import { requireAdmin } from "../lib/auth";
@@ -257,6 +261,85 @@ router.post("/loyalty/retro-cashback", requireAdmin, async (req, res): Promise<v
     smsFailed,
     patients: result.patients.map(({ patientId, name, amount, appointments }) => ({ patientId, name, amount, appointments })),
   });
+});
+
+// پیام دستی باشگاه در هر لحظه: به یک یا چند عضو، یا همهٔ اعضا (با فیلتر سطح/موجودی/انقضا).
+// متغیرها برای هر نفر جدا پر می‌شوند. dryRun فقط پیش‌نمایش می‌دهد.
+router.post("/loyalty/notify", async (req, res): Promise<void> => {
+  const parsed = NotifyLoyaltyMembersBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const { message, patientIds, tiers, onlyWithBalance, onlyExpiring, dryRun } = parsed.data;
+  if (!message.trim()) {
+    res.status(400).json({ error: "متن پیام خالی است" });
+    return;
+  }
+  const settings = await getLoyaltySettings();
+  const withinDays = Math.min(Math.max(Math.round(parsed.data.expiringWithinDays ?? 30), 1), 365);
+  const conditions = [];
+  if (patientIds && patientIds.length > 0) conditions.push(inArray(loyaltyMembersTable.patientId, patientIds));
+  const tierList = (tiers ?? []).filter(isLoyaltyTier);
+  if (tierList.length > 0) conditions.push(inArray(loyaltyMembersTable.tier, tierList));
+  const members = await db
+    .select({ patientId: loyaltyMembersTable.patientId, tier: loyaltyMembersTable.tier, name: patientsTable.name, phone: patientsTable.phone })
+    .from(loyaltyMembersTable)
+    .innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(patientsTable.name);
+
+  const now = nowSec();
+  const sms = await getSmsSettings();
+  const usesPattern = sms.sendMode === "pattern" && sms.bodyIdLoyaltyNotify !== "";
+  const recipients: Array<{ patientId: number; name: string; phone: string | null; text: string; balance: number; expiringAmount: number; expiresAt: number | null }> = [];
+  for (const m of members) {
+    const info = await getMemberWalletInfo(m.patientId, now, settings, withinDays);
+    if (onlyWithBalance && info.balance <= 0) continue;
+    if (onlyExpiring && info.expiringAmount <= 0) continue;
+    const vars = {
+      "نام": m.name,
+      "موجودی": formatToman(info.balance),
+      "اعتبار": formatToman(info.balance),
+      "امتیاز": formatToman(info.balance),
+      "سطح": isLoyaltyTier(m.tier) ? TIER_LABELS[m.tier] : "",
+      "مبلغ_انقضا": formatToman(info.expiringAmount),
+      "تاریخ_انقضا": info.expiresAt ? shamsiDateText(info.expiresAt * 1000) : "—",
+    };
+    recipients.push({
+      patientId: m.patientId, name: m.name, phone: m.phone,
+      text: renderTemplate(message, vars),
+      balance: info.balance, expiringAmount: info.expiringAmount, expiresAt: info.expiresAt,
+    });
+  }
+
+  let sent = 0;
+  let failed = 0;
+  if (!dryRun) {
+    if (recipients.length === 0) {
+      res.status(400).json({ error: "هیچ عضوی با این شرایط پیدا نشد" });
+      return;
+    }
+    for (const r of recipients) {
+      const result = await sendSms({
+        to: r.phone ?? "",
+        text: r.text,
+        eventType: "loyalty_bulk",
+        recipientName: r.name,
+        patientId: r.patientId,
+        // حالت خدماتی: {0}=نام {1}=موجودی {2}=مبلغ در حال انقضا {3}=تاریخ انقضا
+        pattern: usesPattern
+          ? {
+              bodyId: sms.bodyIdLoyaltyNotify,
+              args: [r.name, formatToman(r.balance), formatToman(r.expiringAmount), r.expiresAt ? shamsiDateText(r.expiresAt * 1000) : "—"],
+            }
+          : undefined,
+      });
+      if (result.ok) sent++; else failed++;
+    }
+    await logActivity("create", "sms", null, `پیام باشگاه به ${recipients.length.toLocaleString()} عضو: ${sent.toLocaleString()} ارسال، ${failed.toLocaleString()} ناموفق`);
+  }
+  res.json({ total: recipients.length, sent, failed, usesPattern, recipients });
 });
 
 router.get("/patients/:id/loyalty", async (req, res): Promise<void> => {

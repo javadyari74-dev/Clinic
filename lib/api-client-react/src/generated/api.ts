@@ -55,6 +55,8 @@ import type {
   ListSurveysParams,
   ListWaitingListParams,
   LoyaltyMember,
+  LoyaltyNotifyInput,
+  LoyaltyNotifyResult,
   LoyaltyOverview,
   LoyaltySettings,
   LoyaltySettingsInput,
@@ -6007,6 +6009,71 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return useMutation(getRetroLoyaltyCashbackMutationOptions(options));
+    }
+
+export const getNotifyLoyaltyMembersUrl = () => {
+
+
+
+
+  return `/api/loyalty/notify`
+}
+
+export const notifyLoyaltyMembers = async (loyaltyNotifyInput: LoyaltyNotifyInput, options?: RequestInit): Promise<LoyaltyNotifyResult> => {
+
+  return customFetch<LoyaltyNotifyResult>(getNotifyLoyaltyMembersUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      loyaltyNotifyInput,)
+  }
+);}
+
+
+
+
+export const getNotifyLoyaltyMembersMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof notifyLoyaltyMembers>>, TError,{data: BodyType<LoyaltyNotifyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof notifyLoyaltyMembers>>, TError,{data: BodyType<LoyaltyNotifyInput>}, TContext> => {
+
+const mutationKey = ['notifyLoyaltyMembers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof notifyLoyaltyMembers>>, {data: BodyType<LoyaltyNotifyInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  notifyLoyaltyMembers(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type NotifyLoyaltyMembersMutationResult = NonNullable<Awaited<ReturnType<typeof notifyLoyaltyMembers>>>
+    export type NotifyLoyaltyMembersMutationBody = BodyType<LoyaltyNotifyInput>
+    export type NotifyLoyaltyMembersMutationError = ErrorType<unknown>
+
+    export const useNotifyLoyaltyMembers = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof notifyLoyaltyMembers>>, TError,{data: BodyType<LoyaltyNotifyInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof notifyLoyaltyMembers>>,
+        TError,
+        {data: BodyType<LoyaltyNotifyInput>},
+        TContext
+      > => {
+      return useMutation(getNotifyLoyaltyMembersMutationOptions(options));
     }
 
 export const getGetPatientLoyaltyUrl = (id: number,) => {

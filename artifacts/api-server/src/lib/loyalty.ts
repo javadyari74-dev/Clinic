@@ -843,3 +843,31 @@ export async function retroProfitCashback(args: {
 
   return args.apply ? db.transaction(run) : run(db);
 }
+
+// ── پیام دستی به اعضا (موجودی و انقضای کیف پول) ─────────────────────────────
+
+export interface MemberWalletInfo {
+  balance: number;
+  /** اعتبار هدیه‌ای که ظرف withinDays روز آینده منقضی می‌شود (حداکثر به اندازهٔ موجودی) */
+  expiringAmount: number;
+  /** نزدیک‌ترین زمان انقضای همان مبلغ (ثانیه)؛ اگر چیزی در حال انقضا نیست null */
+  expiresAt: number | null;
+}
+
+export async function getMemberWalletInfo(
+  patientId: number,
+  nowSec: number,
+  settings: LoyaltySettings,
+  withinDays: number,
+): Promise<MemberWalletInfo> {
+  const balance = await getWalletBalance(db, patientId);
+  if (settings.expiryMonths <= 0 || balance <= 0) return { balance, expiringAmount: 0, expiresAt: null };
+  const soon = (await walletRewardLots(patientId, settings.expiryMonths))
+    .filter((l) => l.expiresAt > nowSec && l.expiresAt <= nowSec + withinDays * DAY_SEC);
+  if (soon.length === 0) return { balance, expiringAmount: 0, expiresAt: null };
+  return {
+    balance,
+    expiringAmount: Math.min(balance, soon.reduce((s, l) => s + l.remaining, 0)),
+    expiresAt: Math.min(...soon.map((l) => l.expiresAt)),
+  };
+}

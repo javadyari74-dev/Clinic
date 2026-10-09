@@ -40,4 +40,5 @@ export interface SmsSettingsInput {
   bodyIdLoyaltyExpiry?: string;
   bodyIdLoyaltyReferral?: string;
   bodyIdPaymentLoyalty?: string;
+  bodyIdLoyaltyNotify?: string;
 }

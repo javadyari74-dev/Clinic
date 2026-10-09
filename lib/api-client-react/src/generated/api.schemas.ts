@@ -739,6 +739,7 @@ export interface SmsSettings {
   bodyIdLoyaltyExpiry: string;
   bodyIdLoyaltyReferral: string;
   bodyIdPaymentLoyalty: string;
+  bodyIdLoyaltyNotify: string;
 }
 
 export type SmsSettingsInputSendMode = typeof SmsSettingsInputSendMode[keyof typeof SmsSettingsInputSendMode];
@@ -782,6 +783,7 @@ export interface SmsSettingsInput {
   bodyIdLoyaltyExpiry?: string;
   bodyIdLoyaltyReferral?: string;
   bodyIdPaymentLoyalty?: string;
+  bodyIdLoyaltyNotify?: string;
 }
 
 export type SmsTemplatesDefaults = {
@@ -1196,6 +1198,36 @@ export interface RetroCashbackResult {
   smsSent: number;
   smsFailed: number;
   patients: RetroCashbackResultPatientsItem[];
+}
+
+export interface LoyaltyNotifyInput {
+  message: string;
+  patientIds?: number[];
+  tiers?: string[];
+  onlyWithBalance?: boolean;
+  onlyExpiring?: boolean;
+  expiringWithinDays?: number;
+  dryRun?: boolean;
+}
+
+export type LoyaltyNotifyResultRecipientsItem = {
+  patientId: number;
+  name: string;
+  /** @nullable */
+  phone?: string | null;
+  text: string;
+  balance: number;
+  expiringAmount: number;
+  /** @nullable */
+  expiresAt?: number | null;
+};
+
+export interface LoyaltyNotifyResult {
+  total: number;
+  sent: number;
+  failed: number;
+  usesPattern: boolean;
+  recipients: LoyaltyNotifyResultRecipientsItem[];
 }
 
 /**

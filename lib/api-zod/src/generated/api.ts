@@ -1081,7 +1081,8 @@ export const GetSmsSettingsResponse = zod.object({
   "bodyIdLoyaltyTierUp": zod.string(),
   "bodyIdLoyaltyExpiry": zod.string(),
   "bodyIdLoyaltyReferral": zod.string(),
-  "bodyIdPaymentLoyalty": zod.string()
+  "bodyIdPaymentLoyalty": zod.string(),
+  "bodyIdLoyaltyNotify": zod.string()
 })
 
 
@@ -1117,7 +1118,8 @@ export const UpdateSmsSettingsBody = zod.object({
   "bodyIdLoyaltyTierUp": zod.string().optional(),
   "bodyIdLoyaltyExpiry": zod.string().optional(),
   "bodyIdLoyaltyReferral": zod.string().optional(),
-  "bodyIdPaymentLoyalty": zod.string().optional()
+  "bodyIdPaymentLoyalty": zod.string().optional(),
+  "bodyIdLoyaltyNotify": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1152,7 +1154,8 @@ export const UpdateSmsSettingsResponse = zod.object({
   "bodyIdLoyaltyTierUp": zod.string(),
   "bodyIdLoyaltyExpiry": zod.string(),
   "bodyIdLoyaltyReferral": zod.string(),
-  "bodyIdPaymentLoyalty": zod.string()
+  "bodyIdPaymentLoyalty": zod.string(),
+  "bodyIdLoyaltyNotify": zod.string()
 })
 
 
@@ -1672,6 +1675,33 @@ export const RetroLoyaltyCashbackResponse = zod.object({
   "name": zod.string(),
   "amount": zod.number(),
   "appointments": zod.number()
+}))
+})
+
+
+export const NotifyLoyaltyMembersBody = zod.object({
+  "message": zod.string(),
+  "patientIds": zod.array(zod.number()).optional(),
+  "tiers": zod.array(zod.string()).optional(),
+  "onlyWithBalance": zod.boolean().optional(),
+  "onlyExpiring": zod.boolean().optional(),
+  "expiringWithinDays": zod.number().optional(),
+  "dryRun": zod.boolean().optional()
+})
+
+export const NotifyLoyaltyMembersResponse = zod.object({
+  "total": zod.number(),
+  "sent": zod.number(),
+  "failed": zod.number(),
+  "usesPattern": zod.boolean(),
+  "recipients": zod.array(zod.object({
+  "patientId": zod.number(),
+  "name": zod.string(),
+  "phone": zod.string().nullish(),
+  "text": zod.string(),
+  "balance": zod.number(),
+  "expiringAmount": zod.number(),
+  "expiresAt": zod.number().nullish()
 }))
 })
 

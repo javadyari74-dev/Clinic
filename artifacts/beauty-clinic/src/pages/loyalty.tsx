@@ -25,6 +25,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ErrorNotice } from "@/components/error-notice";
 import { Textarea } from "@/components/ui/textarea";
 import { PersianDatePicker } from "@/components/persian-date-picker";
+import { LoyaltyNotifyDialog } from "@/components/loyalty-notify-dialog";
 import { LoyaltyTierBadge, LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTierKey } from "@/components/loyalty-tier-badge";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { txSign, txAmountText } from "@/lib/loyalty-format";
@@ -216,6 +217,9 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
   const [amountInput, setAmountInput] = useState("");
   const [direction, setDirection] = useState<"add" | "remove">("add");
   const [description, setDescription] = useState("");
+  // پیام دستی: یک عضو مشخص، یا null = همهٔ اعضا
+  const [notifyOpen, setNotifyOpen] = useState(false);
+  const [notifyTarget, setNotifyTarget] = useState<{ patientId: number; patientName: string } | null>(null);
 
   const adjust = useAdjustLoyaltyPoints({
     mutation: {
@@ -275,6 +279,9 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
               {LOYALTY_TIER_META[t].emoji} {LOYALTY_TIER_META[t].label} ({toPersianDigits((members ?? []).filter((m) => m.tier === t).length)})
             </Button>
           ))}
+          <Button size="sm" className="gap-1 mr-auto" onClick={() => { setNotifyTarget(null); setNotifyOpen(true); }}>
+            <MessageSquare className="h-4 w-4" /> ارسال پیام به اعضا
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -287,7 +294,7 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
               <TableHead className="text-right">اعتبار هدیه‌شده</TableHead>
               <TableHead className="text-right">خرید ۱۲ ماه</TableHead>
               <TableHead className="text-right">عضویت از</TableHead>
-              {isAdmin && <TableHead />}
+              <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -304,18 +311,26 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
                 <TableCell className="text-sm text-emerald-700 whitespace-nowrap">{formatCurrency(m.totalRewards)}</TableCell>
                 <TableCell className="text-sm whitespace-nowrap">{formatCurrency(m.spend12m)}</TableCell>
                 <TableCell className="text-sm">{formatShamsiDate(m.joinedAt)}</TableCell>
-                {isAdmin && (
-                  <TableCell>
-                    <Button variant="ghost" size="sm" className="gap-1" onClick={() => openAdjust(m)}>
-                      <PlusCircle className="h-3.5 w-3.5" /> تغییر اعتبار
+                <TableCell>
+                  <div className="flex gap-1 justify-end">
+                    <Button
+                      variant="ghost" size="sm" className="gap-1"
+                      onClick={() => { setNotifyTarget({ patientId: m.patientId, patientName: m.patientName }); setNotifyOpen(true); }}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" /> پیام
                     </Button>
-                  </TableCell>
-                )}
+                    {isAdmin && (
+                      <Button variant="ghost" size="sm" className="gap-1" onClick={() => openAdjust(m)}>
+                        <PlusCircle className="h-3.5 w-3.5" /> تغییر اعتبار
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={isAdmin ? 7 : 6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   {members?.length ? "عضوی با این مشخصات پیدا نشد" : "هنوز عضوی در باشگاه نیست"}
                 </TableCell>
               </TableRow>
@@ -352,6 +367,8 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <LoyaltyNotifyDialog open={notifyOpen} onOpenChange={setNotifyOpen} target={notifyTarget} />
     </Card>
   );
 }
