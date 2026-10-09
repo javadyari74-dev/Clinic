@@ -53,12 +53,21 @@ interface UserFormData {
   isActive: boolean;
 }
 
+/** Throw an Error carrying the server's Persian message (or a fallback). */
+async function throwServerError(res: Response, fallback: string): Promise<never> {
+  const body = await res.json().catch(() => null);
+  const msg = body?.message || body?.error;
+  throw new Error(typeof msg === "string" && msg.trim() ? msg : fallback);
+}
+
 function getToken() {
   return localStorage.getItem("clinic_auth_token");
 }
 
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 function authFetch(url: string, options?: RequestInit) {
-  return fetch(url, {
+  return fetch(`${API_BASE}${url}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -204,7 +213,7 @@ function LaserCommissionCard() {
         method: "PUT",
         body: JSON.stringify({ commissionRate: rate }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ذخیره نرخ کمیسیون ناموفق بود");
       return res.json();
     },
     onSuccess: () => {
@@ -301,7 +310,7 @@ export default function Users() {
   const createMutation = useMutation({
     mutationFn: async (data: UserFormData) => {
       const res = await authFetch("/api/users", { method: "POST", body: JSON.stringify(data) });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ایجاد کاربر ناموفق بود");
       return res.json();
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setFormOpen(false); toast({ title: "کاربر ایجاد شد" }); },
@@ -311,7 +320,7 @@ export default function Users() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: UserFormData }) => {
       const res = await authFetch(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(data) });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ویرایش کاربر ناموفق بود");
       return res.json();
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setFormOpen(false); setEditUser(undefined); toast({ title: "کاربر ویرایش شد" }); },
@@ -321,7 +330,7 @@ export default function Users() {
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await authFetch(`/api/users/${id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok && res.status !== 204) await throwServerError(res, "حذف کاربر ناموفق بود");
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setDeleteId(null); toast({ title: "کاربر حذف شد" }); },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),

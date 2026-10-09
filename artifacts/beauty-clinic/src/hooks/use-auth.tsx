@@ -64,14 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (username: string, password: string) => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "نام کاربری یا رمز عبور اشتباه است");
+        throw new Error(data.message || data.error || "نام کاربری یا رمز عبور اشتباه است");
       }
       const { token: newToken } = await res.json();
       localStorage.setItem(TOKEN_KEY, newToken);

@@ -20,6 +20,7 @@ import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } fr
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -166,6 +167,7 @@ export default function Reminders() {
         toast({ title: "یادآوری ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت یادآوری ناموفق بود"),
     },
   });
 
@@ -175,6 +177,7 @@ export default function Reminders() {
         queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
         toast({ title: "یادآوری انجام شد" });
       },
+      onError: onApiError("به‌روزرسانی یادآوری ناموفق بود"),
     },
   });
 
@@ -184,6 +187,7 @@ export default function Reminders() {
         queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
         toast({ title: "یادآوری حذف شد" });
       },
+      onError: onApiError("حذف یادآوری ناموفق بود"),
     },
   });
 

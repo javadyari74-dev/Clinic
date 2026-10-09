@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/table";
 import { toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import {
   MessageSquare, PlugZap, FileText, Send, History, Zap,
   CheckCircle2, XCircle, RotateCcw, Cake, Plus, Trash2,
@@ -67,7 +68,7 @@ function SettingsTab() {
         setPassword("");
         toast({ title: "تنظیمات پنل پیامکی ذخیره شد" });
       },
-      onError: () => toast({ title: "خطا در ذخیره تنظیمات", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ذخیره تنظیمات"),
     },
   });
 
@@ -552,7 +553,7 @@ function TemplatesTab() {
         refetch();
         toast({ title: "قالب‌های پیامک ذخیره شد" });
       },
-      onError: () => toast({ title: "خطا در ذخیره قالب‌ها", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ذخیره قالب‌ها"),
     },
   });
 
@@ -867,7 +868,7 @@ function SendTab() {
         });
         if (res.sent > 0) setSelected(new Map());
       },
-      onError: () => toast({ title: "خطا در ارسال پیامک", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "خطا در ارسال پیامک"),
     },
   });
 

@@ -13,6 +13,7 @@ import { Plus, CheckCircle, Trash2, Clock } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -44,6 +45,7 @@ export default function Commissions() {
         toast({ title: "کمیسیون ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت کمیسیون ناموفق بود"),
     },
   });
 
@@ -53,6 +55,7 @@ export default function Commissions() {
         queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         toast({ title: "کمیسیون تسویه شد" });
       },
+      onError: onApiError("تسویه کمیسیون ناموفق بود"),
     },
   });
 
@@ -62,6 +65,7 @@ export default function Commissions() {
         queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         toast({ title: "کمیسیون حذف شد" });
       },
+      onError: onApiError("حذف کمیسیون ناموفق بود"),
     },
   });
 
@@ -245,6 +249,7 @@ export default function Commissions() {
                           variant="outline"
                           size="sm"
                           className="text-green-700 border-green-300 hover:bg-green-50 text-xs"
+                          disabled={updateCommission.isPending}
                           onClick={() => updateCommission.mutate({ id: c.id, data: { isPaid: true } })}
                         >
                           <CheckCircle className="h-3 w-3 ml-1" />

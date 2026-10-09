@@ -29,6 +29,7 @@ import { LoyaltyTierBadge, LOYALTY_TIER_KEYS, LOYALTY_TIER_META, type LoyaltyTie
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useAuth } from "@/hooks/use-auth";
 import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet, History } from "lucide-react";
 
@@ -538,7 +539,7 @@ function SettingsTab({ settings }: { settings: LoyaltySettings | undefined }) {
         queryClient.invalidateQueries({ queryKey: getListLoyaltyMembersQueryKey() });
         toast({ title: "تنظیمات باشگاه ذخیره شد" });
       },
-      onError: () => toast({ title: "ذخیره تنظیمات ناموفق بود", variant: "destructive" }),
+      onError: (err) => toastApiError(err, "ذخیره تنظیمات ناموفق بود"),
     },
   });
 

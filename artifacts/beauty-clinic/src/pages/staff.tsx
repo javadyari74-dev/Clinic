@@ -10,6 +10,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Plus, Pencil, Trash2, Calculator } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -64,6 +65,7 @@ export default function Staff() {
         toast({ title: "کارمند با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت پرسنل ناموفق بود"),
     },
   });
 
@@ -75,6 +77,7 @@ export default function Staff() {
         setIsOpen(false);
         toast({ title: "اطلاعات کارمند ویرایش شد" });
       },
+      onError: onApiError("ویرایش پرسنل ناموفق بود"),
     },
   });
 
@@ -84,6 +87,7 @@ export default function Staff() {
         queryClient.invalidateQueries({ queryKey: getListStaffQueryKey() });
         toast({ title: "کارمند حذف شد" });
       },
+      onError: onApiError("حذف پرسنل ناموفق بود"),
     },
   });
 

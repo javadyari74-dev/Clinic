@@ -21,6 +21,7 @@ import { PersianDatePicker } from "@/components/persian-date-picker";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -93,7 +94,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setIsOpen(false);
         toast({ title: "به لیست انتظار اضافه شد" });
       },
-      onError: () => toast({ title: "افزودن به لیست انتظار ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "افزودن به لیست انتظار ناموفق بود"),
     },
   });
 
@@ -105,7 +106,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setIsOpen(false);
         toast({ title: "لیست انتظار به‌روزرسانی شد" });
       },
-      onError: () => toast({ title: "به‌روزرسانی ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "به‌روزرسانی ناموفق بود"),
     },
   });
 
@@ -116,7 +117,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setConfirmDeleteId(null);
         toast({ title: "از لیست انتظار حذف شد" });
       },
-      onError: () => toast({ title: "حذف ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "حذف ناموفق بود"),
     },
   });
 
@@ -129,7 +130,7 @@ export function WaitingListPanel({ onConvert }: Props) {
           toast({ title: "ارسال پیامک ناموفق بود", description: result.error ?? undefined, variant: "destructive" });
         }
       },
-      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "ارسال پیامک ناموفق بود"),
       onSettled: () => setNotifyingId(null),
     },
   });

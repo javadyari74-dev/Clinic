@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -124,22 +125,13 @@ export default function Patients() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        // Birthdate may have changed: refresh dashboard / reminders birthday lists.
+        queryClient.invalidateQueries({ queryKey: ["upcoming-birthdays"] });
         setIsOpen(false);
         toast({ title: "مراجع جدید با موفقیت ثبت شد" });
         form.reset();
       },
-      onError: (error) => {
-        const serverMessage =
-          (error as any)?.data?.error ?? (error as any)?.data?.message;
-        toast({
-          title: "ثبت مراجع ناموفق بود",
-          description:
-            typeof serverMessage === "string" && serverMessage.trim()
-              ? serverMessage
-              : "ثبت اطلاعات با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
-          variant: "destructive",
-        });
-      },
+      onError: (error) => toastApiError(error, "ثبت مراجع ناموفق بود"),
     },
   });
 
@@ -147,21 +139,12 @@ export default function Patients() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        // Birthdate may have changed: refresh dashboard / reminders birthday lists.
+        queryClient.invalidateQueries({ queryKey: ["upcoming-birthdays"] });
         toast({ title: "مراجع حذف شد" });
         setPatientToDelete(null);
       },
-      onError: (error) => {
-        const serverMessage =
-          (error as any)?.data?.error ?? (error as any)?.data?.message;
-        toast({
-          title: "حذف مراجع ناموفق بود",
-          description:
-            typeof serverMessage === "string" && serverMessage.trim()
-              ? serverMessage
-              : "حذف مراجع با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
-          variant: "destructive",
-        });
-      },
+      onError: (error) => toastApiError(error, "حذف مراجع ناموفق بود"),
     },
   });
 
@@ -182,19 +165,14 @@ export default function Patients() {
     mutation: {
       onSuccess: (data) => {
         queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        // Birthdate may have changed: refresh dashboard / reminders birthday lists.
+        queryClient.invalidateQueries({ queryKey: ["upcoming-birthdays"] });
         queryClient.invalidateQueries({ queryKey: getGetPatientQueryKey(data.id) });
         setIsEditOpen(false);
         setPatientToEdit(null);
         toast({ title: "اطلاعات مراجع با موفقیت ویرایش شد" });
       },
-      onError: (error) => {
-        const serverMessage = (error as any)?.data?.error ?? (error as any)?.data?.message;
-        toast({
-          title: "ویرایش مراجع ناموفق بود",
-          description: typeof serverMessage === "string" && serverMessage.trim() ? serverMessage : "ویرایش اطلاعات با خطا مواجه شد.",
-          variant: "destructive",
-        });
-      },
+      onError: (error) => toastApiError(error, "ویرایش مراجع ناموفق بود"),
     },
   });
 
