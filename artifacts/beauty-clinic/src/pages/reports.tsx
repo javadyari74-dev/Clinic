@@ -22,10 +22,11 @@ export default function Reports() {
   const isError = summaryError || chartError;
   const retry = () => { refetchSummary(); refetchChart(); };
 
+  // date روز تهران است (YYYY-MM-DD)؛ با ظهر UTC در هر منطقهٔ زمانی همان روز نمایش داده می‌شود
   const chartFormatted = chartData?.map(d => ({
     date: d.date,
     revenue: d.revenue,
-    label: new Intl.DateTimeFormat("fa-IR", { calendar: "persian", month: "short", day: "numeric" }).format(new Date(d.date)),
+    label: new Intl.DateTimeFormat("fa-IR", { calendar: "persian", month: "short", day: "numeric" }).format(new Date(`${d.date}T12:00:00Z`)),
   })) ?? [];
 
   return (
@@ -46,6 +47,7 @@ export default function Reports() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-700">{formatCurrency(summary?.totalRevenue)}</div>
+            <p className="text-xs text-muted-foreground mt-1">از ابتدا، پرداخت‌های نقدی مطب · بدون لیزر</p>
           </CardContent>
         </Card>
         <Card>
@@ -81,7 +83,7 @@ export default function Reports() {
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>نمودار درآمد (۳۰ روز گذشته)</CardTitle>
+            <CardTitle>نمودار درآمد (۳۰ روز گذشته، بدون لیزر)</CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={250}>

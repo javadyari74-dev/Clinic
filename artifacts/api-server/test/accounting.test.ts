@@ -107,8 +107,8 @@ describe("accounting chart", () => {
     const { status, json } = await get(`/accounting/chart?${range}&tz=${TEHRAN}`);
     expect(status).toBe(200);
     expect(json).toEqual([
-      { date: "2026-09-23", revenue: 100_000, serviceCosts: 0, expenses: 300_000, commissions: 0, totalCosts: 300_000, profit: -200_000 },
-      { date: "2026-09-24", revenue: 900_000, serviceCosts: 250_000, expenses: 0, commissions: 50_000, totalCosts: 300_000, profit: 600_000 },
+      { date: "2026-09-23", revenue: 100_000, serviceCosts: 0, expenses: 300_000, commissions: 0, totalCosts: 300_000, profit: -200_000, laserRevenue: 0, laserCommissions: 0 },
+      { date: "2026-09-24", revenue: 900_000, serviceCosts: 250_000, expenses: 0, commissions: 50_000, totalCosts: 300_000, profit: 600_000, laserRevenue: 0, laserCommissions: 0 },
     ]);
   });
 

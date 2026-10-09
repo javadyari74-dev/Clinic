@@ -1,25 +1,15 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, gte, lt, and, desc } from "drizzle-orm";
-import { db, paymentsTable, commissionsTable, servicesTable, appointmentsTable, expensesTable } from "@workspace/db";
+import { db, paymentsTable, commissionsTable, servicesTable, expensesTable, laserPaymentsTable } from "@workspace/db";
+import { tehranTodayBounds, shamsiMonthBounds, shamsiYearBounds } from "../lib/tehran-period";
 
 const router: IRouter = Router();
 
+// period قدیمی: روز/ماه/سال شمسی به وقت تهران (همان مرزهای presetRange صفحهٔ حسابداری)
 function periodBounds(period: string): { start: number; end: number } {
-  const now = new Date();
-  if (period === "today") {
-    const s = Math.floor(now.setHours(0, 0, 0, 0) / 1000);
-    return { start: s, end: s + 86400 };
-  }
-  if (period === "month") {
-    const s = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000);
-    const e = Math.floor(new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() / 1000);
-    return { start: s, end: e };
-  }
-  if (period === "year") {
-    const s = Math.floor(new Date(now.getFullYear(), 0, 1).getTime() / 1000);
-    const e = Math.floor(new Date(now.getFullYear() + 1, 0, 1).getTime() / 1000);
-    return { start: s, end: e };
-  }
+  if (period === "today") return tehranTodayBounds();
+  if (period === "month") return shamsiMonthBounds();
+  if (period === "year") return shamsiYearBounds();
   return { start: 0, end: Math.floor(Date.now() / 1000) + 1 };
 }
 
@@ -39,7 +29,48 @@ function resolveRange(query: Record<string, unknown>): RangeResult {
   return { start, end };
 }
 
+// ── قاعدهٔ هزینهٔ خدمت (مشترک بین summary، by-service و chart) ──
+// هزینهٔ خدمت هر نوبت فقط یک‌بار شمرده می‌شود: در بازه‌ای که «اولین پرداخت غیربیعانهٔ» آن نوبت
+// (روی همهٔ پرداخت‌هایش، نه فقط پرداخت‌های داخل بازه) در آن است. پس پرداخت قسطی در چند ماه
+// هزینه را چند بار کم نمی‌کند و جمع سود ماه‌ها با سود کل بازهٔ ترکیبی برابر است.
+// فرمول هزینه همان appointmentServiceCost در lib/loyalty.ts است (ستون‌های خالی = صفر).
+const UNITS = sql.raw(`coalesce(a.units_used, s.unit_count, 1)`);
+const APPT_COST = sql`(
+  (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN coalesce(s.doctor_fee, 0) * ${UNITS} ELSE coalesce(s.doctor_fee, 0) END) +
+  (CASE WHEN s.material_cost_mode = 'per_unit' THEN coalesce(s.material_cost, 0) * ${UNITS} ELSE coalesce(s.material_cost, 0) END) +
+  (CASE WHEN s.other_cost_mode = 'per_unit' THEN coalesce(s.other_cost, 0) * ${UNITS} ELSE coalesce(s.other_cost, 0) END)
+)`;
+const FIRST_PAID = sql`(SELECT min(p.paid_at) FROM payments p
+  WHERE p.appointment_id = a.id AND coalesce(p.notes, '') <> 'بیعانه')`;
+
+/** نوبت‌های ارائه‌شده‌ای که هزینه‌شان در [start, end) شمرده می‌شود، با هزینه و واحد مصرفی */
+function servedAppointmentsSql(start: number, end: number) {
+  return sql`
+    SELECT a.id AS appointment_id, a.service_id AS service_id, first_paid,
+           cost, units
+    FROM (
+      SELECT a.id, a.service_id, ${FIRST_PAID} AS first_paid, ${APPT_COST} AS cost, ${UNITS} AS units
+      FROM appointments a
+      INNER JOIN services s ON s.id = a.service_id
+    ) a
+    WHERE first_paid >= ${start} AND first_paid < ${end}
+  `;
+}
+
+async function laserTotals(start: number, end: number) {
+  const [row] = await db
+    .select({
+      revenue: sql<number>`coalesce(sum(${laserPaymentsTable.amount}), 0)`,
+      commissions: sql<number>`coalesce(sum(${laserPaymentsTable.commissionAmount}), 0)`,
+    })
+    .from(laserPaymentsTable)
+    .where(sql`${laserPaymentsTable.paidAt} >= ${start} AND ${laserPaymentsTable.paidAt} < ${end}`);
+  return { revenue: Number(row?.revenue ?? 0), commissions: Number(row?.commissions ?? 0) };
+}
+
 // GET /api/accounting/summary?period=today|month|year|all
+// revenue = درآمد نقدی مطب؛ لیزر جدا (laserRevenue / laserCommissions) ولی در سود خالص لحاظ می‌شود:
+//   سود خالص = درآمد + درآمد لیزر − هزینه خدمات − هزینه‌های ثابت − پورسانت − پورسانت لیزر
 router.get("/accounting/summary", async (req, res): Promise<void> => {
   const range = resolveRange(req.query);
   if ("error" in range) { res.status(400).json({ error: range.error }); return; }
@@ -64,26 +95,18 @@ router.get("/accounting/summary", async (req, res): Promise<void> => {
     .where(and(gte(expensesTable.date, start), lt(expensesTable.date, end)))
     .groupBy(expensesTable.category);
 
-  // هزینه خدمات: هر نوبت ارائه‌شده فقط یک‌بار شمرده می‌شود (نه به‌ازای هر ردیف پرداخت)،
-  // تا بیعانه + پرداخت نهاییِ یک نوبت باعث شمارش دوباره هزینه نشود.
-  // per_unit: هزینه خام × واحد مصرفیِ همان نوبت (coalesce(units_used, unit_count, 1))؛ total: هزینه خام ثابت.
-  const [{ serviceCosts }] = await db
-    .select({
-      serviceCosts: sql<number>`coalesce(sum(
-        (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN s.doctor_fee * coalesce(a.units_used, s.unit_count, 1) ELSE s.doctor_fee END) +
-        (CASE WHEN s.material_cost_mode = 'per_unit' THEN s.material_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.material_cost END) +
-        (CASE WHEN s.other_cost_mode = 'per_unit' THEN s.other_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.other_cost END)
-      ), 0)`,
-    })
-    .from(sql`appointments a`)
-    .innerJoin(sql`services s`, sql`s.id = a.service_id`)
-    .where(sql`EXISTS (SELECT 1 FROM payments p WHERE p.appointment_id = a.id AND p.paid_at >= ${start} AND p.paid_at < ${end} AND coalesce(p.notes, '') <> 'بیعانه')`);
+  const [{ serviceCosts }] = await db.all<{ serviceCosts: number }>(sql`
+    SELECT coalesce(sum(cost), 0) AS serviceCosts FROM (${servedAppointmentsSql(start, end)})
+  `);
+
+  const laser = await laserTotals(start, end);
 
   const totalExpenses = expenseRows.reduce((s, r) => s + Number(r.total), 0);
   const totalCommissions = Number(commissions);
   const totalRevenue = Number(revenue);
   const totalServiceCosts = Number(serviceCosts);
-  const netProfit = totalRevenue - totalExpenses - totalCommissions - totalServiceCosts;
+  const totalCosts = totalExpenses + totalCommissions + totalServiceCosts + laser.commissions;
+  const netProfit = totalRevenue + laser.revenue - totalCosts;
 
   const expensesByCategory: Record<string, number> = {};
   for (const r of expenseRows) {
@@ -92,16 +115,24 @@ router.get("/accounting/summary", async (req, res): Promise<void> => {
 
   res.json({
     revenue: totalRevenue,
+    laserRevenue: laser.revenue,
     expenses: totalExpenses,
     commissions: totalCommissions,
+    laserCommissions: laser.commissions,
     serviceCosts: totalServiceCosts,
-    totalCosts: totalExpenses + totalCommissions + totalServiceCosts,
+    totalCosts,
     netProfit,
     expensesByCategory,
   });
 });
 
+// شناسهٔ ردیف‌های ساختگی تفکیک خدمات (پرداخت/پورسانتی که به خدمتی نمی‌رسد)
+const NO_APPOINTMENT_ROW_ID = -1;
+const NO_SERVICE_ROW_ID = -2;
+
 // GET /api/accounting/by-service?period=month|year|all
+// جمع ستون‌ها (درآمد، هزینه خدمات، پورسانت) دقیقاً با /summary (بدون لیزر) برابر است:
+// پرداخت‌های نوبت‌های حذف‌شده در ردیف «بدون نوبت / حذف‌شده» و پورسانت‌های بدون نوبت در «بدون خدمت».
 router.get("/accounting/by-service", async (req, res): Promise<void> => {
   const range = resolveRange(req.query);
   if ("error" in range) { res.status(400).json({ error: range.error }); return; }
@@ -111,31 +142,55 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
   // فیلتر نهایی revenue/completedCount خدمات بدون فعالیت را حذف می‌کند.
   const services = await db.select().from(servicesTable);
 
-  const results = await Promise.all(services.map(async (svc) => {
-    const [{ revenue }] = await db
-      .select({ revenue: sql<number>`coalesce(sum(p.amount), 0)` })
-      .from(sql`payments p`)
-      .innerJoin(sql`appointments a`, sql`a.id = p.appointment_id`)
-      .where(sql`a.service_id = ${svc.id} AND p.paid_at >= ${start} AND p.paid_at < ${end}`);
+  // درآمد هر خدمت؛ service_id = NULL یعنی نوبت یا خدمتش وجود ندارد
+  const revenueRows = await db.all<{ service_id: number | null; has_appt: number; revenue: number }>(sql`
+    SELECT s.id AS service_id, (a.id IS NOT NULL) AS has_appt, coalesce(sum(p.amount), 0) AS revenue
+    FROM payments p
+    LEFT JOIN appointments a ON a.id = p.appointment_id
+    LEFT JOIN services s ON s.id = a.service_id
+    WHERE p.paid_at >= ${start} AND p.paid_at < ${end}
+    GROUP BY 1, 2
+  `);
 
-    // نوبت‌های ارائه‌شده این خدمت: هر نوبت یک‌بار شمرده می‌شود (نه به‌ازای هر ردیف پرداخت).
-    // فقط نوبت‌هایی که پرداخت غیربیعانه در این بازه دارند؛ sumUnits = مجموع واحد مصرفی این نوبت‌ها.
-    const [{ servedCount, sumUnits }] = await db
-      .select({
-        servedCount: sql<number>`count(*)`,
-        sumUnits: sql<number>`coalesce(sum(coalesce(a.units_used, ${svc.unitCount ?? 1}, 1)), 0)`,
-      })
-      .from(sql`appointments a`)
-      .where(sql`a.service_id = ${svc.id} AND EXISTS (SELECT 1 FROM payments p WHERE p.appointment_id = a.id AND p.paid_at >= ${start} AND p.paid_at < ${end} AND coalesce(p.notes, '') <> 'بیعانه')`);
+  // نوبت‌های ارائه‌شده هر خدمت (هر نوبت یک‌بار، در بازهٔ اولین پرداخت غیربیعانه‌اش)
+  const servedRows = await db.all<{ service_id: number; served: number; units: number; cost: number }>(sql`
+    SELECT service_id, count(*) AS served, coalesce(sum(units), 0) AS units, coalesce(sum(cost), 0) AS cost
+    FROM (${servedAppointmentsSql(start, end)})
+    GROUP BY service_id
+  `);
 
-    const [{ commissionCost }] = await db
-      .select({ commissionCost: sql<number>`coalesce(sum(c.amount), 0)` })
-      .from(sql`commissions c`)
-      .innerJoin(sql`appointments a`, sql`a.id = c.appointment_id`)
-      .where(sql`a.service_id = ${svc.id} AND c.created_at >= ${start} AND c.created_at < ${end}`);
+  const commissionRows = await db.all<{ service_id: number | null; has_appt_ref: number; has_appt: number; amount: number }>(sql`
+    SELECT s.id AS service_id, (c.appointment_id IS NOT NULL) AS has_appt_ref, (a.id IS NOT NULL) AS has_appt,
+           coalesce(sum(c.amount), 0) AS amount
+    FROM commissions c
+    LEFT JOIN appointments a ON a.id = c.appointment_id
+    LEFT JOIN services s ON s.id = a.service_id
+    WHERE c.created_at >= ${start} AND c.created_at < ${end}
+    GROUP BY 1, 2, 3
+  `);
 
-    const completedCount = Number(servedCount);
-    const totalUnits = Number(sumUnits);
+  const revenueBy = new Map<number, number>();
+  let orphanRevenue = 0;      // پرداخت نوبت حذف‌شده
+  let noServiceRevenue = 0;   // نوبت هست ولی خدمتش حذف شده
+  for (const r of revenueRows) {
+    if (r.service_id != null) revenueBy.set(Number(r.service_id), Number(r.revenue));
+    else if (Number(r.has_appt)) noServiceRevenue += Number(r.revenue);
+    else orphanRevenue += Number(r.revenue);
+  }
+  const commissionBy = new Map<number, number>();
+  let orphanCommission = 0;     // پورسانتِ نوبت حذف‌شده
+  let noServiceCommission = 0;  // پورسانت بدون نوبت، یا نوبتی که خدمتش حذف شده
+  for (const r of commissionRows) {
+    if (r.service_id != null) commissionBy.set(Number(r.service_id), Number(r.amount));
+    else if (Number(r.has_appt_ref) && !Number(r.has_appt)) orphanCommission += Number(r.amount);
+    else noServiceCommission += Number(r.amount);
+  }
+  const servedBy = new Map(servedRows.map(r => [Number(r.service_id), r]));
+
+  const results = services.map((svc) => {
+    const served = servedBy.get(svc.id);
+    const completedCount = Number(served?.served ?? 0);
+    const totalUnits = Number(served?.units ?? 0);
     const unitCount = svc.unitCount ?? 1;
     // per_unit: هزینه خام × مجموع واحد مصرفی همه نوبت‌ها؛ total: هزینه خام × تعداد نوبت
     const costTotal = (val: number | null | undefined, mode: string | null | undefined) =>
@@ -147,11 +202,8 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
     // میانگین هزینه به‌ازای هر نوبت (برای نمایش)؛ اگر نوبتی نبود، حالت پیش‌فرض واحد سرویس
     const perAppt = (total: number, val: number | null | undefined, mode: string | null | undefined) =>
       completedCount > 0 ? Math.round(total / completedCount) : (mode === "per_unit" ? (val ?? 0) * unitCount : (val ?? 0));
-    const doctorFeeEff = perAppt(doctorFeeTotal, svc.doctorFee, svc.doctorFeeMode);
-    const materialCostEff = perAppt(materialCostTotal, svc.materialCost, svc.materialCostMode);
-    const otherCostEff = perAppt(otherCostTotal, svc.otherCost, svc.otherCostMode);
-    const totalRevenue = Number(revenue);
-    const totalCommission = Number(commissionCost);
+    const totalRevenue = revenueBy.get(svc.id) ?? 0;
+    const totalCommission = commissionBy.get(svc.id) ?? 0;
     const profit = totalRevenue - totalServiceCost - totalCommission;
 
     return {
@@ -159,9 +211,9 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
       serviceName: svc.name,
       category: svc.category,
       revenue: totalRevenue,
-      doctorFeePerUnit: doctorFeeEff,
-      materialCostPerUnit: materialCostEff,
-      otherCostPerUnit: otherCostEff,
+      doctorFeePerUnit: perAppt(doctorFeeTotal, svc.doctorFee, svc.doctorFeeMode),
+      materialCostPerUnit: perAppt(materialCostTotal, svc.materialCost, svc.materialCostMode),
+      otherCostPerUnit: perAppt(otherCostTotal, svc.otherCost, svc.otherCostMode),
       doctorFeeTotal,
       materialCostTotal,
       otherCostTotal,
@@ -171,9 +223,35 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
       profit,
       profitMargin: totalRevenue > 0 ? Math.round((profit / totalRevenue) * 100) : 0,
     };
-  }));
+  });
 
-  res.json(results.filter(r => r.revenue > 0 || r.completedCount > 0).sort((a, b) => b.revenue - a.revenue));
+  const syntheticRow = (serviceId: number, serviceName: string, revenue: number, commissions: number) => {
+    const profit = revenue - commissions;
+    return {
+      serviceId, serviceName, category: null,
+      revenue,
+      doctorFeePerUnit: 0, materialCostPerUnit: 0, otherCostPerUnit: 0,
+      doctorFeeTotal: 0, materialCostTotal: 0, otherCostTotal: 0, totalServiceCost: 0,
+      commissions,
+      completedCount: 0,
+      profit,
+      profitMargin: revenue > 0 ? Math.round((profit / revenue) * 100) : 0,
+    };
+  };
+  const extra = [];
+  if (orphanRevenue !== 0 || orphanCommission !== 0) {
+    extra.push(syntheticRow(NO_APPOINTMENT_ROW_ID, "بدون نوبت / حذف‌شده", orphanRevenue, orphanCommission));
+  }
+  if (noServiceRevenue !== 0 || noServiceCommission !== 0) {
+    extra.push(syntheticRow(NO_SERVICE_ROW_ID, "بدون خدمت", noServiceRevenue, noServiceCommission));
+  }
+
+  res.json([
+    ...results
+      .filter(r => r.revenue > 0 || r.completedCount > 0 || r.commissions > 0)
+      .sort((a, b) => b.revenue - a.revenue),
+    ...extra,
+  ]);
 });
 
 // GET /api/accounting/revenue-range?from=<unix>&to=<unix>
@@ -193,7 +271,7 @@ router.get("/accounting/revenue-range", async (req, res): Promise<void> => {
 
 // GET /api/accounting/chart?from=<unix>&to=<unix>&tz=<minutes east of UTC>
 // ارقام روزانهٔ بازه، با همان تعاریف /summary تا جمع روزها دقیقاً با کارت‌های خلاصه یکی باشد:
-//   سود = درآمد − هزینه خدمات − هزینه‌های ثابت − پورسانت
+//   سود = درآمد + درآمد لیزر − هزینه خدمات − هزینه‌های ثابت − پورسانت − پورسانت لیزر
 // مرز روزها با منطقهٔ زمانی کاربر (tz) حساب می‌شود، نه UTC؛ وگرنه پرداخت‌های بامداد و
 // هزینه‌هایی که با «نیمه‌شب محلی» ثبت شده‌اند در روز قبل نمایش داده می‌شوند.
 // روزهای بدون داده برگردانده نمی‌شوند؛ فرانت‌اند خالی‌ها را پر و در صورت نیاز ماهانه (شمسی) گروه می‌کند.
@@ -218,7 +296,7 @@ router.get("/accounting/chart", async (req, res): Promise<void> => {
   const tz = tzMinutes * 60;
   const dayOf = (col: unknown) => sql<number>`cast((${col} + ${tz}) / 86400 as integer)`;
 
-  const [revenueRows, expenseRows, commissionRows, serviceCostRows] = await Promise.all([
+  const [revenueRows, expenseRows, commissionRows, serviceCostRows, laserRows] = await Promise.all([
     db
       .select({ day: dayOf(paymentsTable.paidAt), amount: sql<number>`coalesce(sum(${paymentsTable.amount}), 0)` })
       .from(paymentsTable)
@@ -234,47 +312,56 @@ router.get("/accounting/chart", async (req, res): Promise<void> => {
       .from(commissionsTable)
       .where(and(gte(commissionsTable.createdAt, start), lt(commissionsTable.createdAt, end)))
       .groupBy(sql`1`),
-    // هزینه خدمت هر نوبت یک‌بار، در روزِ اولین پرداخت غیربیعانهٔ آن نوبت در این بازه (همان قاعدهٔ /summary)
+    // هزینه خدمت هر نوبت یک‌بار، در روزِ اولین پرداخت غیربیعانهٔ آن نوبت (همان قاعدهٔ /summary)
     db.all<{ day: number; amount: number }>(sql`
       SELECT cast((first_paid + ${tz}) / 86400 as integer) AS day, coalesce(sum(cost), 0) AS amount
-      FROM (
-        SELECT
-          (SELECT min(p.paid_at) FROM payments p
-             WHERE p.appointment_id = a.id AND p.paid_at >= ${start} AND p.paid_at < ${end}
-               AND coalesce(p.notes, '') <> 'بیعانه') AS first_paid,
-          (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN s.doctor_fee * coalesce(a.units_used, s.unit_count, 1) ELSE s.doctor_fee END) +
-          (CASE WHEN s.material_cost_mode = 'per_unit' THEN s.material_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.material_cost END) +
-          (CASE WHEN s.other_cost_mode = 'per_unit' THEN s.other_cost * coalesce(a.units_used, s.unit_count, 1) ELSE s.other_cost END) AS cost
-        FROM appointments a
-        INNER JOIN services s ON s.id = a.service_id
-      )
-      WHERE first_paid IS NOT NULL
+      FROM (${servedAppointmentsSql(start, end)})
       GROUP BY 1
     `),
+    db
+      .select({
+        day: dayOf(laserPaymentsTable.paidAt),
+        revenue: sql<number>`coalesce(sum(${laserPaymentsTable.amount}), 0)`,
+        commissions: sql<number>`coalesce(sum(${laserPaymentsTable.commissionAmount}), 0)`,
+      })
+      .from(laserPaymentsTable)
+      .where(sql`${laserPaymentsTable.paidAt} >= ${start} AND ${laserPaymentsTable.paidAt} < ${end}`)
+      .groupBy(sql`1`),
   ]);
 
-  type Point = { revenue: number; serviceCosts: number; expenses: number; commissions: number };
+  type Point = {
+    revenue: number; serviceCosts: number; expenses: number; commissions: number;
+    laserRevenue: number; laserCommissions: number;
+  };
   const days = new Map<number, Point>();
   const point = (day: number) => {
     let p = days.get(day);
-    if (!p) { p = { revenue: 0, serviceCosts: 0, expenses: 0, commissions: 0 }; days.set(day, p); }
+    if (!p) {
+      p = { revenue: 0, serviceCosts: 0, expenses: 0, commissions: 0, laserRevenue: 0, laserCommissions: 0 };
+      days.set(day, p);
+    }
     return p;
   };
   for (const r of revenueRows) point(Number(r.day)).revenue += Number(r.amount);
   for (const r of serviceCostRows) point(Number(r.day)).serviceCosts += Number(r.amount);
   for (const r of expenseRows) point(Number(r.day)).expenses += Number(r.amount);
   for (const r of commissionRows) point(Number(r.day)).commissions += Number(r.amount);
+  for (const r of laserRows) {
+    const p = point(Number(r.day));
+    p.laserRevenue += Number(r.revenue);
+    p.laserCommissions += Number(r.commissions);
+  }
 
   const chart = [...days.entries()]
     .sort(([a], [b]) => a - b)
     .map(([day, p]) => {
-      const totalCosts = p.serviceCosts + p.expenses + p.commissions;
+      const totalCosts = p.serviceCosts + p.expenses + p.commissions + p.laserCommissions;
       return {
         // تاریخ میلادی روز محلی (YYYY-MM-DD)
         date: new Date(day * 86400 * 1000).toISOString().slice(0, 10),
         ...p,
         totalCosts,
-        profit: p.revenue - totalCosts,
+        profit: p.revenue + p.laserRevenue - totalCosts,
       };
     });
 

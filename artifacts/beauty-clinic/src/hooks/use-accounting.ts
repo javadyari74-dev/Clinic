@@ -3,6 +3,21 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const TOKEN_KEY = "clinic_auth_token";
 
+/**
+ * خطای درخواست حسابداری؛ همان شکل ApiError کلاینت تولیدشده (status و data.error) تا
+ * apiErrorMessage پیام سرور را نشان دهد و handleUnauthorized در App روی ۴۰۱ کاربر را به ورود ببرد.
+ */
+export class AccountingApiError extends Error {
+  readonly status: number;
+  readonly data: { error?: string; message?: string } | null;
+  constructor(status: number, data: { error?: string; message?: string } | null, text: string) {
+    super(data?.error ?? data?.message ?? (text || `HTTP ${status}`));
+    this.name = "AccountingApiError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const res = await fetch(`${BASE}${path}`, {
@@ -13,15 +28,28 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
       ...(opts?.headers ?? {}),
     },
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let data: { error?: string; message?: string } | null = null;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") data = parsed;
+    } catch { /* پاسخ JSON نیست */ }
+    throw new AccountingApiError(res.status, data, text);
+  }
   if (res.status === 204) return undefined as T;
   return res.json();
 }
 
 export interface AccountingSummary {
+  /** درآمد نقدی مطب (بدون لیزر) */
   revenue: number;
+  /** درآمد لیزر (laser_payments) */
+  laserRevenue: number;
   expenses: number;
   commissions: number;
+  /** پورسانت اپراتور لیزر */
+  laserCommissions: number;
   serviceCosts: number;
   totalCosts: number;
   netProfit: number;
@@ -53,6 +81,8 @@ export interface ChartPoint {
   serviceCosts: number;
   expenses: number;
   commissions: number;
+  laserRevenue: number;
+  laserCommissions: number;
   totalCosts: number;
   profit: number;
 }

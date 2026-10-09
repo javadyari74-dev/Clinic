@@ -22,10 +22,12 @@ import {
 } from "lucide-react";
 import { formatCurrency, toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   useAccountingSummary, useAccountingByService, useAccountingChart,
   useExpenses, useCreateExpense, useDeleteExpense,
-  type DateRange,
+  type DateRange, type ChartPoint, type Expense,
 } from "@/hooks/use-accounting";
 import {
   PRESET_LABELS, presetRange, formatRangeLabel, buildChartSeries, formatAxisAmount,
@@ -45,6 +47,8 @@ const SERIES_LABELS: Record<string, string> = {
   serviceCosts: "هزینه خدمات",
   expenses: "هزینه‌های ثابت",
   commissions: "پورسانت",
+  laserRevenue: "درآمد لیزر",
+  laserCommissions: "پورسانت لیزر",
   profit: "سود / زیان",
   cumulativeProfit: "سود انباشته",
 };
@@ -101,6 +105,7 @@ export default function Accounting() {
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [expOpen, setExpOpen] = useState(false);
   const [svcCostOpen, setSvcCostOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
   const [newCat, setNewCat] = useState("salary");
   const [newAmount, setNewAmount] = useState("");
   const [newDesc, setNewDesc] = useState("");
@@ -154,7 +159,8 @@ export default function Accounting() {
     );
   }
 
-  const topService = byService?.[0];
+  // ردیف‌های ساختگی («بدون نوبت / حذف‌شده»، «بدون خدمت») شناسهٔ منفی دارند و خدمت برتر نیستند
+  const topService = byService?.find(s => s.serviceId > 0);
 
   const svcCostRows = (byService ?? [])
     .filter(s => s.totalServiceCost > 0)
@@ -170,11 +176,46 @@ export default function Accounting() {
   );
   const svcCostTotal = svcCostComponents.doctor + svcCostComponents.material + svcCostComponents.other;
 
-  const { buckets: chartData, monthly: chartMonthly } = useMemo(
-    () => buildChartSeries(chart ?? [], range),
-    [chart, range],
-  );
-  const chartHasData = chartData.some(b => b.revenue !== 0 || b.totalCosts !== 0);
+  // لیزر جدا از درآمد/پورسانت مطب گروه می‌شود (همان ستون‌های زمانی) تا در نمودار سری جدا داشته باشد؛
+  // profit و totalCosts سرور از قبل لیزر را شامل می‌شوند.
+  const { buckets: chartData, monthly: chartMonthly } = useMemo(() => {
+    const points = chart ?? [];
+    const main = buildChartSeries(points, range);
+    const laserPoints: ChartPoint[] = points.map(p => ({
+      date: p.date,
+      revenue: p.laserRevenue ?? 0,
+      commissions: p.laserCommissions ?? 0,
+      serviceCosts: 0, expenses: 0, laserRevenue: 0, laserCommissions: 0,
+      totalCosts: 0, profit: 0,
+    }));
+    const laserByKey = new Map(buildChartSeries(laserPoints, range).buckets.map(b => [b.key, b]));
+    return {
+      monthly: main.monthly,
+      buckets: main.buckets.map(b => ({
+        ...b,
+        laserRevenue: laserByKey.get(b.key)?.revenue ?? 0,
+        laserCommissions: laserByKey.get(b.key)?.commissions ?? 0,
+      })),
+    };
+  }, [chart, range]);
+  const chartHasData = chartData.some(b => b.revenue !== 0 || b.laserRevenue !== 0 || b.totalCosts !== 0);
+  const hasLaser = !!summary && (summary.laserRevenue !== 0 || summary.laserCommissions !== 0);
+
+  function confirmDeleteExpense() {
+    if (!pendingDelete) return;
+    const id = pendingDelete.id;
+    setPendingDelete(null);
+    deleteExpense.mutate(id, {
+      onSuccess: () => toast({ title: "هزینه حذف شد" }),
+      onError: (error) => {
+        toast({
+          title: "حذف هزینه ناموفق بود",
+          description: apiErrorMessage(error) ?? "حذف هزینه با خطا مواجه شد. لطفاً دوباره تلاش کنید.",
+          variant: "destructive",
+        });
+      },
+    });
+  }
   const tooltipStyle = { fontFamily: "Vazirmatn", textAlign: "right" as const, direction: "rtl" as const };
   const axisTick = { fontFamily: "Vazirmatn", fontSize: 10 };
 
@@ -217,12 +258,20 @@ export default function Accounting() {
       {isError && <ErrorNotice onRetry={retry} />}
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard
-          title={`درآمد کل — ${periodLabel}`}
+          title={`درآمد مطب — ${periodLabel}`}
           value={formatCurrency(summary?.revenue)}
+          sub="پرداخت‌های نقدی، بدون لیزر"
           icon={<Wallet className="h-5 w-5 text-primary" />}
           colorClass="text-foreground"
+        />
+        <StatCard
+          title={`درآمد لیزر — ${periodLabel}`}
+          value={formatCurrency(summary?.laserRevenue)}
+          sub={summary ? `پورسانت لیزر: ${formatCurrency(summary.laserCommissions)}` : undefined}
+          icon={<Zap className="h-5 w-5 text-teal-600" />}
+          colorClass="text-teal-600"
         />
         <StatCard
           title={`هزینه خدمات — ${periodLabel}`}
@@ -261,6 +310,13 @@ export default function Accounting() {
             <div className="flex flex-wrap items-center gap-2 text-sm font-mono justify-center">
               <span className="text-green-700 font-bold">{formatCurrency(summary.revenue)}</span>
               <span className="text-muted-foreground">درآمد</span>
+              {hasLaser && (
+                <>
+                  <span className="text-xl text-muted-foreground mx-1">+</span>
+                  <span className="text-teal-600 font-bold">{formatCurrency(summary.laserRevenue)}</span>
+                  <span className="text-muted-foreground">درآمد لیزر</span>
+                </>
+              )}
               <span className="text-xl text-muted-foreground mx-1">−</span>
               <span className="text-purple-600 font-bold">{formatCurrency(summary.serviceCosts)}</span>
               <span className="text-muted-foreground">هزینه خدمات</span>
@@ -270,6 +326,13 @@ export default function Accounting() {
               <span className="text-xl text-muted-foreground mx-1">−</span>
               <span className="text-blue-600 font-bold">{formatCurrency(summary.commissions)}</span>
               <span className="text-muted-foreground">پورسانت</span>
+              {hasLaser && (
+                <>
+                  <span className="text-xl text-muted-foreground mx-1">−</span>
+                  <span className="text-teal-700 font-bold">{formatCurrency(summary.laserCommissions)}</span>
+                  <span className="text-muted-foreground">پورسانت لیزر</span>
+                </>
+              )}
               <span className="text-xl text-muted-foreground mx-1">=</span>
               <span className={`font-bold text-lg ${(summary.netProfit) >= 0 ? "text-green-700" : "text-red-600"}`}>
                 {formatCurrency(summary.netProfit)} سود خالص
@@ -308,10 +371,12 @@ export default function Accounting() {
                     />
                     <Legend formatter={(v) => SERIES_LABELS[v] ?? v} wrapperStyle={{ fontFamily: "Vazirmatn", fontSize: 12 }} />
                     <ReferenceLine y={0} stroke="#9ca3af" />
-                    <Bar dataKey="revenue" name="revenue" fill="#be185d" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="revenue" name="revenue" stackId="income" fill="#be185d" />
+                    <Bar dataKey="laserRevenue" name="laserRevenue" stackId="income" fill="#0d9488" radius={[3, 3, 0, 0]} />
                     <Bar dataKey="serviceCosts" name="serviceCosts" stackId="costs" fill="#9333ea" />
                     <Bar dataKey="expenses" name="expenses" stackId="costs" fill="#f97316" />
-                    <Bar dataKey="commissions" name="commissions" stackId="costs" fill="#2563eb" radius={[3, 3, 0, 0]} />
+                    <Bar dataKey="commissions" name="commissions" stackId="costs" fill="#2563eb" />
+                    <Bar dataKey="laserCommissions" name="laserCommissions" stackId="costs" fill="#5eead4" radius={[3, 3, 0, 0]} />
                     <Line type="linear" dataKey="profit" name="profit" stroke="#16a34a" strokeWidth={2}
                       dot={chartData.length <= 31} activeDot={{ r: 5, fill: "#16a34a" }} />
                   </ComposedChart>
@@ -422,8 +487,13 @@ export default function Accounting() {
                   </TableHeader>
                   <TableBody>
                     {(byService ?? []).map(svc => (
-                      <TableRow key={svc.serviceId}>
-                        <TableCell className="font-medium">{svc.serviceName}</TableCell>
+                      <TableRow key={svc.serviceId} className={svc.serviceId < 0 ? "bg-muted/20 text-muted-foreground" : undefined}>
+                        <TableCell className="font-medium">
+                          {svc.serviceName}
+                          {svc.serviceId < 0 && (
+                            <span className="block text-[11px] font-normal">پرداخت/پورسانتی که به خدمتی وصل نیست</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-left font-mono">{toPersianDigits(svc.completedCount)}</TableCell>
                         <TableCell className="text-left font-mono text-green-700">{formatCurrency(svc.revenue)}</TableCell>
                         <TableCell className="text-left font-mono text-purple-600">
@@ -502,7 +572,9 @@ export default function Accounting() {
                           <Button
                             variant="ghost" size="sm"
                             className="text-destructive h-7 w-7 p-0"
-                            onClick={() => deleteExpense.mutate(exp.id)}
+                            aria-label="حذف هزینه"
+                            disabled={deleteExpense.isPending}
+                            onClick={() => setPendingDelete(exp)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -654,6 +726,16 @@ export default function Accounting() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDeleteDialog
+        open={pendingDelete !== null}
+        title="حذف هزینه"
+        description={pendingDelete
+          ? `هزینهٔ «${pendingDelete.description}» به مبلغ ${formatCurrency(pendingDelete.amount)} حذف شود؟ این عمل قابل بازگشت نیست.`
+          : undefined}
+        onConfirm={confirmDeleteExpense}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
