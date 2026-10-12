@@ -74,7 +74,7 @@ beforeAll(async () => {
 
   const app = express();
   app.use(express.json());
-  for (const mod of ["payments", "appointments", "services", "accounting", "loyalty"]) {
+  for (const mod of ["payments", "appointments", "services", "accounting", "loyalty", "purchases"]) {
     const { default: r } = await import(`../src/routes/${mod}.ts`);
     app.use(r);
   }
@@ -198,5 +198,41 @@ describe("service price history and cost on the day of service", () => {
     expect((await summary(from, nowSec() + 3600)).serviceCosts - base0).toBe(400_000);
 
     expect((await call("PUT", `/services/${svc.id}`, { doctorFee: 1, priceEffectiveDate: "1405/07/01" })).status).toBe(400);
+  });
+});
+
+describe("debts on the accounting page (outside profit)", () => {
+  it("shows unsettled purchases and patient balances without touching profit", async () => {
+    const from = nowSec() - 5;
+    const before = await summary(from, nowSec() + 3600);
+    const d0 = (await call("GET", "/accounting/debts")).json;
+
+    const buy = (price: number, isSettled: boolean, supplier = "پخش آریا") =>
+      call("POST", "/purchases", { productType: "فیلر", productName: "لوناژل", supplier, price, purchaseDate: nowSec(), isSettled });
+    const open1 = await buy(5_000_000, false);
+    expect(open1.status).toBe(201);
+    await buy(2_000_000, false, "");
+    await buy(9_000_000, true);
+
+    const svc = (await call("POST", "/services", { name: "بدهی مراجع", price: 3_000_000, doctorFee: 1_000_000 })).json;
+    const a = await appointment((await patient("بدهکار حساب")).id, svc.id);
+    await call("POST", "/payments", { appointmentId: a.id, originalAmount: 3_000_000, amount: 2_500_000, method: "card" });
+
+    const d = (await call("GET", "/accounting/debts")).json;
+    expect(d.suppliers.total - d0.suppliers.total).toBe(7_000_000);
+    expect(d.suppliers.count - d0.suppliers.count).toBe(2);
+    expect(d.suppliers.bySupplier.find((r: { supplier: string | null }) => r.supplier === "پخش آریا").total).toBeGreaterThanOrEqual(5_000_000);
+    expect(d.suppliers.bySupplier.some((r: { supplier: string | null }) => r.supplier === null)).toBe(true);
+    expect(d.patients.total - d0.patients.total).toBe(500_000);
+
+    // خرید (تسویه‌شده یا نشده) در سود و زیان نیست: فقط پرداخت و هزینهٔ خدمت عوض شده
+    const after = await summary(from, nowSec() + 3600);
+    expect(after.revenue - before.revenue).toBe(2_500_000);
+    expect(after.totalCosts - before.totalCosts).toBe(1_000_000);
+
+    // تسویهٔ خرید بدهی را کم می‌کند
+    await call("PUT", `/purchases/${open1.json.id}`, { isSettled: true });
+    const d2 = (await call("GET", "/accounting/debts")).json;
+    expect(d.suppliers.total - d2.suppliers.total).toBe(5_000_000);
   });
 });

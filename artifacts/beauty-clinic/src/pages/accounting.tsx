@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "wouter";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { PersianDateRangePicker } from "@/components/persian-date-range-picker";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,14 +19,14 @@ import {
 } from "recharts";
 import {
   TrendingUp, TrendingDown, Wallet, Plus, Trash2,
-  BarChart3, Package, Users, Home, Zap, MoreHorizontal, PiggyBank,
+  BarChart3, Package, Users, Home, Zap, MoreHorizontal, PiggyBank, ShoppingCart, HandCoins,
 } from "lucide-react";
 import { formatCurrency, toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
-  useAccountingSummary, useAccountingByService, useAccountingChart,
+  useAccountingSummary, useAccountingDebts, useAccountingByService, useAccountingChart,
   useExpenses, useCreateExpense, useDeleteExpense,
   type DateRange, type ChartPoint, type Expense,
 } from "@/hooks/use-accounting";
@@ -120,6 +121,7 @@ export default function Accounting() {
   const rangeLabel = formatRangeLabel(range);
 
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useAccountingSummary(range);
+  const { data: debts } = useAccountingDebts();
   const { data: byService, isError: byServiceError, refetch: refetchByService } = useAccountingByService(range);
   const { data: chart, isError: chartError, refetch: refetchChart } = useAccountingChart(range);
   const { data: expenses, isError: expensesError, refetch: refetchExpenses } = useExpenses(range);
@@ -302,6 +304,45 @@ export default function Accounting() {
           trend={(summary?.netProfit ?? 0) >= 0 ? "up" : "down"}
         />
       </div>
+
+      {/* بدهی‌ها — وضعیت همین لحظه، جدا از سود و زیان */}
+      {debts?.suppliers && debts.patients && (
+        <Card className="border-amber-300/60 bg-amber-50/40 dark:bg-amber-950/10">
+          <CardContent className="pt-4 space-y-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="font-semibold text-sm">بدهی‌ها و طلب‌ها (تا امروز)</span>
+              <span className="text-xs text-muted-foreground">مستقل از بازهٔ انتخابی؛ در سود و زیان حساب نمی‌شود</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link href="/purchases" className="rounded-lg border bg-background p-3 hover:bg-muted/40 transition-colors" data-testid="debt-suppliers">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <ShoppingCart className="h-4 w-4 text-red-600" />
+                  بدهی به فروشنده‌ها (خریدهای تسویه‌نشده)
+                </div>
+                <div className="text-xl font-bold text-red-600 mt-1">{formatCurrency(debts.suppliers.total)}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {debts.suppliers.count
+                    ? `${toPersianDigits(debts.suppliers.count)} خرید — ` + debts.suppliers.bySupplier.slice(0, 3)
+                        .map((r) => `${r.supplier ?? "بدون فروشنده"}: ${formatCurrency(r.total)}`).join("، ")
+                    : "همهٔ خریدها تسویه شده‌اند"}
+                </div>
+              </Link>
+              <div className="rounded-lg border bg-background p-3" data-testid="debt-patients">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <HandCoins className="h-4 w-4 text-amber-600" />
+                  طلب از مراجعین (ماندهٔ پرداخت‌نشده)
+                </div>
+                <div className="text-xl font-bold text-amber-600 mt-1">{formatCurrency(debts.patients.total)}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {debts.patients.count
+                    ? `${toPersianDigits(debts.patients.patientCount)} مراجع، ${toPersianDigits(debts.patients.count)} نوبت`
+                    : "مراجع بدهکاری نیست"}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* فرمول سود */}
       {summary && (

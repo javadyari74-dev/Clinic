@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, sql, gte, lt, and, desc } from "drizzle-orm";
 import { db, paymentsTable, commissionsTable, servicesTable, expensesTable, laserPaymentsTable } from "@workspace/db";
+import { DEPOSIT_NOTE } from "../lib/payment-effects";
 import { tehranTodayBounds, shamsiMonthBounds, shamsiYearBounds } from "../lib/tehran-period";
 import { appointmentCostSql, costPartSql, unitsSql, PRICE_VERSION_JOIN } from "../lib/service-cost";
 
@@ -123,6 +124,41 @@ router.get("/accounting/summary", async (req, res): Promise<void> => {
     totalCosts,
     netProfit,
     expensesByCategory,
+  });
+});
+
+// GET /api/accounting/debts — بدهی‌ها و طلب‌های «همین الان» (مستقل از بازهٔ گزارش و خارج از سود و زیان):
+//   suppliers = خریدهای تسویه‌نشده (بدهی مطب به فروشنده‌ها؛ خرید وارد سود و زیان نمی‌شود)
+//   patients  = مانده‌ی نوبت‌های تسویه‌شده با بدهی (طلب مطب از مراجعین؛ همان «remaining» نوبت‌ها)
+router.get("/accounting/debts", async (_req, res): Promise<void> => {
+  const bySupplier = await db.all<{ supplier: string | null; total: number; count: number }>(sql`
+    SELECT nullif(trim(supplier), '') AS supplier, coalesce(sum(price), 0) AS total, count(*) AS count
+    FROM purchases WHERE is_settled = 0
+    GROUP BY nullif(trim(supplier), '') ORDER BY total DESC
+  `);
+  const [patients] = await db.all<{ total: number; count: number; patientCount: number }>(sql`
+    SELECT coalesce(sum(rem), 0) AS total, count(*) AS count, count(DISTINCT patient_id) AS patientCount FROM (
+      SELECT a.patient_id, a.price - (
+        SELECT coalesce(sum(p.amount + coalesce(p.wallet_amount, 0) + coalesce(p.points_amount, 0)), 0)
+        FROM payments p WHERE p.appointment_id = a.id
+      ) AS rem
+      FROM appointments a
+      WHERE a.price IS NOT NULL AND a.status <> 'cancelled'
+        AND EXISTS (SELECT 1 FROM payments p WHERE p.appointment_id = a.id AND coalesce(p.notes, '') <> ${DEPOSIT_NOTE})
+    ) WHERE rem > 0
+  `);
+  const supplierRows = bySupplier.map((r) => ({ supplier: r.supplier, total: Number(r.total), count: Number(r.count) }));
+  res.json({
+    suppliers: {
+      total: supplierRows.reduce((s, r) => s + r.total, 0),
+      count: supplierRows.reduce((s, r) => s + r.count, 0),
+      bySupplier: supplierRows,
+    },
+    patients: {
+      total: Number(patients?.total ?? 0),
+      count: Number(patients?.count ?? 0),
+      patientCount: Number(patients?.patientCount ?? 0),
+    },
   });
 });
 

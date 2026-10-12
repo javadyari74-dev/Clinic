@@ -122,6 +122,21 @@ export function useAccountingSummary(range: DateRange) {
   });
 }
 
+/** بدهی‌ها/طلب‌های همین لحظه — خارج از سود و زیان */
+export interface AccountingDebts {
+  /** خریدهای تسویه‌نشده: بدهی مطب به فروشنده‌ها */
+  suppliers: { total: number; count: number; bySupplier: { supplier: string | null; total: number; count: number }[] };
+  /** مانده‌ی نوبت‌های تسویه‌شده: طلب مطب از مراجعین */
+  patients: { total: number; count: number; patientCount: number };
+}
+
+export function useAccountingDebts() {
+  return useQuery<AccountingDebts>({
+    queryKey: ["accounting", "debts"],
+    queryFn: () => apiFetch("/api/accounting/debts"),
+  });
+}
+
 export function useAccountingByService(range: DateRange) {
   return useQuery<ServiceProfit[]>({
     queryKey: ["accounting", "by-service", range.from, range.to],

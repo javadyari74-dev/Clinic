@@ -25,6 +25,7 @@ import {
   Star,
   Gift,
   ShoppingCart,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatShamsiDate } from "@/lib/format";
@@ -35,13 +36,25 @@ import { GlobalSearch } from "./global-search";
 import { useAuth, type Permission, type AuthUser } from "@/hooks/use-auth";
 import { prefetchRoute } from "@/lib/page-loaders";
 
+export type NavGroup = "daily" | "finance" | "services" | "clients" | "admin";
+
 export interface NavItem {
   href: string;
   label: string;
   icon: React.ElementType;
+  /** بخش منوی کناری؛ «daily» همیشه باز و بدون سرتیتر است */
+  group: NavGroup;
   permission?: Permission;
   adminOnly?: boolean;
 }
+
+// ترتیب بخش‌های منو؛ کاربر می‌تواند هر بخش را باز/بسته کند (در همین مرورگر به خاطر سپرده می‌شود)
+export const navGroups: { key: Exclude<NavGroup, "daily">; label: string }[] = [
+  { key: "finance", label: "مالی و حسابداری" },
+  { key: "services", label: "خدمات و انبار" },
+  { key: "clients", label: "ارتباط با مراجعین" },
+  { key: "admin", label: "مدیریت و تنظیمات" },
+];
 
 export function canAccessNavItem(
   item: Pick<NavItem, "permission" | "adminOnly">,
@@ -54,28 +67,44 @@ export function canAccessNavItem(
 }
 
 export const navItems: NavItem[] = [
-  { href: "/", label: "داشبورد", icon: LayoutDashboard, permission: "dashboard" },
-  { href: "/patients", label: "مراجعین", icon: Users, permission: "patients" },
-  { href: "/appointments", label: "نوبت‌ها", icon: CalendarDays, permission: "appointments" },
-  { href: "/payments", label: "صندوق", icon: CreditCard, permission: "payments" },
-  { href: "/services", label: "خدمات", icon: Scissors, permission: "services" },
-  { href: "/laser", label: "لیزر", icon: Zap, permission: "laser" },
-  { href: "/staff", label: "کارمندان", icon: UserCircle, permission: "staff" },
-  { href: "/commissions", label: "کمیسیون", icon: HandCoins, permission: "commissions" },
-  { href: "/commission-recipients", label: "گیرندگان کمیسیون", icon: Users, permission: "commissions" },
-  { href: "/discounts", label: "تخفیفات", icon: Percent, permission: "discounts" },
-  { href: "/inventory", label: "انبار", icon: Box, permission: "inventory" },
-  { href: "/purchases", label: "خریدها", icon: ShoppingCart, permission: "purchases" },
-  { href: "/accounting", label: "حسابداری و سود/زیان", icon: Calculator, permission: "accounting" },
-  { href: "/reports", label: "گزارشات", icon: BarChart3, permission: "reports" },
-  { href: "/reminders", label: "یادآوری‌ها", icon: BellRing, permission: "reminders" },
-  { href: "/sms", label: "پنل پیامکی", icon: MessageSquare, permission: "sms" },
-  { href: "/surveys", label: "نظرسنجی‌ها", icon: Star, permission: "surveys" },
-  { href: "/loyalty", label: "باشگاه مشتریان", icon: Gift, permission: "loyalty" },
-  { href: "/backup", label: "پشتیبان‌گیری", icon: Database, permission: "backup" },
-  { href: "/users", label: "مدیریت کاربران", icon: UserCog, adminOnly: true },
-  { href: "/client-errors", label: "گزارش‌های خطا", icon: Bug, adminOnly: true },
+  { href: "/", label: "داشبورد", icon: LayoutDashboard, group: "daily", permission: "dashboard" },
+  { href: "/patients", label: "مراجعین", icon: Users, group: "daily", permission: "patients" },
+  { href: "/appointments", label: "نوبت‌ها", icon: CalendarDays, group: "daily", permission: "appointments" },
+  { href: "/payments", label: "صندوق", icon: CreditCard, group: "daily", permission: "payments" },
+  { href: "/laser", label: "لیزر", icon: Zap, group: "daily", permission: "laser" },
+  { href: "/accounting", label: "حسابداری و سود/زیان", icon: Calculator, group: "finance", permission: "accounting" },
+  { href: "/purchases", label: "خریدها", icon: ShoppingCart, group: "finance", permission: "purchases" },
+  { href: "/commissions", label: "کمیسیون", icon: HandCoins, group: "finance", permission: "commissions" },
+  { href: "/commission-recipients", label: "گیرندگان کمیسیون", icon: Users, group: "finance", permission: "commissions" },
+  { href: "/reports", label: "گزارشات", icon: BarChart3, group: "finance", permission: "reports" },
+  { href: "/services", label: "خدمات", icon: Scissors, group: "services", permission: "services" },
+  { href: "/discounts", label: "تخفیفات", icon: Percent, group: "services", permission: "discounts" },
+  { href: "/inventory", label: "انبار", icon: Box, group: "services", permission: "inventory" },
+  { href: "/reminders", label: "یادآوری‌ها", icon: BellRing, group: "clients", permission: "reminders" },
+  { href: "/sms", label: "پنل پیامکی", icon: MessageSquare, group: "clients", permission: "sms" },
+  { href: "/loyalty", label: "باشگاه مشتریان", icon: Gift, group: "clients", permission: "loyalty" },
+  { href: "/surveys", label: "نظرسنجی‌ها", icon: Star, group: "clients", permission: "surveys" },
+  { href: "/staff", label: "کارمندان", icon: UserCircle, group: "admin", permission: "staff" },
+  { href: "/backup", label: "پشتیبان‌گیری", icon: Database, group: "admin", permission: "backup" },
+  { href: "/users", label: "مدیریت کاربران", icon: UserCog, group: "admin", adminOnly: true },
+  { href: "/client-errors", label: "گزارش‌های خطا", icon: Bug, group: "admin", adminOnly: true },
 ];
+
+const NAV_OPEN_KEY = "clinic_nav_open_groups";
+
+function isActivePath(location: string, href: string): boolean {
+  return location === href || (href !== "/" && location.startsWith(href));
+}
+
+function loadOpenGroups(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(NAV_OPEN_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
 
 export function Layout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -89,36 +118,72 @@ export function Layout({ children }: { children: ReactNode }) {
   const visibleItems = navItems.filter(item =>
     canAccessNavItem(item, user?.role, hasPermission),
   );
+  const dailyItems = visibleItems.filter((i) => i.group === "daily");
+
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadOpenGroups);
+  const toggleGroup = (key: string, open: boolean) => {
+    setOpenGroups((prev) => {
+      const next = { ...prev, [key]: open };
+      try { localStorage.setItem(NAV_OPEN_KEY, JSON.stringify(next)); } catch { /* ذخیره نشد؛ مهم نیست */ }
+      return next;
+    });
+  };
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon;
+    const isActive = isActivePath(location, item.href);
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onMouseEnter={() => prefetchRoute(item.href)}
+        onFocus={() => prefetchRoute(item.href)}
+        onTouchStart={() => prefetchRoute(item.href)}
+      >
+        <div
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-md transition-all duration-200 cursor-pointer",
+            isActive
+              ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm font-medium"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          )}
+        >
+          <Icon className="h-5 w-5" />
+          <span className="text-sm">{item.label}</span>
+        </div>
+      </Link>
+    );
+  };
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
-      <div className="p-6">
+      <div className="px-6 pt-6 pb-3">
         <h1 className="text-xl font-bold text-sidebar-primary-foreground tracking-tight">مطب زیبایی دکتر یاری</h1>
       </div>
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-        {visibleItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+      <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
+        {dailyItems.map(renderItem)}
+        {navGroups.map((g) => {
+          const items = visibleItems.filter((i) => i.group === g.key);
+          if (items.length === 0) return null;
+          const hasActive = items.some((i) => isActivePath(location, i.href));
+          // بخشی که صفحهٔ فعلی در آن است همیشه باز است
+          const open = hasActive || (openGroups[g.key] ?? false);
           return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onMouseEnter={() => prefetchRoute(item.href)}
-              onFocus={() => prefetchRoute(item.href)}
-              onTouchStart={() => prefetchRoute(item.href)}
-            >
-              <div
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-200 cursor-pointer",
-                  isActive 
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm font-medium" 
-                    : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-                )}
+            <div key={g.key} className="pt-2">
+              <button
+                type="button"
+                onClick={() => toggleGroup(g.key, !open)}
+                disabled={hasActive}
+                aria-expanded={open}
+                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-sidebar-foreground/60 hover:text-sidebar-foreground disabled:cursor-default disabled:hover:text-sidebar-foreground/60"
               >
-                <Icon className="h-5 w-5" />
-                <span className="text-sm">{item.label}</span>
-              </div>
-            </Link>
+                <span>{g.label}</span>
+                {!hasActive && (
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open ? "" : "rotate-90")} />
+                )}
+              </button>
+              {open && <div className="space-y-1">{items.map(renderItem)}</div>}
+            </div>
           );
         })}
       </nav>

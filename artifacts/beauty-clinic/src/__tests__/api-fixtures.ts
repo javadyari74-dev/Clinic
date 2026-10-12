@@ -327,6 +327,10 @@ const accountingSummary = {
   expensesByCategory: { اجاره: 200_000, مصرفی: 100_000 },
 };
 
+const accountingDebts = {
+  suppliers: { total: 12_000_000, count: 2, bySupplier: [{ supplier: "پخش آریا", total: 12_000_000, count: 2 }] },
+  patients: { total: 500_000, count: 1, patientCount: 1 },
+};
 const accountingByService = [
   {
     serviceId: 1,
@@ -519,6 +523,7 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/activity$/, () => activity, emptyArr],
   [/\/api\/reports\/summary$/, () => reportsSummary, emptyObj],
   [/\/api\/accounting\/summary$/, () => accountingSummary, emptyObj],
+  [/\/api\/accounting\/debts$/, () => accountingDebts, emptyObj],
   [/\/api\/accounting\/by-service$/, () => accountingByService, emptyArr],
   [/\/api\/accounting\/chart$/, () => accountingChart, emptyArr],
   [/\/api\/accounting\/expenses$/, () => expenses, emptyArr],
