@@ -114,17 +114,38 @@ describe("appointment deletion", () => {
 });
 
 describe("partial payments and appointment status", () => {
-  it("keeps the appointment open until fully paid, then completes it", async () => {
+  it("completes the visit on its checkout payment and keeps any shortfall as debt until paid", async () => {
     const p = await patient("قسطی");
     const a = await appointment(p.id);
     expect((await pay(a.id, 1_000_000, 400_000)).status).toBe(201);
     let detail = await getAppt(a.id);
-    expect(detail).toMatchObject({ status: "scheduled", price: 1_000_000, paidTotal: 400_000, remaining: 600_000, hasCheckoutPayment: true });
+    // خدمت انجام شده ← از نوبت‌های فعال خارج می‌شود؛ ۶۰۰ هزار بدهی می‌ماند
+    expect(detail).toMatchObject({ status: "completed", price: 1_000_000, paidTotal: 400_000, remaining: 600_000, hasCheckoutPayment: true });
 
     // پرداخت بعدی: مبلغ اصلی = قیمت نوبت، پرداخت‌های قبلی کسر شده
     expect((await pay(a.id, 1_000_000, 600_000)).status).toBe(201);
     detail = await getAppt(a.id);
     expect(detail).toMatchObject({ status: "completed", paidTotal: 1_000_000, remaining: 0 });
+  });
+
+  it("closes an existing debt as a negotiated discount with a zero payment", async () => {
+    const p = await patient("بخشش");
+    const a = await appointment(p.id);
+    await pay(a.id, 1_000_000, 700_000);
+    expect(await getAppt(a.id)).toMatchObject({ status: "completed", remaining: 300_000 });
+    const r = await pay(a.id, 1_000_000, 0, { settleInFull: true });
+    expect(r.status).toBe(201);
+    expect(r.json).toMatchObject({ amount: 0, discountAmount: 300_000, discountName: "تخفیف توافقی" });
+    expect(await getAppt(a.id)).toMatchObject({ status: "completed", price: 700_000, remaining: 0 });
+  });
+
+  it("deleting a partial payment keeps the visit completed while another checkout payment remains", async () => {
+    const p = await patient("دو قسط");
+    const a = await appointment(p.id);
+    const first = await pay(a.id, 1_000_000, 400_000);
+    await pay(a.id, 1_000_000, 600_000);
+    expect((await call("DELETE", `/payments/${first.json.id}`)).status).toBe(204);
+    expect(await getAppt(a.id)).toMatchObject({ status: "completed", paidTotal: 600_000, remaining: 400_000 });
   });
 
   it("counts the deposit payment toward the paid total", async () => {

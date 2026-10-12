@@ -99,7 +99,7 @@ export async function recomputeAppointmentAfterPaymentChange(tx: Tx, appointment
     `);
     const price = last ? Math.max(0, Number(last.original_amount) - Number(last.discount_amount ?? 0)) : appt.price;
     if (price != null && price !== appt.price) changes.price = price;
-    if (price != null && state.paid < price) open = true;
+    // تا وقتی پرداخت تسویه‌ای هست، نوبت انجام‌شده می‌ماند؛ کسری فقط بدهی است
   }
   if (open && appt.status === "completed") changes.status = "confirmed";
   if (Object.keys(changes).length > 0) {

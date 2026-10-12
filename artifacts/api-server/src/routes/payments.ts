@@ -396,10 +396,11 @@ router.post("/payments", async (req, res): Promise<void> => {
       // ── وضعیت نوبت: قیمت خالص روی نوبت ذخیره می‌شود و فقط با پرداخت کامل «تکمیل» می‌شود ──
       if (appt && !isDeposit) {
         const price = Math.max(0, created.originalAmount - (created.discountAmount ?? 0));
-        const state = await appointmentPaymentState(tx, appt.id);
         const changes: Partial<typeof appointmentsTable.$inferInsert> = { price };
         if (typeof created.unitsUsed === "number" && created.unitsUsed > 0) changes.unitsUsed = Math.round(created.unitsUsed);
-        if (state.paid >= price && appt.status !== "cancelled") changes.status = "completed";
+        // خدمت انجام و در صندوق ثبت شده ← نوبت «تکمیل» می‌شود (از نوبت‌های فعال خارج می‌شود)؛
+        // اگر کمتر از قیمت پرداخت شده، مانده به‌عنوان بدهی در صندوق و پروندهٔ مراجع می‌ماند
+        if (appt.status !== "cancelled") changes.status = "completed";
         await tx.update(appointmentsTable).set(changes).where(eq(appointmentsTable.id, appt.id));
       }
 

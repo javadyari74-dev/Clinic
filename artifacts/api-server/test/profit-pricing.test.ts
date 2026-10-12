@@ -117,7 +117,7 @@ describe("profit is always amount received − service cost", () => {
     const svc = (await call("POST", "/services", { name: "بدهی", price: 3_000_000, doctorFee: 1_800_000 })).json;
     const a = await appointment((await patient("بدهکار")).id, svc.id);
     await call("POST", "/payments", { appointmentId: a.id, originalAmount: 3_000_000, amount: 2_800_000, method: "card" });
-    expect((await call("GET", `/appointments/${a.id}`)).json).toMatchObject({ status: "scheduled", remaining: 200_000 });
+    expect((await call("GET", `/appointments/${a.id}`)).json).toMatchObject({ status: "completed", remaining: 200_000 });
   });
 
   it("the club's profit credit uses the same received amount", async () => {

@@ -157,6 +157,36 @@ export const DATA_FIX_KEY_PREFIX = "data_fix_";
 // would harm rows created since).
 const ONE_TIME_DATA_FIXES: Array<{ key: string; alreadyAppliedBy?: number; statement: string }> = [
   {
+    key: `${DATA_FIX_KEY_PREFIX}historic_shortfall_settled`,
+    // Before the debt feature (released 2026-10-09 15:00 UTC = 1791558000) a checkout
+    // amount below the list price was simply the agreed price. Migration 0025 filled
+    // appointments.price from those payments, which made old visits look like debts.
+    // For visits whose payments are all older than the release, the agreed price is
+    // what was actually paid. Newer shortfalls stay real debts.
+    statement: `UPDATE \`appointments\` SET \`price\` = (
+  SELECT SUM(p.\`amount\` + COALESCE(p.\`wallet_amount\`, 0) + COALESCE(p.\`points_amount\`, 0))
+  FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\`
+)
+WHERE \`price\` IS NOT NULL
+  AND \`price\` > (
+    SELECT COALESCE(SUM(p.\`amount\` + COALESCE(p.\`wallet_amount\`, 0) + COALESCE(p.\`points_amount\`, 0)), 0)
+    FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\`
+  )
+  AND EXISTS (SELECT 1 FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND COALESCE(p.\`notes\`, '') <> 'بیعانه')
+  AND NOT EXISTS (SELECT 1 FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND p.\`paid_at\` >= 1791558000)`,
+  },
+  {
+    key: `${DATA_FIX_KEY_PREFIX}paid_appointments_completed`,
+    // Earlier versions kept a visit whose checkout payment was less than its price
+    // "scheduled/confirmed", so it stayed in the active appointments list. A visit
+    // with a checkout (non-deposit) payment is done; any unpaid rest is a debt.
+    statement: `UPDATE \`appointments\` SET \`status\` = 'completed'
+WHERE \`status\` IN ('scheduled', 'confirmed', 'arrived', 'in_progress') AND EXISTS (
+  SELECT 1 FROM \`payments\` p
+  WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND COALESCE(p.\`notes\`, '') <> 'بیعانه'
+)`,
+  },
+  {
     key: `${DATA_FIX_KEY_PREFIX}adjust_sign_done`,
     alreadyAppliedBy: 1791500000000, // 0023_add_payment_credit_amounts
     // Old code stored the loyalty side of a manual wallet/points adjustment with

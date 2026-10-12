@@ -255,7 +255,9 @@ export default function Payments() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [fullAmountChecked, setFullAmountChecked] = useState(false);
   // مبلغ کمتر از مانده: «تخفیف توافقی» (قیمت نهایی = مبلغ دریافتی) یا مانده به‌عنوان بدهی
-  const [settleInFull, setSettleInFull] = useState(false);
+  // باید صریحاً انتخاب شود (پیش‌فرض ندارد) تا کسری اشتباهی بدهی یا تخفیف ثبت نشود
+  const [settleChoice, setSettleChoice] = useState<"discount" | "debt" | null>(null);
+  const settleInFull = settleChoice === "discount";
   // جمع پرداخت‌های قبلیِ نوبت (بیعانه + اقساط قبلی؛ نقدی + کیف پول + امتیاز) — از سرور
   const [currentDeposit, setCurrentDeposit] = useState(0);
 
@@ -492,7 +494,7 @@ export default function Payments() {
   function resetDialog() {
     form.reset({ amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 });
     setFullAmountChecked(false);
-    setSettleInFull(false);
+    setSettleChoice(null);
     setCurrentDeposit(0);
     setCommissionEnabled(false);
     setCommRecipientType("staff");
@@ -518,7 +520,13 @@ export default function Payments() {
       return;
     }
     // مبلغ دریافتی صفر فقط وقتی مجاز است که کل مبلغ با بیعانه/کیف پول/امتیاز پوشش داده شده باشد
-    if (!(values.amount > 0) && dueBeforePoints - redeemToman - walletApplied > 0) {
+    // مبلغ کمتر از مانده: باید مشخص شود تخفیف توافقی است یا بدهی
+    if (shortfall > 0 && settleChoice === null) {
+      toast({ title: "مشخص کنید مبلغ باقی‌مانده «تخفیف توافقی» است یا «بدهی مراجع»", variant: "destructive" });
+      return;
+    }
+    // مبلغ صفر فقط وقتی مجاز است که بقیه پوشش داده شده یا کل مانده تخفیف توافقی است
+    if (!(values.amount > 0) && dueBeforePoints - redeemToman - walletApplied > 0 && !settleInFull) {
       toast({ title: "مبلغ دریافتی را وارد کنید", variant: "destructive" });
       return;
     }
@@ -795,23 +803,25 @@ export default function Payments() {
                 )} />
               </div>
 
-              {shortfall > 0 && (Number(paidAmount) || 0) > 0 && (
+              {shortfall > 0 && (
                 <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2 text-sm">
                   <div className="text-amber-900">
                     مبلغ دریافتی <span className="font-bold">{formatCurrency(shortfall)}</span> کمتر از مانده است. این مبلغ:
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" variant={settleInFull ? "default" : "outline"} onClick={() => setSettleInFull(true)}>
+                    <Button type="button" size="sm" variant={settleChoice === "discount" ? "default" : "outline"} onClick={() => setSettleChoice("discount")}>
                       تخفیف توافقی است (تسویه کامل)
                     </Button>
-                    <Button type="button" size="sm" variant={!settleInFull ? "default" : "outline"} onClick={() => setSettleInFull(false)}>
+                    <Button type="button" size="sm" variant={settleChoice === "debt" ? "default" : "outline"} onClick={() => setSettleChoice("debt")}>
                       بدهی مراجع است (بعداً پرداخت می‌شود)
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {settleInFull
+                    {settleChoice === "discount"
                       ? "قیمت نهایی خدمت همین مبلغ دریافتی ثبت می‌شود و سود هم از همین مبلغ حساب می‌شود."
-                      : "نوبت باز می‌ماند و مانده در صندوق و پروندهٔ مراجع به‌عنوان بدهی نمایش داده می‌شود."}
+                      : settleChoice === "debt"
+                        ? "مانده به‌عنوان بدهی در صندوق و پروندهٔ مراجع می‌ماند و بعداً از همین صندوق دریافت می‌شود."
+                        : "برای ثبت پرداخت، یکی از دو گزینه را انتخاب کنید."}
                   </p>
                 </div>
               )}
