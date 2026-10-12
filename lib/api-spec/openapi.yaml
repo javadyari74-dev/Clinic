@@ -2474,7 +2474,7 @@ components:
     # ── SMS ───────────────────────────────────────────────────────────────────
     SmsSettings:
       type: object
-      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder, enabledLoyaltyWelcome, enabledLoyaltyTierUp, enabledLoyaltyExpiry, enabledLoyaltyReferral, bodyIdLoyaltyWelcome, bodyIdLoyaltyTierUp, bodyIdLoyaltyExpiry, bodyIdLoyaltyReferral, bodyIdPaymentLoyalty, bodyIdLoyaltyNotify]
+      required: [username, from, hasPassword, enabledAppointment, enabledPayment, enabledCommission, enabledRecipientWelcome, enabledSurvey, surveyThrottleDays, enabledAppointmentReminder, enabledFollowupReminder, enabledBirthdayAuto, appointmentReminderHour, dailyAutoHour, sendMode, bodyIdAppointment, bodyIdPayment, bodyIdCommission, bodyIdBirthday, bodyIdSurvey, bodyIdRecipientWelcome, bodyIdAppointmentReminder, bodyIdFollowupReminder, enabledLoyaltyWelcome, enabledLoyaltyTierUp, enabledLoyaltyExpiry, enabledLoyaltyReferral, bodyIdLoyaltyWelcome, bodyIdLoyaltyTierUp, bodyIdLoyaltyExpiry, bodyIdLoyaltyReferral, bodyIdPaymentLoyalty, bodyIdLoyaltyNotify, bodyIdLoyaltyBalance]
       properties:
         username: { type: string }
         from: { type: string }
@@ -2511,6 +2511,7 @@ components:
         bodyIdLoyaltyReferral: { type: string }
         bodyIdPaymentLoyalty: { type: string }
         bodyIdLoyaltyNotify: { type: string }
+        bodyIdLoyaltyBalance: { type: string }
 
     SmsSettingsInput:
       type: object
@@ -2550,6 +2551,7 @@ components:
         bodyIdLoyaltyReferral: { type: string }
         bodyIdPaymentLoyalty: { type: string }
         bodyIdLoyaltyNotify: { type: string }
+        bodyIdLoyaltyBalance: { type: string }
 
     SmsTemplates:
       type: object
@@ -2993,15 +2995,23 @@ components:
         expiringWithinDays: { type: integer }
         # true = فقط پیش‌نمایش، بدون ارسال
         dryRun: { type: boolean }
+        # نوع پیام آماده (برای انتخاب الگوی خدماتی): balance | expiry | both | custom
+        kind: { type: string }
 
     LoyaltyNotifyResult:
       type: object
-      required: [total, sent, failed, usesPattern, recipients]
+      required: [total, sent, failed, usesPattern, recipients, errors]
       properties:
         total: { type: integer }
         sent: { type: integer }
         failed: { type: integer }
         usesPattern: { type: boolean }
+        # نام الگویی که استفاده می‌شود (حالت خدماتی)
+        patternLabel: { type: ["string", "null"] }
+        # اگر ارسال با تنظیمات فعلی ممکن نیست (مثلاً کد الگو خالی است)، دلیلش
+        patternError: { type: ["string", "null"] }
+        # نمونهٔ دلایل ناموفق بودن ارسال (حداکثر ۳ مورد متفاوت)
+        errors: { type: array, items: { type: string } }
         recipients:
           type: array
           items:

@@ -517,9 +517,27 @@ describe("manual club messages", () => {
       const r = await call("POST", "/loyalty/notify", { message: "متن آزاد", patientIds: [p.id] });
       expect(r.json).toMatchObject({ sent: 1, usesPattern: true });
       expect(sent[0].pattern).toEqual({ bodyId: "777", args: ["پترنی", "۱۰۰,۰۰۰", "۰", "—"] });
+
+      // پیام آمادهٔ «موجودی» با الگوی موجودی؛ اگر کدش خالی باشد، پیش از ارسال خطای روشن
+      const missing = await call("POST", "/loyalty/notify", { message: "x", kind: "balance", patientIds: [p.id], dryRun: true });
+      expect(missing.json.patternError).toContain("پیام موجودی کیف پول");
+      expect((await call("POST", "/loyalty/notify", { message: "x", kind: "balance", patientIds: [p.id] })).status).toBe(400);
+      await sms.setAppSetting("sms_bodyid_loyalty_balance", "555");
+      sent.length = 0;
+      const bal = await call("POST", "/loyalty/notify", { message: "x", kind: "balance", patientIds: [p.id] });
+      expect(bal.json).toMatchObject({ sent: 1, patternLabel: "پیام موجودی کیف پول", patternError: null });
+      expect(sent[0].pattern).toEqual({ bodyId: "555", args: ["پترنی", "۱۰۰,۰۰۰"] });
+
+      // پیام آمادهٔ «انقضا» با همان الگوی هشدار انقضا: {0} نام {1} مبلغ {2} تاریخ
+      await sms.setAppSetting("sms_bodyid_loyalty_expiry", "554014");
+      sent.length = 0;
+      await call("POST", "/loyalty/notify", { message: "x", kind: "expiry", patientIds: [p.id] });
+      expect(sent[0].pattern).toEqual({ bodyId: "554014", args: ["پترنی", "۰", "—"] });
     } finally {
       await sms.setAppSetting("sms_send_mode", "normal");
       await sms.setAppSetting("sms_bodyid_loyalty_notify", "");
+      await sms.setAppSetting("sms_bodyid_loyalty_balance", "");
+      await sms.setAppSetting("sms_bodyid_loyalty_expiry", "");
     }
   });
 });

@@ -144,6 +144,7 @@ function SettingsTab() {
         bodyIdLoyaltyReferral: patternDraft.bodyIdLoyaltyReferral ?? settings?.bodyIdLoyaltyReferral ?? "",
         bodyIdPaymentLoyalty: patternDraft.bodyIdPaymentLoyalty ?? settings?.bodyIdPaymentLoyalty ?? "",
         bodyIdLoyaltyNotify: patternDraft.bodyIdLoyaltyNotify ?? settings?.bodyIdLoyaltyNotify ?? "",
+        bodyIdLoyaltyBalance: patternDraft.bodyIdLoyaltyBalance ?? settings?.bodyIdLoyaltyBalance ?? "",
       },
     });
   }
@@ -162,6 +163,7 @@ function SettingsTab() {
     { key: "bodyIdLoyaltyTierUp", label: "کد متن ارتقای سطح باشگاه" },
     { key: "bodyIdLoyaltyExpiry", label: "کد متن هشدار انقضای اعتبار" },
     { key: "bodyIdLoyaltyReferral", label: "کد متن اعتبار معرفی دوست" },
+    { key: "bodyIdLoyaltyBalance", label: "کد متن پیام موجودی کیف پول (ارسال دستی)" },
     { key: "bodyIdLoyaltyNotify", label: "کد متن پیام دستی باشگاه (موجودی و انقضا)" },
   ] as const;
 
@@ -488,7 +490,9 @@ function SettingsTab() {
               <div>• ارتقای سطح: {"{0}"} نام — {"{1}"} سطح</div>
               <div>• هشدار انقضا: {"{0}"} نام — {"{1}"} مبلغ اعتبار — {"{2}"} تاریخ</div>
               <div>• اعتبار معرفی: {"{0}"} نام — {"{1}"} مبلغ اعتبار — {"{2}"} موجودی کیف پول</div>
+              <div>• پیام موجودی کیف پول (ارسال دستی): {"{0}"} نام — {"{1}"} موجودی کیف پول</div>
               <div>• پیام دستی باشگاه: {"{0}"} نام — {"{1}"} موجودی کیف پول — {"{2}"} مبلغ در حال انقضا — {"{3}"} تاریخ انقضا</div>
+              <div>• پیام دستیِ «یادآوری انقضا» از همان الگوی «هشدار انقضای اعتبار» استفاده می‌کند.</div>
               <div className="pt-1">
                 نمونه متن پترن نوبت: «{"{0}"} عزیز، نوبت شما در مطب زیبایی دکتر یاری برای {"{1}"} ساعت {"{2}"} ثبت شد. منتظر حضور شما هستیم. www.drjavadyari.ir»
               </div>

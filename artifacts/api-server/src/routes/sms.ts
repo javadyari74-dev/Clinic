@@ -75,6 +75,7 @@ function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
     bodyIdLoyaltyReferral: s.bodyIdLoyaltyReferral,
     bodyIdPaymentLoyalty: s.bodyIdPaymentLoyalty,
     bodyIdLoyaltyNotify: s.bodyIdLoyaltyNotify,
+    bodyIdLoyaltyBalance: s.bodyIdLoyaltyBalance,
   };
 }
 
@@ -133,6 +134,7 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     ["bodyIdLoyaltyReferral", SMS_SETTING_KEYS.bodyIdLoyaltyReferral],
     ["bodyIdPaymentLoyalty", SMS_SETTING_KEYS.bodyIdPaymentLoyalty],
     ["bodyIdLoyaltyNotify", SMS_SETTING_KEYS.bodyIdLoyaltyNotify],
+    ["bodyIdLoyaltyBalance", SMS_SETTING_KEYS.bodyIdLoyaltyBalance],
   ] as const;
   for (const [field] of bodyIdFields) {
     const value = b[field];

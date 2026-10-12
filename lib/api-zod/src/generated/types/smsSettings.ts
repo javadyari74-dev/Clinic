@@ -41,4 +41,5 @@ export interface SmsSettings {
   bodyIdLoyaltyReferral: string;
   bodyIdPaymentLoyalty: string;
   bodyIdLoyaltyNotify: string;
+  bodyIdLoyaltyBalance: string;
 }

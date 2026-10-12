@@ -71,8 +71,10 @@ export function LoyaltyNotifyDialog({
         setConfirming(false);
         onOpenChange(false);
         toast({
-          title: r.failed > 0 ? "ارسال پیام با خطای جزئی انجام شد" : "پیام ارسال شد",
-          description: `${toPersianDigits(r.sent)} ارسال${r.failed ? `، ${toPersianDigits(r.failed)} ناموفق (جزئیات در گزارش پیامک‌ها)` : ""}`,
+          title: r.failed === 0 ? "پیام ارسال شد" : r.sent === 0 ? "ارسال پیام ناموفق بود" : "ارسال پیام با خطای جزئی انجام شد",
+          description:
+            `${toPersianDigits(r.sent)} ارسال${r.failed ? `، ${toPersianDigits(r.failed)} ناموفق` : ""}` +
+            (r.errors.length > 0 ? ` — دلیل: ${r.errors.join("؛ ")}` : ""),
           variant: r.failed > 0 && r.sent === 0 ? "destructive" : undefined,
         });
       },
@@ -97,6 +99,8 @@ export function LoyaltyNotifyDialog({
 
   const body = () => ({
     message,
+    // نوع پیام آماده برای انتخاب الگوی خدماتی (متن ویرایش‌شده = «دلخواه»)
+    kind: preset,
     patientIds: target ? [target.patientId] : undefined,
     tiers: bulk && tiers.length > 0 ? tiers : undefined,
     onlyWithBalance: bulk ? onlyWithBalance : undefined,
@@ -241,17 +245,21 @@ export function LoyaltyNotifyDialog({
                 </p>
               )}
               {first && !first.phone && <p className="text-red-600 text-xs">شماره موبایل این مراجع ثبت نشده است.</p>}
-              {preview?.usesPattern && (
+              {preview?.usesPattern && !preview.patternError && (
                 <p className="text-xs text-muted-foreground">
-                  ارسال خدماتی (پترن) فعال است: متن پترن «پیام باشگاه» با نام، موجودی، مبلغ و تاریخ انقضا فرستاده می‌شود، نه این متن.
+                  ارسال خدماتی فعال است: متنِ الگوی «{preview.patternLabel}» که در ملی پیامک ثبت کرده‌اید فرستاده می‌شود
+                  (با نام و مبلغ‌های همین مراجع)، نه متن بالا.
                 </p>
+              )}
+              {preview?.patternError && (
+                <p className="text-xs text-red-600 font-medium">{preview.patternError}</p>
               )}
             </div>
           </div>
 
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => onOpenChange(false)} disabled={sendMutation.isPending}>انصراف</Button>
-            <Button onClick={send} disabled={sendMutation.isPending || !message.trim() || (preview !== null && count === 0)} className="gap-1">
+            <Button onClick={send} disabled={sendMutation.isPending || !message.trim() || (preview !== null && (count === 0 || !!preview.patternError))} className="gap-1">
               <Send className="h-4 w-4" />
               {sendMutation.isPending ? "در حال ارسال..." : bulk ? `ارسال${preview ? ` به ${toPersianDigits(count)} نفر` : ""}` : "ارسال"}
             </Button>

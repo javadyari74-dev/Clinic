@@ -12,5 +12,10 @@ export interface LoyaltyNotifyResult {
   sent: number;
   failed: number;
   usesPattern: boolean;
+  /** @nullable */
+  patternLabel?: string | null;
+  /** @nullable */
+  patternError?: string | null;
+  errors: string[];
   recipients: LoyaltyNotifyResultRecipientsItem[];
 }

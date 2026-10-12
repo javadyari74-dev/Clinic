@@ -14,4 +14,5 @@ export interface LoyaltyNotifyInput {
   onlyExpiring?: boolean;
   expiringWithinDays?: number;
   dryRun?: boolean;
+  kind?: string;
 }

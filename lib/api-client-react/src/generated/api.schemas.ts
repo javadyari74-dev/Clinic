@@ -840,6 +840,7 @@ export interface SmsSettings {
   bodyIdLoyaltyReferral: string;
   bodyIdPaymentLoyalty: string;
   bodyIdLoyaltyNotify: string;
+  bodyIdLoyaltyBalance: string;
 }
 
 export type SmsSettingsInputSendMode = typeof SmsSettingsInputSendMode[keyof typeof SmsSettingsInputSendMode];
@@ -884,6 +885,7 @@ export interface SmsSettingsInput {
   bodyIdLoyaltyReferral?: string;
   bodyIdPaymentLoyalty?: string;
   bodyIdLoyaltyNotify?: string;
+  bodyIdLoyaltyBalance?: string;
 }
 
 export type SmsTemplatesDefaults = {
@@ -1308,6 +1310,7 @@ export interface LoyaltyNotifyInput {
   onlyExpiring?: boolean;
   expiringWithinDays?: number;
   dryRun?: boolean;
+  kind?: string;
 }
 
 export type LoyaltyNotifyResultRecipientsItem = {
@@ -1327,6 +1330,11 @@ export interface LoyaltyNotifyResult {
   sent: number;
   failed: number;
   usesPattern: boolean;
+  /** @nullable */
+  patternLabel?: string | null;
+  /** @nullable */
+  patternError?: string | null;
+  errors: string[];
   recipients: LoyaltyNotifyResultRecipientsItem[];
 }
 

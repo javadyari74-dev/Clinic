@@ -1226,7 +1226,8 @@ export const GetSmsSettingsResponse = zod.object({
   "bodyIdLoyaltyExpiry": zod.string(),
   "bodyIdLoyaltyReferral": zod.string(),
   "bodyIdPaymentLoyalty": zod.string(),
-  "bodyIdLoyaltyNotify": zod.string()
+  "bodyIdLoyaltyNotify": zod.string(),
+  "bodyIdLoyaltyBalance": zod.string()
 })
 
 
@@ -1263,7 +1264,8 @@ export const UpdateSmsSettingsBody = zod.object({
   "bodyIdLoyaltyExpiry": zod.string().optional(),
   "bodyIdLoyaltyReferral": zod.string().optional(),
   "bodyIdPaymentLoyalty": zod.string().optional(),
-  "bodyIdLoyaltyNotify": zod.string().optional()
+  "bodyIdLoyaltyNotify": zod.string().optional(),
+  "bodyIdLoyaltyBalance": zod.string().optional()
 })
 
 export const UpdateSmsSettingsResponse = zod.object({
@@ -1299,7 +1301,8 @@ export const UpdateSmsSettingsResponse = zod.object({
   "bodyIdLoyaltyExpiry": zod.string(),
   "bodyIdLoyaltyReferral": zod.string(),
   "bodyIdPaymentLoyalty": zod.string(),
-  "bodyIdLoyaltyNotify": zod.string()
+  "bodyIdLoyaltyNotify": zod.string(),
+  "bodyIdLoyaltyBalance": zod.string()
 })
 
 
@@ -1830,7 +1833,8 @@ export const NotifyLoyaltyMembersBody = zod.object({
   "onlyWithBalance": zod.boolean().optional(),
   "onlyExpiring": zod.boolean().optional(),
   "expiringWithinDays": zod.number().optional(),
-  "dryRun": zod.boolean().optional()
+  "dryRun": zod.boolean().optional(),
+  "kind": zod.string().optional()
 })
 
 export const NotifyLoyaltyMembersResponse = zod.object({
@@ -1838,6 +1842,9 @@ export const NotifyLoyaltyMembersResponse = zod.object({
   "sent": zod.number(),
   "failed": zod.number(),
   "usesPattern": zod.boolean(),
+  "patternLabel": zod.string().nullish(),
+  "patternError": zod.string().nullish(),
+  "errors": zod.array(zod.string()),
   "recipients": zod.array(zod.object({
   "patientId": zod.number(),
   "name": zod.string(),

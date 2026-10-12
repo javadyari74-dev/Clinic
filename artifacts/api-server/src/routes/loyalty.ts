@@ -265,6 +265,8 @@ router.post("/loyalty/retro-cashback", requireAdmin, async (req, res): Promise<v
 
 // پیام دستی باشگاه در هر لحظه: به یک یا چند عضو، یا همهٔ اعضا (با فیلتر سطح/موجودی/انقضا).
 // متغیرها برای هر نفر جدا پر می‌شوند. dryRun فقط پیش‌نمایش می‌دهد.
+const expiryText = (expiresAt: number | null) => (expiresAt ? shamsiDateText(expiresAt * 1000) : "—");
+
 router.post("/loyalty/notify", async (req, res): Promise<void> => {
   const parsed = NotifyLoyaltyMembersBody.safeParse(req.body);
   if (!parsed.success) {
@@ -291,7 +293,19 @@ router.post("/loyalty/notify", async (req, res): Promise<void> => {
 
   const now = nowSec();
   const sms = await getSmsSettings();
-  const usesPattern = sms.sendMode === "pattern" && sms.bodyIdLoyaltyNotify !== "";
+  // حالت خدماتی (خط اشتراکی): متن آزاد ارسال نمی‌شود؛ هر پیام آماده با الگوی خودش می‌رود
+  //   موجودی:        {0}=نام {1}=موجودی                          (کد «پیام موجودی کیف پول»)
+  //   انقضا:         {0}=نام {1}=مبلغ در حال انقضا {2}=تاریخ        (کد «هشدار انقضای اعتبار»)
+  //   ترکیبی/دلخواه: {0}=نام {1}=موجودی {2}=مبلغ انقضا {3}=تاریخ   (کد «پیام دستی باشگاه»)
+  const kind = parsed.data.kind === "balance" || parsed.data.kind === "expiry" ? parsed.data.kind : "both";
+  const usesPattern = sms.sendMode === "pattern";
+  const patternSpec = !usesPattern ? null
+    : kind === "balance" ? { bodyId: sms.bodyIdLoyaltyBalance, label: "پیام موجودی کیف پول" }
+    : kind === "expiry" ? { bodyId: sms.bodyIdLoyaltyExpiry, label: "هشدار انقضای اعتبار" }
+    : { bodyId: sms.bodyIdLoyaltyNotify, label: "پیام دستی باشگاه (موجودی و انقضا)" };
+  const patternError = patternSpec && !patternSpec.bodyId
+    ? `ارسال خدماتی فعال است و کد الگوی «${patternSpec.label}» وارد نشده؛ آن را در پنل پیامکی ← تنظیمات ← ارسال خدماتی وارد کنید`
+    : null;
   const recipients: Array<{ patientId: number; name: string; phone: string | null; text: string; balance: number; expiringAmount: number; expiresAt: number | null }> = [];
   for (const m of members) {
     const info = await getMemberWalletInfo(m.patientId, now, settings, withinDays);
@@ -315,9 +329,14 @@ router.post("/loyalty/notify", async (req, res): Promise<void> => {
 
   let sent = 0;
   let failed = 0;
+  const errors = new Set<string>();
   if (!dryRun) {
     if (recipients.length === 0) {
       res.status(400).json({ error: "هیچ عضوی با این شرایط پیدا نشد" });
+      return;
+    }
+    if (patternError) {
+      res.status(400).json({ error: patternError });
       return;
     }
     for (const r of recipients) {
@@ -327,19 +346,32 @@ router.post("/loyalty/notify", async (req, res): Promise<void> => {
         eventType: "loyalty_bulk",
         recipientName: r.name,
         patientId: r.patientId,
-        // حالت خدماتی: {0}=نام {1}=موجودی {2}=مبلغ در حال انقضا {3}=تاریخ انقضا
-        pattern: usesPattern
+        pattern: patternSpec
           ? {
-              bodyId: sms.bodyIdLoyaltyNotify,
-              args: [r.name, formatToman(r.balance), formatToman(r.expiringAmount), r.expiresAt ? shamsiDateText(r.expiresAt * 1000) : "—"],
+              bodyId: patternSpec.bodyId,
+              args: kind === "balance"
+                ? [r.name, formatToman(r.balance)]
+                : kind === "expiry"
+                  ? [r.name, formatToman(r.expiringAmount), expiryText(r.expiresAt)]
+                  : [r.name, formatToman(r.balance), formatToman(r.expiringAmount), expiryText(r.expiresAt)],
             }
           : undefined,
       });
-      if (result.ok) sent++; else failed++;
+      if (result.ok) sent++;
+      else {
+        failed++;
+        if (result.error && errors.size < 3) errors.add(result.error);
+      }
     }
     await logActivity("create", "sms", null, `پیام باشگاه به ${recipients.length.toLocaleString()} عضو: ${sent.toLocaleString()} ارسال، ${failed.toLocaleString()} ناموفق`);
   }
-  res.json({ total: recipients.length, sent, failed, usesPattern, recipients });
+  res.json({
+    total: recipients.length, sent, failed, usesPattern,
+    patternLabel: patternSpec?.label ?? null,
+    patternError,
+    errors: [...errors],
+    recipients,
+  });
 });
 
 router.get("/patients/:id/loyalty", async (req, res): Promise<void> => {
