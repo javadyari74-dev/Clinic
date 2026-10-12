@@ -475,6 +475,49 @@ export interface DiscountUpdate {
   description?: string | null;
 }
 
+export interface Purchase {
+  id: number;
+  productType: string;
+  productName: string;
+  /** @nullable */
+  supplier?: string | null;
+  quantity: number;
+  price: number;
+  purchaseDate: number;
+  isSettled: boolean;
+  /** @nullable */
+  settledAt?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: number;
+}
+
+export interface PurchaseInput {
+  productType: string;
+  productName: string;
+  /** @nullable */
+  supplier?: string | null;
+  quantity?: number;
+  price: number;
+  purchaseDate: number;
+  isSettled?: boolean;
+  /** @nullable */
+  notes?: string | null;
+}
+
+export interface PurchaseUpdate {
+  productType?: string;
+  productName?: string;
+  /** @nullable */
+  supplier?: string | null;
+  quantity?: number;
+  price?: number;
+  purchaseDate?: number;
+  isSettled?: boolean;
+  /** @nullable */
+  notes?: string | null;
+}
+
 export interface InventoryItem {
   id: number;
   name: string;

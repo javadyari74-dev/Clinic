@@ -24,6 +24,7 @@ import smsRouter from "./sms";
 import waitingListRouter from "./waiting-list";
 import surveysRouter from "./surveys";
 import loyaltyRouter from "./loyalty";
+import purchasesRouter from "./purchases";
 
 const router: IRouter = Router();
 
@@ -81,6 +82,7 @@ export const routeAccessRules: Rule[] = [
   { pattern: "/loyalty", check: any("loyalty") },
   { pattern: "/surveys", check: any("surveys") },
   { pattern: "/inventory", check: any("inventory") },
+  { pattern: "/purchases", check: any("purchases") },
 
   // ── مراجعین ──
   // خروجی کامل اطلاعات تماس همهٔ مراجعین؛ مثل دانلود پشتیبان فقط مدیر
@@ -179,5 +181,6 @@ router.use(smsRouter);
 router.use(waitingListRouter);
 router.use(surveysRouter);
 router.use(loyaltyRouter);
+router.use(purchasesRouter);
 
 export default router;

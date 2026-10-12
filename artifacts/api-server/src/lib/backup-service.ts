@@ -33,6 +33,7 @@ import {
   loyaltyMembersTable,
   smsSavedPatternsTable,
   servicePriceHistoryTable,
+  purchasesTable,
   DATA_FIX_KEY_PREFIX,
 } from "@workspace/db";
 import { logger } from "./logger";
@@ -42,7 +43,8 @@ import { backfillLoyaltyMembers } from "./loyalty";
 // نسخه ۴: افزودن لیست انتظار، نظرسنجی‌ها، لاگ پیامک، باشگاه مشتریان و بخش لیزر.
 // نسخه ۵: افزودن تنظیمات برنامه (appSettings) و کدهای پترن ذخیره‌شدهٔ پیامک؛ uuid برای جدول‌های لیزر.
 // نسخه ۶: تاریخچهٔ قیمت و هزینهٔ خدمات (servicePriceHistory).
-export const BACKUP_VERSION = 6;
+// نسخه ۷: خریدها (purchases).
+export const BACKUP_VERSION = 7;
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -174,6 +176,7 @@ export async function buildBackupData(): Promise<{
     appSettings,
     smsSavedPatterns,
     servicePriceHistory,
+    purchases,
   ] = await Promise.all([
     db.select().from(patientsTable),
     db.select().from(servicesTable),
@@ -203,6 +206,7 @@ export async function buildBackupData(): Promise<{
     db.select().from(appSettingsTable),
     db.select().from(smsSavedPatternsTable),
     db.select().from(servicePriceHistoryTable),
+    db.select().from(purchasesTable),
   ]);
 
   return {
@@ -237,6 +241,7 @@ export async function buildBackupData(): Promise<{
       appSettings: appSettings.filter((r) => !isDeviceLocalSettingKey(r.key)),
       smsSavedPatterns,
       servicePriceHistory,
+      purchases,
     },
   };
 }
@@ -422,6 +427,7 @@ const RECORD_KEYS = [
   "surveys",
   "loyaltyTransactions",
   "servicePriceHistory",
+  "purchases",
 ] as const;
 
 // بخش‌های لیزر از نسخهٔ ۵ uuid دارند؛ در فایل‌های قدیمی‌تر ردیف‌ها uuid ندارند
@@ -857,6 +863,9 @@ export async function mergeRestore(
       serviceId: resolveRef(maps.services, row.serviceId, true, "تاریخچهٔ قیمت→خدمت"),
     }));
     rep.servicePriceHistory = servicePriceHistory.count;
+
+    const purchases = await mergeTable(tx, purchasesTable, d.purchases, (row) => ({ ...row }));
+    rep.purchases = purchases.count;
 
     const surveys = await mergeTable(tx, surveysTable, d.surveys, (row) => ({
       ...row,

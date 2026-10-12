@@ -29,7 +29,7 @@ let R = 0; // شناسهٔ یک گیرندهٔ کمیسیون نمونه
 const PERMS = [
   "dashboard", "patients", "appointments", "payments", "services", "laser", "staff",
   "commissions", "discounts", "inventory", "accounting", "reports", "reminders", "sms",
-  "surveys", "loyalty", "backup",
+  "surveys", "loyalty", "backup", "purchases",
 ] as const;
 type Perm = (typeof PERMS)[number];
 
@@ -98,6 +98,7 @@ const PAGE_GETS: Record<Perm, () => string[]> = {
     `/patients/${P}/account-transactions`, `/patients/${P}/loyalty`, "/reminders", "/staff", "/services",
   ],
   services: () => ["/services"],
+  purchases: () => ["/purchases"],
   laser: () => ["/laser/clients", "/laser/services", "/laser/settings", "/laser/appointments", "/laser/payments", "/laser/operator", "/laser/reminders"],
   staff: () => ["/staff", `/accounting/revenue-range?${RANGE}`],
   commissions: () => ["/commissions", "/commission-recipients", "/staff", `/commission-recipients/${R}/referrals`],
@@ -245,5 +246,43 @@ describe("write rules", () => {
     for (const p of [`/laser/appointments/${a.id}`, `/laser/clients/${c.id}`, `/laser/services/${s.id}`]) {
       expect(await call("admin", "DELETE", p)).toBe(204);
     }
+  });
+});
+
+describe("purchases section", () => {
+  it("records a purchase, marks it settled with a date, and is limited to the purchases permission", async () => {
+    const day = Math.floor(Date.now() / 1000);
+    const create = await fetch(`${base}/purchases`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${tokens.u_purchases}`, "content-type": "application/json" },
+      body: JSON.stringify({ productType: "فیلر", productName: "فیلر رووفیل", supplier: "شرکت الف", quantity: 2, price: 9_000_000, purchaseDate: day }),
+    });
+    expect(create.status).toBe(201);
+    const row = await create.json();
+    expect(row).toMatchObject({ productType: "فیلر", productName: "فیلر رووفیل", quantity: 2, price: 9_000_000, isSettled: false, settledAt: null });
+
+    const settle = await fetch(`${base}/purchases/${row.id}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${tokens.u_purchases}`, "content-type": "application/json" },
+      body: JSON.stringify({ isSettled: true }),
+    });
+    const settled = await settle.json();
+    expect(settled.isSettled).toBe(true);
+    expect(settled.settledAt).toBeGreaterThan(0);
+
+    const unsettle = await (await fetch(`${base}/purchases/${row.id}`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${tokens.u_purchases}`, "content-type": "application/json" },
+      body: JSON.stringify({ isSettled: false }),
+    })).json();
+    expect(unsettle).toMatchObject({ isSettled: false, settledAt: null });
+
+    const bad = await call("u_purchases", "POST", "/purchases", { productType: " ", productName: "x", price: 1, purchaseDate: day });
+    expect(bad).toBe(400);
+
+    expect(await call("u_inventory", "GET", "/purchases")).toBe(403);
+    expect(await call("laserop", "GET", "/purchases")).toBe(403);
+    expect(await call("admin", "GET", "/purchases")).toBe(200);
+    expect(await call("u_purchases", "DELETE", `/purchases/${row.id}`)).toBe(204);
   });
 });

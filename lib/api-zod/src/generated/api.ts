@@ -740,6 +740,69 @@ export const DeleteDiscountParams = zod.object({
 })
 
 
+export const ListPurchasesResponseItem = zod.object({
+  "id": zod.number(),
+  "productType": zod.string(),
+  "productName": zod.string(),
+  "supplier": zod.string().nullish(),
+  "quantity": zod.number(),
+  "price": zod.number(),
+  "purchaseDate": zod.number(),
+  "isSettled": zod.boolean(),
+  "settledAt": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+export const ListPurchasesResponse = zod.array(ListPurchasesResponseItem)
+
+
+export const CreatePurchaseBody = zod.object({
+  "productType": zod.string(),
+  "productName": zod.string(),
+  "supplier": zod.string().nullish(),
+  "quantity": zod.number().optional(),
+  "price": zod.number(),
+  "purchaseDate": zod.number(),
+  "isSettled": zod.boolean().optional(),
+  "notes": zod.string().nullish()
+})
+
+
+export const UpdatePurchaseParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdatePurchaseBody = zod.object({
+  "productType": zod.string().optional(),
+  "productName": zod.string().optional(),
+  "supplier": zod.string().nullish(),
+  "quantity": zod.number().optional(),
+  "price": zod.number().optional(),
+  "purchaseDate": zod.number().optional(),
+  "isSettled": zod.boolean().optional(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdatePurchaseResponse = zod.object({
+  "id": zod.number(),
+  "productType": zod.string(),
+  "productName": zod.string(),
+  "supplier": zod.string().nullish(),
+  "quantity": zod.number(),
+  "price": zod.number(),
+  "purchaseDate": zod.number(),
+  "isSettled": zod.boolean(),
+  "settledAt": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+
+
+export const DeletePurchaseParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
 export const ListInventoryResponseItem = zod.object({
   "id": zod.number(),
   "name": zod.string(),

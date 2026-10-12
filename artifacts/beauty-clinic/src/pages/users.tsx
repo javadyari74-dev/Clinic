@@ -27,6 +27,7 @@ const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
   { key: "commissions", label: "کمیسیون" },
   { key: "discounts", label: "تخفیفات" },
   { key: "inventory", label: "انبار" },
+  { key: "purchases", label: "خریدها" },
   { key: "accounting", label: "حسابداری" },
   { key: "reports", label: "گزارشات" },
   { key: "reminders", label: "یادآوری‌ها" },

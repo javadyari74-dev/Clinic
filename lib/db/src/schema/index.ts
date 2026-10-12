@@ -27,3 +27,4 @@ export * from "./surveys";
 export * from "./loyalty";
 export * from "./scheduled-sms";
 export * from "./service-price-history";
+export * from "./purchases";

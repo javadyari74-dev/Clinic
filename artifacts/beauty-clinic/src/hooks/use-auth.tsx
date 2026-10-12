@@ -4,7 +4,7 @@ export type Permission =
   | "dashboard" | "patients" | "appointments" | "payments"
   | "services" | "laser" | "staff" | "commissions" | "discounts"
   | "inventory" | "accounting" | "reports" | "reminders"
-  | "sms" | "surveys" | "loyalty" | "backup";
+  | "sms" | "surveys" | "loyalty" | "backup" | "purchases";
 
 export interface AuthUser {
   id: number;

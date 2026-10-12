@@ -59,13 +59,14 @@ const EXPECTED_SECTIONS = [
   "appSettings",
   "smsSavedPatterns",
   "servicePriceHistory",
+  "purchases",
 ];
 
 describe("buildBackupData (single source for manual, auto and pre-merge backups)", () => {
   it("includes every current domain, including the newly ported ones", async () => {
     const backup = await backupService.buildBackupData();
     expect(backup.version).toBe(backupService.BACKUP_VERSION);
-    expect(backup.version).toBe(6);
+    expect(backup.version).toBe(7);
     expect(Object.keys(backup.data).sort()).toEqual([...EXPECTED_SECTIONS].sort());
   });
 
@@ -76,7 +77,7 @@ describe("buildBackupData (single source for manual, auto and pre-merge backups)
     const written = JSON.parse(
       fs.readFileSync(path.join(dir, result.filename!), "utf-8"),
     );
-    expect(written.version).toBe(6);
+    expect(written.version).toBe(7);
     expect(Object.keys(written.data).sort()).toEqual([...EXPECTED_SECTIONS].sort());
   });
 });

@@ -28,6 +28,7 @@ const Commissions = lazy(pageLoaders.commissions);
 const CommissionRecipients = lazy(pageLoaders.commissionRecipients);
 const Discounts = lazy(pageLoaders.discounts);
 const Inventory = lazy(pageLoaders.inventory);
+const Purchases = lazy(pageLoaders.purchases);
 const Reports = lazy(pageLoaders.reports);
 const Reminders = lazy(pageLoaders.reminders);
 const Sms = lazy(pageLoaders.sms);
@@ -202,6 +203,11 @@ function Router() {
             <Route path="/inventory">
               <Protected permission="inventory">
                 <Inventory />
+              </Protected>
+            </Route>
+            <Route path="/purchases">
+              <Protected permission="purchases">
+                <Purchases />
               </Protected>
             </Route>
             <Route path="/reports">

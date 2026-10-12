@@ -673,6 +673,70 @@ paths:
           description: Not found
 
   # ── Inventory ──────────────────────────────────────────────────────────────
+  /purchases:
+    get:
+      operationId: listPurchases
+      tags: [purchases]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Purchase"
+    post:
+      operationId: createPurchase
+      tags: [purchases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Purchase"
+
+  /purchases/{id}:
+    put:
+      operationId: updatePurchase
+      tags: [purchases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseUpdate"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Purchase"
+    delete:
+      operationId: deletePurchase
+      tags: [purchases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
   /inventory:
     get:
       operationId: listInventory
@@ -2008,6 +2072,49 @@ components:
         description: { type: ["string", "null"] }
 
     # ── Inventory ─────────────────────────────────────────────────────────────
+    Purchase:
+      type: object
+      required: [id, productType, productName, quantity, price, purchaseDate, isSettled, createdAt]
+      properties:
+        id: { type: integer }
+        productType: { type: string }
+        productName: { type: string }
+        supplier: { type: ["string", "null"] }
+        quantity: { type: integer }
+        # مبلغ کل خرید (تومان)
+        price: { type: integer }
+        # ثانیه
+        purchaseDate: { type: integer }
+        isSettled: { type: boolean }
+        settledAt: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    PurchaseInput:
+      type: object
+      required: [productType, productName, price, purchaseDate]
+      properties:
+        productType: { type: string }
+        productName: { type: string }
+        supplier: { type: ["string", "null"] }
+        quantity: { type: integer }
+        price: { type: integer }
+        purchaseDate: { type: integer }
+        isSettled: { type: boolean }
+        notes: { type: ["string", "null"] }
+
+    PurchaseUpdate:
+      type: object
+      properties:
+        productType: { type: string }
+        productName: { type: string }
+        supplier: { type: ["string", "null"] }
+        quantity: { type: integer }
+        price: { type: integer }
+        purchaseDate: { type: integer }
+        isSettled: { type: boolean }
+        notes: { type: ["string", "null"] }
+
     InventoryItem:
       type: object
       required: [id, name, quantity, minQuantity, isActive, updatedAt]
