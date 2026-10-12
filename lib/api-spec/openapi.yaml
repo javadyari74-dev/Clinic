@@ -703,6 +703,70 @@ paths:
               schema:
                 $ref: "#/components/schemas/Purchase"
 
+  /purchases/products:
+    get:
+      operationId: listPurchaseProducts
+      tags: [purchases]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PurchaseProduct"
+    post:
+      operationId: createPurchaseProduct
+      tags: [purchases]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseProductInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseProduct"
+
+  /purchases/products/{id}:
+    put:
+      operationId: updatePurchaseProduct
+      tags: [purchases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseProductInput"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseProduct"
+    delete:
+      operationId: deletePurchaseProduct
+      tags: [purchases]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "204":
+          description: Deleted
+
   /purchases/{id}:
     put:
       operationId: updatePurchase
@@ -2113,6 +2177,28 @@ components:
         price: { type: integer }
         purchaseDate: { type: integer }
         isSettled: { type: boolean }
+        notes: { type: ["string", "null"] }
+
+    PurchaseProduct:
+      type: object
+      required: [id, productType, name, createdAt]
+      properties:
+        id: { type: integer }
+        productType: { type: string }
+        name: { type: string }
+        defaultSupplier: { type: ["string", "null"] }
+        defaultPrice: { type: ["integer", "null"] }
+        notes: { type: ["string", "null"] }
+        createdAt: { type: integer }
+
+    PurchaseProductInput:
+      type: object
+      required: [productType, name]
+      properties:
+        productType: { type: string }
+        name: { type: string }
+        defaultSupplier: { type: ["string", "null"] }
+        defaultPrice: { type: ["integer", "null"] }
         notes: { type: ["string", "null"] }
 
     InventoryItem:

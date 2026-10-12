@@ -1,11 +1,15 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
-import { db, purchasesTable } from "@workspace/db";
+import { and, eq, ne, asc, desc } from "drizzle-orm";
+import { db, purchasesTable, purchaseProductsTable } from "@workspace/db";
 import {
   CreatePurchaseBody,
   UpdatePurchaseParams,
   UpdatePurchaseBody,
   DeletePurchaseParams,
+  CreatePurchaseProductBody,
+  UpdatePurchaseProductParams,
+  UpdatePurchaseProductBody,
+  DeletePurchaseProductParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
 
@@ -23,6 +27,92 @@ function validate(b: { productType?: string; productName?: string; price?: numbe
   if (b.quantity !== undefined && (!Number.isInteger(b.quantity) || b.quantity < 1)) return "تعداد باید حداقل ۱ باشد";
   return null;
 }
+
+// ── محصولات ذخیره‌شده (فهرست انتخاب در فرم خرید) ─────────────────────────────
+
+function productValues(b: { productType: string; name: string; defaultSupplier?: string | null; defaultPrice?: number | null; notes?: string | null }) {
+  return {
+    productType: b.productType.trim(),
+    name: b.name.trim(),
+    defaultSupplier: b.defaultSupplier?.trim() || null,
+    defaultPrice: b.defaultPrice && b.defaultPrice > 0 ? Math.round(b.defaultPrice) : null,
+    notes: b.notes?.trim() || null,
+  };
+}
+
+async function duplicateProduct(productType: string, name: string, exceptId?: number) {
+  const row = await db.select({ id: purchaseProductsTable.id }).from(purchaseProductsTable)
+    .where(and(
+      eq(purchaseProductsTable.productType, productType),
+      eq(purchaseProductsTable.name, name),
+      exceptId ? ne(purchaseProductsTable.id, exceptId) : undefined,
+    )).get();
+  return !!row;
+}
+
+router.get("/purchases/products", async (_req, res): Promise<void> => {
+  const rows = await db.select().from(purchaseProductsTable)
+    .orderBy(asc(purchaseProductsTable.productType), asc(purchaseProductsTable.name));
+  res.json(rows);
+});
+
+router.post("/purchases/products", async (req, res): Promise<void> => {
+  const parsed = CreatePurchaseProductBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const v = productValues(parsed.data);
+  if (!v.productType || !v.name) {
+    res.status(400).json({ error: "نوع محصول و نام محصول را وارد کنید" });
+    return;
+  }
+  if (await duplicateProduct(v.productType, v.name)) {
+    res.status(409).json({ error: "این محصول قبلاً در فهرست ذخیره شده است" });
+    return;
+  }
+  const [row] = await db.insert(purchaseProductsTable).values(v).returning();
+  res.status(201).json(row);
+});
+
+router.put("/purchases/products/:id", async (req, res): Promise<void> => {
+  const params = UpdatePurchaseProductParams.safeParse(req.params);
+  const parsed = UpdatePurchaseProductBody.safeParse(req.body);
+  if (!params.success || !parsed.success) {
+    res.status(400).json({ error: (params.error ?? parsed.error)?.message });
+    return;
+  }
+  const v = productValues(parsed.data);
+  if (!v.productType || !v.name) {
+    res.status(400).json({ error: "نوع محصول و نام محصول را وارد کنید" });
+    return;
+  }
+  if (await duplicateProduct(v.productType, v.name, params.data.id)) {
+    res.status(409).json({ error: "این محصول قبلاً در فهرست ذخیره شده است" });
+    return;
+  }
+  const [row] = await db.update(purchaseProductsTable).set(v).where(eq(purchaseProductsTable.id, params.data.id)).returning();
+  if (!row) {
+    res.status(404).json({ error: "محصول یافت نشد" });
+    return;
+  }
+  res.json(row);
+});
+
+// حذف از فهرست، خریدهای ثبت‌شده با این محصول را تغییر نمی‌دهد
+router.delete("/purchases/products/:id", async (req, res): Promise<void> => {
+  const params = DeletePurchaseProductParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [row] = await db.delete(purchaseProductsTable).where(eq(purchaseProductsTable.id, params.data.id)).returning();
+  if (!row) {
+    res.status(404).json({ error: "محصول یافت نشد" });
+    return;
+  }
+  res.sendStatus(204);
+});
 
 router.get("/purchases", async (_req, res): Promise<void> => {
   const rows = await db.select().from(purchasesTable).orderBy(desc(purchasesTable.purchaseDate), desc(purchasesTable.id));

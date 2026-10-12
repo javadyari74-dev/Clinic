@@ -286,3 +286,29 @@ describe("purchases section", () => {
     expect(await call("u_purchases", "DELETE", `/purchases/${row.id}`)).toBe(204);
   });
 });
+
+describe("saved purchase products", () => {
+  it("saves a product once, lists it, rejects a duplicate, and is limited to the purchases permission", async () => {
+    const req = (method: string, p: string, body?: unknown) => fetch(`${base}${p}`, {
+      method,
+      headers: { authorization: `Bearer ${tokens.u_purchases}`, "content-type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const created = await req("POST", "/purchases/products", { productType: "فیلر", name: "لوناژل", defaultSupplier: "پخش آریا", defaultPrice: 4_500_000 });
+    expect(created.status).toBe(201);
+    const p = await created.json();
+    expect(p).toMatchObject({ productType: "فیلر", name: "لوناژل", defaultSupplier: "پخش آریا", defaultPrice: 4_500_000 });
+
+    expect((await req("POST", "/purchases/products", { productType: "فیلر", name: " لوناژل " })).status).toBe(409);
+    expect((await req("POST", "/purchases/products", { productType: "", name: "x" })).status).toBe(400);
+
+    const list = await (await req("GET", "/purchases/products")).json();
+    expect(list.map((x: { name: string }) => x.name)).toContain("لوناژل");
+
+    const upd = await (await req("PUT", `/purchases/products/${p.id}`, { productType: "فیلر", name: "لوناژل", defaultPrice: 5_000_000 })).json();
+    expect(upd.defaultPrice).toBe(5_000_000);
+
+    expect(await call("u_inventory", "GET", "/purchases/products")).toBe(403);
+    expect((await req("DELETE", `/purchases/products/${p.id}`)).status).toBe(204);
+  });
+});

@@ -768,6 +768,55 @@ export const CreatePurchaseBody = zod.object({
 })
 
 
+export const ListPurchaseProductsResponseItem = zod.object({
+  "id": zod.number(),
+  "productType": zod.string(),
+  "name": zod.string(),
+  "defaultSupplier": zod.string().nullish(),
+  "defaultPrice": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+export const ListPurchaseProductsResponse = zod.array(ListPurchaseProductsResponseItem)
+
+
+export const CreatePurchaseProductBody = zod.object({
+  "productType": zod.string(),
+  "name": zod.string(),
+  "defaultSupplier": zod.string().nullish(),
+  "defaultPrice": zod.number().nullish(),
+  "notes": zod.string().nullish()
+})
+
+
+export const UpdatePurchaseProductParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdatePurchaseProductBody = zod.object({
+  "productType": zod.string(),
+  "name": zod.string(),
+  "defaultSupplier": zod.string().nullish(),
+  "defaultPrice": zod.number().nullish(),
+  "notes": zod.string().nullish()
+})
+
+export const UpdatePurchaseProductResponse = zod.object({
+  "id": zod.number(),
+  "productType": zod.string(),
+  "name": zod.string(),
+  "defaultSupplier": zod.string().nullish(),
+  "defaultPrice": zod.number().nullish(),
+  "notes": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+
+
+export const DeletePurchaseProductParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
 export const UpdatePurchaseParams = zod.object({
   "id": zod.coerce.number()
 })

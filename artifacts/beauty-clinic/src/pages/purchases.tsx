@@ -6,8 +6,16 @@ import {
   useUpdatePurchase,
   useDeletePurchase,
   getListPurchasesQueryKey,
+  useListPurchaseProducts,
+  useCreatePurchaseProduct,
+  getListPurchaseProductsQueryKey,
   type Purchase,
+  type PurchaseProduct,
 } from "@workspace/api-client-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Checkbox } from "@/components/ui/checkbox";
+import { PurchaseProductsDialog } from "@/components/purchase-products-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +33,7 @@ import { useToast } from "@/hooks/use-toast";
 import { onApiError } from "@/lib/api-error";
 import { formatCurrency, formatShamsiDate, gregorianDateToUnix, toPersianDigits, unixToGregorianDate } from "@/lib/format";
 import { tehranTodayISO } from "@/lib/tehran-date";
-import { ShoppingCart, Plus, Pencil, Trash2, Search, CheckCircle2, Clock } from "lucide-react";
+import { ShoppingCart, Plus, Pencil, Trash2, Search, CheckCircle2, Clock, Package, ChevronsUpDown } from "lucide-react";
 
 // ─── خریدها ───────────────────────────────────────────────────────────────────
 // ثبت خرید مواد و محصولات (نوع محصول، خود محصول، تاریخ و مبلغ خرید) و وضعیت تسویه.
@@ -68,6 +76,14 @@ export default function Purchases() {
   const [editing, setEditing] = useState<Purchase | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<Purchase | null>(null);
+  const [productsOpen, setProductsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // محصول تازه‌ای که دستی تایپ شده، در فهرست ذخیره شود؟
+  const [saveToList, setSaveToList] = useState(true);
+  const { data: savedProducts } = useListPurchaseProducts();
+  const createProduct = useCreatePurchaseProduct({
+    mutation: { onSuccess: () => queryClient.invalidateQueries({ queryKey: getListPurchaseProductsQueryKey() }) },
+  });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: getListPurchasesQueryKey() });
   const create = useCreatePurchase({
@@ -120,8 +136,25 @@ export default function Purchases() {
   function openCreate() {
     setEditing(null);
     setForm(emptyForm());
+    setSaveToList(true);
     setOpen(true);
   }
+
+  // انتخاب از محصولات ذخیره‌شده: نوع و نام، و فروشنده/قیمت پیش‌فرض (اگر خالی‌اند)
+  function pickProduct(p: PurchaseProduct) {
+    setForm((f) => ({
+      ...f,
+      productType: p.productType,
+      productName: p.name,
+      supplier: f.supplier.trim() ? f.supplier : (p.defaultSupplier ?? ""),
+      price: f.price > 0 ? f.price : (p.defaultPrice ?? 0),
+    }));
+    setPickerOpen(false);
+  }
+
+  const isSavedProduct = (savedProducts ?? []).some(
+    (p) => p.productType === form.productType.trim() && p.name === form.productName.trim(),
+  );
   function openEdit(p: Purchase) {
     setEditing(p);
     setForm({
@@ -166,6 +199,10 @@ export default function Purchases() {
     } else {
       create.mutate({ data });
     }
+    // محصول جدیدِ تایپ‌شده برای دفعه‌های بعد در فهرست ذخیره می‌شود
+    if (saveToList && !isSavedProduct) {
+      createProduct.mutate({ data: { productType: data.productType, name: data.productName, defaultSupplier: data.supplier } });
+    }
   }
 
   function toggleSettled(p: Purchase) {
@@ -187,9 +224,15 @@ export default function Purchases() {
           </h1>
           <p className="text-muted-foreground mt-1">ثبت خرید محصولات و مواد مصرفی، و وضعیت تسویه با فروشنده</p>
         </div>
-        <Button className="gap-2" onClick={openCreate}>
-          <Plus className="h-4 w-4" /> خرید جدید
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => setProductsOpen(true)}>
+            <Package className="h-4 w-4" /> محصولات ذخیره‌شده
+            {(savedProducts?.length ?? 0) > 0 && <Badge variant="secondary">{toPersianDigits(savedProducts?.length ?? 0)}</Badge>}
+          </Button>
+          <Button className="gap-2" onClick={openCreate}>
+            <Plus className="h-4 w-4" /> خرید جدید
+          </Button>
+        </div>
       </div>
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
@@ -311,12 +354,51 @@ export default function Purchases() {
             <DialogTitle>{editing ? "ویرایش خرید" : "ثبت خرید جدید"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
+            <div>
+              <Label className="text-sm mb-1.5 block">انتخاب از محصولات ذخیره‌شده</Label>
+              <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
+                <PopoverTrigger asChild>
+                  <Button type="button" variant="outline" role="combobox" className="w-full justify-between font-normal text-muted-foreground">
+                    {(savedProducts?.length ?? 0) > 0 ? "جست‌وجوی محصول… (مثلاً لوناژل)" : "هنوز محصولی ذخیره نشده"}
+                    <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[360px] p-0" align="start">
+                  <Command filter={(value, search) => {
+                    const p = savedProducts?.find((x) => String(x.id) === value);
+                    if (!p) return 0;
+                    return `${p.name} ${p.productType} ${p.defaultSupplier ?? ""}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
+                  }}>
+                    <CommandInput placeholder="نام یا نوع محصول…" />
+                    <CommandList>
+                      <CommandEmpty>محصولی پیدا نشد</CommandEmpty>
+                      {[...new Set((savedProducts ?? []).map((p) => p.productType))].map((type) => (
+                        <CommandGroup key={type} heading={type}>
+                          {(savedProducts ?? []).filter((p) => p.productType === type).map((p) => (
+                            <CommandItem key={p.id} value={String(p.id)} onSelect={() => pickProduct(p)}>
+                              <div className="flex flex-col">
+                                <span className="font-medium">{p.name}</span>
+                                {(p.defaultSupplier || p.defaultPrice) && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {[p.defaultSupplier, p.defaultPrice ? formatCurrency(p.defaultPrice) : null].filter(Boolean).join(" — ")}
+                                  </span>
+                                )}
+                              </div>
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label htmlFor="pur-type" className="text-sm mb-1.5 block">نوع محصول *</Label>
                 <Input id="pur-type" list="pur-types" value={form.productType} onChange={(e) => set("productType", e.target.value)} placeholder="مثلاً فیلر" />
                 <datalist id="pur-types">
-                  {[...new Set([...types, ...DEFAULT_TYPES])].map((t) => <option key={t} value={t} />)}
+                  {[...new Set([...types, ...(savedProducts ?? []).map((p) => p.productType), ...DEFAULT_TYPES])].map((t) => <option key={t} value={t} />)}
                 </datalist>
               </div>
               <div>
@@ -327,6 +409,14 @@ export default function Purchases() {
                 </datalist>
               </div>
             </div>
+            {!editing && form.productType.trim() && form.productName.trim() && !isSavedProduct && (
+              <div className="flex items-center gap-2">
+                <Checkbox id="pur-save-product" checked={saveToList} onCheckedChange={(v) => setSaveToList(Boolean(v))} />
+                <Label htmlFor="pur-save-product" className="text-sm font-normal cursor-pointer">
+                  «{form.productName.trim()}» را برای خریدهای بعدی در فهرست محصولات ذخیره کن
+                </Label>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <Label className="text-sm mb-1.5 block">تاریخ خرید *</Label>
@@ -370,6 +460,12 @@ export default function Purchases() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PurchaseProductsDialog
+        open={productsOpen}
+        onOpenChange={setProductsOpen}
+        typeSuggestions={[...new Set([...types, ...DEFAULT_TYPES])]}
+      />
 
       <ConfirmDeleteDialog
         open={!!deleteTarget}

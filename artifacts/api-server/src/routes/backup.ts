@@ -31,6 +31,7 @@ import {
   smsSavedPatternsTable,
   servicePriceHistoryTable,
   purchasesTable,
+  purchaseProductsTable,
   scheduledSmsTable,
 } from "@workspace/db";
 import { seedAdminUser } from "../lib/seed";
@@ -80,6 +81,7 @@ async function wipeClinicData(tx: Tx): Promise<void> {
   await tx.delete(surveysTable);
   await tx.delete(servicePriceHistoryTable);
   await tx.delete(purchasesTable);
+  await tx.delete(purchaseProductsTable);
   await tx.delete(waitingListTable);
   await tx.delete(smsLogTable);
   await tx.delete(patientAccountTransactionsTable);
@@ -178,6 +180,7 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
       // فایل‌های قدیمی تاریخچه ندارند؛ نسخهٔ اول هر خدمت در شروع بعدی برنامه (مایگریشن ۰۰۲۶) ساخته می‌شود
       await restoreRows(tx, servicePriceHistoryTable, data.servicePriceHistory);
       await restoreRows(tx, purchasesTable, data.purchases);
+      await restoreRows(tx, purchaseProductsTable, data.purchaseProducts);
       await restoreRows(tx, smsLogTable, data.smsLog);
       await restoreRows(tx, loyaltyTransactionsTable, data.loyaltyTransactions);
       await restoreRows(tx, loyaltyMembersTable, data.loyaltyMembers);

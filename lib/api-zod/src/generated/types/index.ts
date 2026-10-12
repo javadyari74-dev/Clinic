@@ -78,6 +78,8 @@ export * from './paymentManualCommissionRecipientType';
 export * from './paymentReminderInput';
 export * from './purchase';
 export * from './purchaseInput';
+export * from './purchaseProduct';
+export * from './purchaseProductInput';
 export * from './purchaseUpdate';
 export * from './reminder';
 export * from './reminderInput';

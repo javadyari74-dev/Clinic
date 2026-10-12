@@ -518,6 +518,30 @@ export interface PurchaseUpdate {
   notes?: string | null;
 }
 
+export interface PurchaseProduct {
+  id: number;
+  productType: string;
+  name: string;
+  /** @nullable */
+  defaultSupplier?: string | null;
+  /** @nullable */
+  defaultPrice?: number | null;
+  /** @nullable */
+  notes?: string | null;
+  createdAt: number;
+}
+
+export interface PurchaseProductInput {
+  productType: string;
+  name: string;
+  /** @nullable */
+  defaultSupplier?: string | null;
+  /** @nullable */
+  defaultPrice?: number | null;
+  /** @nullable */
+  notes?: string | null;
+}
+
 export interface InventoryItem {
   id: number;
   name: string;
