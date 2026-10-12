@@ -90,6 +90,8 @@ export * from './savedSmsPatternInput';
 export * from './savedSmsPatternList';
 export * from './service';
 export * from './serviceInput';
+export * from './servicePriceChange';
+export * from './servicePriceChangeChangesItem';
 export * from './serviceUpdate';
 export * from './smsCredit';
 export * from './smsLog';

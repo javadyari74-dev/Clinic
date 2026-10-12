@@ -265,6 +265,35 @@ export const CreateServiceBody = zod.object({
 })
 
 
+export const GetServicePriceHistoryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetServicePriceHistoryResponseItem = zod.object({
+  "id": zod.number(),
+  "serviceId": zod.number(),
+  "effectiveFrom": zod.number(),
+  "price": zod.number(),
+  "priceMode": zod.string(),
+  "unitCount": zod.number(),
+  "doctorFee": zod.number(),
+  "doctorFeeMode": zod.string(),
+  "materialCost": zod.number(),
+  "materialCostMode": zod.string(),
+  "otherCost": zod.number(),
+  "otherCostMode": zod.string(),
+  "changes": zod.array(zod.object({
+  "field": zod.string(),
+  "from": zod.union([zod.string(),zod.number()]).nullable(),
+  "to": zod.union([zod.string(),zod.number()]).nullable()
+})),
+  "note": zod.string().nullish(),
+  "changedBy": zod.string().nullish(),
+  "createdAt": zod.number()
+})
+export const GetServicePriceHistoryResponse = zod.array(GetServicePriceHistoryResponseItem)
+
+
 export const UpdateServiceParams = zod.object({
   "id": zod.coerce.number()
 })
@@ -284,7 +313,9 @@ export const UpdateServiceBody = zod.object({
   "materialCostMode": zod.string().optional(),
   "otherCostMode": zod.string().optional(),
   "description": zod.string().nullish(),
-  "isActive": zod.boolean().optional()
+  "isActive": zod.boolean().optional(),
+  "priceChangeNote": zod.string().optional(),
+  "priceEffectiveDate": zod.string().nullish()
 })
 
 export const UpdateServiceResponse = zod.object({
@@ -591,6 +622,7 @@ export const CreatePaymentBody = zod.object({
   "depositAmount": zod.number().optional(),
   "applyAccountBalance": zod.number().optional(),
   "redeemPoints": zod.number().optional(),
+  "settleInFull": zod.boolean().optional(),
   "manualCommission": zod.object({
   "recipientType": zod.enum(['staff', 'external', 'patient']),
   "recipientId": zod.number(),

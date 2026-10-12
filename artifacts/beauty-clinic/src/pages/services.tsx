@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, type Service } from "@workspace/api-client-react";
+import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, getGetServicePriceHistoryQueryKey, type Service } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff, History } from "lucide-react";
+import { ServicePriceHistoryDialog } from "@/components/service-price-history-dialog";
+import { PersianDatePicker } from "@/components/persian-date-picker";
+import { Label } from "@/components/ui/label";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { PriceInput } from "@/components/price-input";
@@ -335,6 +338,10 @@ export default function Services() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("همه");
   const [showFinancials, setShowFinancials] = useState(true);
+  const [historyFor, setHistoryFor] = useState<{ id: number; name: string } | null>(null);
+  // توضیح و تاریخ اعمال تغییر قیمت/هزینه (فقط در ویرایش، وقتی قیمت یا هزینه‌ای عوض شده)
+  const [priceNote, setPriceNote] = useState("");
+  const [priceDate, setPriceDate] = useState("");
 
   // Derived: unique categories with counts
   const categories = useMemo(() => {
@@ -372,8 +379,9 @@ export default function Services() {
 
   const updateService = useUpdateService({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (_d, vars) => {
         queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetServicePriceHistoryQueryKey(vars.id) });
         setEditing(null);
         setIsOpen(false);
         toast({ title: "خدمت با موفقیت ویرایش شد" });
@@ -405,6 +413,8 @@ export default function Services() {
 
   function openEdit(s: Service) {
     setEditing(s);
+    setPriceNote("");
+    setPriceDate("");
     form.reset({
       name: s.name,
       category: s.category ?? "",
@@ -424,9 +434,29 @@ export default function Services() {
     setIsOpen(true);
   }
 
+  // آیا قیمت یا هزینه‌ای نسبت به مقدار ذخیره‌شده تغییر کرده؟ (برای نمایش بخش «تغییر قیمت»)
+  const watched = useWatch({ control: form.control });
+  const pricingChanged = !!editing && (
+    Number(watched.price) !== editing.price ||
+    Number(watched.doctorFee ?? 0) !== (editing.doctorFee ?? 0) ||
+    Number(watched.materialCost ?? 0) !== (editing.materialCost ?? 0) ||
+    Number(watched.otherCost ?? 0) !== (editing.otherCost ?? 0) ||
+    Number(watched.unitCount ?? 1) !== (editing.unitCount ?? 1) ||
+    (watched.priceMode ?? "total") !== (editing.priceMode ?? "total") ||
+    (watched.doctorFeeMode ?? "total") !== (editing.doctorFeeMode ?? "total") ||
+    (watched.materialCostMode ?? "total") !== (editing.materialCostMode ?? "total") ||
+    (watched.otherCostMode ?? "total") !== (editing.otherCostMode ?? "total")
+  );
+
   function onSubmit(values: FormValues) {
     if (editing) {
-      updateService.mutate({ id: editing.id, data: values });
+      updateService.mutate({
+        id: editing.id,
+        data: {
+          ...values,
+          ...(pricingChanged ? { priceChangeNote: priceNote.trim() || undefined, priceEffectiveDate: priceDate || null } : {}),
+        },
+      });
     } else {
       createService.mutate({ data: values });
     }
@@ -454,6 +484,8 @@ export default function Services() {
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
+      <ServicePriceHistoryDialog service={historyFor} onOpenChange={(o) => !o && setHistoryFor(null)} />
+
       {/* Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
@@ -463,6 +495,27 @@ export default function Services() {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <ServiceFormBody form={form} />
+              {pricingChanged && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-3">
+                  <p className="text-sm text-amber-900">
+                    قیمت یا هزینهٔ این خدمت تغییر کرده است. تغییر در «تاریخچهٔ قیمت» ثبت می‌شود و سود نوبت‌های قبلی با قیمت قبلی می‌ماند.
+                  </p>
+                  <div>
+                    <Label className="text-sm mb-1.5 block">توضیح تغییر (اختیاری)</Label>
+                    <Input value={priceNote} onChange={(e) => setPriceNote(e.target.value)} placeholder="مثلاً گران شدن مواد مصرفی" />
+                  </div>
+                  <div>
+                    <Label className="text-sm mb-1.5 block">اعمال از تاریخ (اختیاری)</Label>
+                    <PersianDatePicker value={priceDate} onChange={setPriceDate} placeholder="از همین حالا" />
+                    <p className="text-xs text-muted-foreground mt-1">اگر تاریخ گذشته انتخاب کنید، سود نوبت‌های از آن روز به بعد هم با قیمت جدید حساب می‌شود.</p>
+                  </div>
+                </div>
+              )}
+              {editing && (
+                <Button type="button" variant="link" size="sm" className="px-0 gap-1" onClick={() => setHistoryFor({ id: editing.id, name: editing.name })}>
+                  <History className="h-3.5 w-3.5" /> مشاهدهٔ تاریخچهٔ قیمت
+                </Button>
+              )}
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => setIsOpen(false)}>انصراف</Button>
                 <Button type="submit" disabled={createService.isPending || updateService.isPending}>
@@ -600,7 +653,8 @@ export default function Services() {
                       <Badge variant={s.isActive ? "default" : "outline"} className="text-xs">{s.isActive ? "فعال" : "غیرفعال"}</Badge>
                     </TableCell>
                     <TableCell className="py-1.5 text-left">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="تاریخچهٔ قیمت" aria-label="تاریخچهٔ قیمت" onClick={() => setHistoryFor({ id: s.id, name: s.name })}><History className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="ویرایش" aria-label="ویرایش" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
                       {user?.role === "admin" && (
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => setDeleteTarget({ id: s.id, label: s.name })}>
                           <Trash2 className="h-3 w-3" />

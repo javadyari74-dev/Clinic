@@ -89,6 +89,7 @@ import type {
   SavedSmsPatternList,
   Service,
   ServiceInput,
+  ServicePriceChange,
   ServiceUpdate,
   SmsCredit,
   SmsLogList,
@@ -1157,6 +1158,77 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return useMutation(getCreateServiceMutationOptions(options));
     }
+
+export const getGetServicePriceHistoryUrl = (id: number,) => {
+
+
+
+
+  return `/api/services/${id}/price-history`
+}
+
+export const getServicePriceHistory = async (id: number, options?: RequestInit): Promise<ServicePriceChange[]> => {
+
+  return customFetch<ServicePriceChange[]>(getGetServicePriceHistoryUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetServicePriceHistoryQueryKey = (id: number,) => {
+    return [
+    `/api/services/${id}/price-history`
+    ] as const;
+    }
+
+
+export const getGetServicePriceHistoryQueryOptions = <TData = Awaited<ReturnType<typeof getServicePriceHistory>>, TError = ErrorType<unknown>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServicePriceHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetServicePriceHistoryQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getServicePriceHistory>>> = ({ signal }) => getServicePriceHistory(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(id), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getServicePriceHistory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetServicePriceHistoryQueryResult = NonNullable<Awaited<ReturnType<typeof getServicePriceHistory>>>
+export type GetServicePriceHistoryQueryError = ErrorType<unknown>
+
+
+
+export function useGetServicePriceHistory<TData = Awaited<ReturnType<typeof getServicePriceHistory>>, TError = ErrorType<unknown>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getServicePriceHistory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetServicePriceHistoryQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
 
 export const getUpdateServiceUrl = (id: number,) => {
 

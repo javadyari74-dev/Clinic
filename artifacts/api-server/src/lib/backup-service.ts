@@ -32,6 +32,7 @@ import {
   loyaltyTransactionsTable,
   loyaltyMembersTable,
   smsSavedPatternsTable,
+  servicePriceHistoryTable,
   DATA_FIX_KEY_PREFIX,
 } from "@workspace/db";
 import { logger } from "./logger";
@@ -40,7 +41,8 @@ import { backfillLoyaltyMembers } from "./loyalty";
 // نسخه فرمت فایل پشتیبان — هنگام افزودن/حذف جدول افزایش یابد.
 // نسخه ۴: افزودن لیست انتظار، نظرسنجی‌ها، لاگ پیامک، باشگاه مشتریان و بخش لیزر.
 // نسخه ۵: افزودن تنظیمات برنامه (appSettings) و کدهای پترن ذخیره‌شدهٔ پیامک؛ uuid برای جدول‌های لیزر.
-export const BACKUP_VERSION = 5;
+// نسخه ۶: تاریخچهٔ قیمت و هزینهٔ خدمات (servicePriceHistory).
+export const BACKUP_VERSION = 6;
 
 const FIFTEEN_MINUTES_MS = 15 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -171,6 +173,7 @@ export async function buildBackupData(): Promise<{
     loyaltyMembers,
     appSettings,
     smsSavedPatterns,
+    servicePriceHistory,
   ] = await Promise.all([
     db.select().from(patientsTable),
     db.select().from(servicesTable),
@@ -199,6 +202,7 @@ export async function buildBackupData(): Promise<{
     db.select().from(loyaltyMembersTable),
     db.select().from(appSettingsTable),
     db.select().from(smsSavedPatternsTable),
+    db.select().from(servicePriceHistoryTable),
   ]);
 
   return {
@@ -232,6 +236,7 @@ export async function buildBackupData(): Promise<{
       loyaltyMembers,
       appSettings: appSettings.filter((r) => !isDeviceLocalSettingKey(r.key)),
       smsSavedPatterns,
+      servicePriceHistory,
     },
   };
 }
@@ -416,6 +421,7 @@ const RECORD_KEYS = [
   "waitingList",
   "surveys",
   "loyaltyTransactions",
+  "servicePriceHistory",
 ] as const;
 
 // بخش‌های لیزر از نسخهٔ ۵ uuid دارند؛ در فایل‌های قدیمی‌تر ردیف‌ها uuid ندارند
@@ -844,6 +850,13 @@ export async function mergeRestore(
       appointmentId: resolveRef(maps.appointments, row.appointmentId, false, "لیست انتظار→نوبت"),
     }));
     rep.waitingList = waitingList.count;
+
+    // تاریخچهٔ قیمت خدمات (تکراری‌ها با uuid کنار گذاشته می‌شوند)
+    const servicePriceHistory = await mergeTable(tx, servicePriceHistoryTable, d.servicePriceHistory, (row) => ({
+      ...row,
+      serviceId: resolveRef(maps.services, row.serviceId, true, "تاریخچهٔ قیمت→خدمت"),
+    }));
+    rep.servicePriceHistory = servicePriceHistory.count;
 
     const surveys = await mergeTable(tx, surveysTable, d.surveys, (row) => ({
       ...row,

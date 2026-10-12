@@ -292,6 +292,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Service"
 
+  /services/{id}/price-history:
+    get:
+      operationId: getServicePriceHistory
+      tags: [services]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ServicePriceChange"
+
   /services/{id}:
     put:
       operationId: updateService
@@ -1708,6 +1727,39 @@ components:
         otherCostMode: { type: string }
         description: { type: ["string", "null"] }
         isActive: { type: boolean }
+        # توضیح تغییر قیمت/هزینه (در تاریخچه ثبت می‌شود)
+        priceChangeNote: { type: string }
+        # تاریخ اعمال تغییر قیمت/هزینه (میلادی YYYY-MM-DD، روز تهران)؛ خالی = از همین حالا
+        priceEffectiveDate: { type: ["string", "null"] }
+
+    ServicePriceChange:
+      type: object
+      required: [id, serviceId, effectiveFrom, price, priceMode, unitCount, doctorFee, doctorFeeMode, materialCost, materialCostMode, otherCost, otherCostMode, changes, createdAt]
+      properties:
+        id: { type: integer }
+        serviceId: { type: integer }
+        effectiveFrom: { type: integer }
+        price: { type: integer }
+        priceMode: { type: string }
+        unitCount: { type: integer }
+        doctorFee: { type: integer }
+        doctorFeeMode: { type: string }
+        materialCost: { type: integer }
+        materialCostMode: { type: string }
+        otherCost: { type: integer }
+        otherCostMode: { type: string }
+        changes:
+          type: array
+          items:
+            type: object
+            required: [field, from, to]
+            properties:
+              field: { type: string }
+              from: { type: ["string", "number", "null"] }
+              to: { type: ["string", "number", "null"] }
+        note: { type: ["string", "null"] }
+        changedBy: { type: ["string", "null"] }
+        createdAt: { type: integer }
 
     # ── Staff ─────────────────────────────────────────────────────────────────
     StaffMember:
@@ -1879,6 +1931,8 @@ components:
         depositAmount: { type: integer }
         applyAccountBalance: { type: integer }
         redeemPoints: { type: integer }
+        # مبلغ کمتر از مانده = قیمت توافقی نهایی (اختلاف به‌عنوان «تخفیف توافقی»، نه بدهی)
+        settleInFull: { type: boolean }
         # کمیسیون/اعتبار معرفی دستی — داخل تراکنش همین پرداخت ثبت می‌شود
         manualCommission:
           $ref: "#/components/schemas/PaymentManualCommission"

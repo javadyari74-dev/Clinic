@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, sql, gte, lt, and, desc } from "drizzle-orm";
 import { db, paymentsTable, commissionsTable, servicesTable, expensesTable, laserPaymentsTable } from "@workspace/db";
 import { tehranTodayBounds, shamsiMonthBounds, shamsiYearBounds } from "../lib/tehran-period";
+import { appointmentCostSql, costPartSql, unitsSql, PRICE_VERSION_JOIN } from "../lib/service-cost";
 
 const router: IRouter = Router();
 
@@ -34,12 +35,9 @@ function resolveRange(query: Record<string, unknown>): RangeResult {
 // (روی همهٔ پرداخت‌هایش، نه فقط پرداخت‌های داخل بازه) در آن است. پس پرداخت قسطی در چند ماه
 // هزینه را چند بار کم نمی‌کند و جمع سود ماه‌ها با سود کل بازهٔ ترکیبی برابر است.
 // فرمول هزینه همان appointmentServiceCost در lib/loyalty.ts است (ستون‌های خالی = صفر).
-const UNITS = sql.raw(`coalesce(a.units_used, s.unit_count, 1)`);
-const APPT_COST = sql`(
-  (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN coalesce(s.doctor_fee, 0) * ${UNITS} ELSE coalesce(s.doctor_fee, 0) END) +
-  (CASE WHEN s.material_cost_mode = 'per_unit' THEN coalesce(s.material_cost, 0) * ${UNITS} ELSE coalesce(s.material_cost, 0) END) +
-  (CASE WHEN s.other_cost_mode = 'per_unit' THEN coalesce(s.other_cost, 0) * ${UNITS} ELSE coalesce(s.other_cost, 0) END)
-)`;
+// هزینه با «نسخهٔ قیمتِ» معتبر در روز ارائهٔ خدمت (lib/service-cost.ts)، نه قیمت امروز خدمت.
+const UNITS = unitsSql();
+const APPT_COST = appointmentCostSql();
 const FIRST_PAID = sql`(SELECT min(p.paid_at) FROM payments p
   WHERE p.appointment_id = a.id AND coalesce(p.notes, '') <> 'بیعانه')`;
 
@@ -47,11 +45,13 @@ const FIRST_PAID = sql`(SELECT min(p.paid_at) FROM payments p
 function servedAppointmentsSql(start: number, end: number) {
   return sql`
     SELECT a.id AS appointment_id, a.service_id AS service_id, first_paid,
-           cost, units
+           cost, units, doctor_cost, material_cost, other_cost
     FROM (
-      SELECT a.id, a.service_id, ${FIRST_PAID} AS first_paid, ${APPT_COST} AS cost, ${UNITS} AS units
+      SELECT a.id, a.service_id, ${FIRST_PAID} AS first_paid, ${APPT_COST} AS cost, ${UNITS} AS units,
+        ${costPartSql("doctor")} AS doctor_cost, ${costPartSql("material")} AS material_cost, ${costPartSql("other")} AS other_cost
       FROM appointments a
       INNER JOIN services s ON s.id = a.service_id
+      ${PRICE_VERSION_JOIN}
     ) a
     WHERE first_paid >= ${start} AND first_paid < ${end}
   `;
@@ -153,8 +153,9 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
   `);
 
   // نوبت‌های ارائه‌شده هر خدمت (هر نوبت یک‌بار، در بازهٔ اولین پرداخت غیربیعانه‌اش)
-  const servedRows = await db.all<{ service_id: number; served: number; units: number; cost: number }>(sql`
-    SELECT service_id, count(*) AS served, coalesce(sum(units), 0) AS units, coalesce(sum(cost), 0) AS cost
+  const servedRows = await db.all<{ service_id: number; served: number; units: number; cost: number; doctor: number; material: number; other: number }>(sql`
+    SELECT service_id, count(*) AS served, coalesce(sum(units), 0) AS units, coalesce(sum(cost), 0) AS cost,
+           coalesce(sum(doctor_cost), 0) AS doctor, coalesce(sum(material_cost), 0) AS material, coalesce(sum(other_cost), 0) AS other
     FROM (${servedAppointmentsSql(start, end)})
     GROUP BY service_id
   `);
@@ -190,14 +191,11 @@ router.get("/accounting/by-service", async (req, res): Promise<void> => {
   const results = services.map((svc) => {
     const served = servedBy.get(svc.id);
     const completedCount = Number(served?.served ?? 0);
-    const totalUnits = Number(served?.units ?? 0);
     const unitCount = svc.unitCount ?? 1;
-    // per_unit: هزینه خام × مجموع واحد مصرفی همه نوبت‌ها؛ total: هزینه خام × تعداد نوبت
-    const costTotal = (val: number | null | undefined, mode: string | null | undefined) =>
-      mode === "per_unit" ? (val ?? 0) * totalUnits : (val ?? 0) * completedCount;
-    const doctorFeeTotal = costTotal(svc.doctorFee, svc.doctorFeeMode);
-    const materialCostTotal = costTotal(svc.materialCost, svc.materialCostMode);
-    const otherCostTotal = costTotal(svc.otherCost, svc.otherCostMode);
+    // جمع هر جزء هزینه با قیمتِ روز ارائهٔ هر نوبت (نسخهٔ معتبر در تاریخچهٔ قیمت)
+    const doctorFeeTotal = Number(served?.doctor ?? 0);
+    const materialCostTotal = Number(served?.material ?? 0);
+    const otherCostTotal = Number(served?.other ?? 0);
     const totalServiceCost = doctorFeeTotal + materialCostTotal + otherCostTotal;
     // میانگین هزینه به‌ازای هر نوبت (برای نمایش)؛ اگر نوبتی نبود، حالت پیش‌فرض واحد سرویس
     const perAppt = (total: number, val: number | null | undefined, mode: string | null | undefined) =>

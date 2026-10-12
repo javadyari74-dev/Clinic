@@ -25,6 +25,7 @@ export interface PaymentInput {
   depositAmount?: number;
   applyAccountBalance?: number;
   redeemPoints?: number;
+  settleInFull?: boolean;
   manualCommission?: PaymentManualCommission;
   reminder?: PaymentReminderInput;
 }

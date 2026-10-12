@@ -84,7 +84,7 @@ router.post("/payments", async (req, res): Promise<void> => {
   }
   const paidAt = Math.floor(Date.now() / 1000);
   // ورودی‌های غیرستونی (کیف پول، امتیاز، کمیسیون دستی، یادآوری) از داده‌ی ذخیره‌شونده جدا می‌شوند
-  const { applyAccountBalance, redeemPoints, manualCommission, reminder, ...paymentValues } = parsed.data;
+  const { applyAccountBalance, redeemPoints, manualCommission, reminder, settleInFull, ...paymentValues } = parsed.data;
   const balanceToApply = Math.abs(Math.round(applyAccountBalance ?? 0));
   const pointsToRedeem = Math.max(0, Math.round(redeemPoints ?? 0));
   // «amount» فقط مبلغ نقدی (کارت/نقد/...) است؛ سهم کیف پول و امتیاز جدا ذخیره می‌شود
@@ -235,6 +235,23 @@ router.post("/payments", async (req, res): Promise<void> => {
         const base = paymentValues.originalAmount;
         const discountAmount = d.type === "percentage" ? Math.round((base * d.value) / 100) : Math.min(d.value, base);
         discountFields = { discountId: d.id, discountName: d.name, discountAmount: discountAmount > 0 ? discountAmount : null };
+      }
+
+      // ── تخفیف توافقی (چانه‌زنی): مبلغ کمتر از مانده، به‌عنوان قیمت نهایی پذیرفته می‌شود ──
+      // اختلاف به‌صورت «تخفیف توافقی» روی همین پرداخت ثبت می‌شود تا قیمت نوبت = مبلغ واقعاً
+      // دریافتی شود، بدهی نماند، و سود همه‌جا از مبلغ دریافتی حساب شود.
+      if (settleInFull && appt && !isDeposit) {
+        const before = await appointmentPaymentState(tx, appt.id);
+        const due = paymentValues.originalAmount - (discountFields.discountAmount ?? 0);
+        const thisPaid = paymentValues.amount + balanceToApply + pointsToRedeem * loyaltySettings.redeemValue;
+        const shortfall = due - before.paid - thisPaid;
+        if (shortfall > 0) {
+          discountFields = {
+            ...discountFields,
+            discountName: discountFields.discountName ? `${discountFields.discountName} + تخفیف توافقی` : "تخفیف توافقی",
+            discountAmount: (discountFields.discountAmount ?? 0) + shortfall,
+          };
+        }
       }
 
       const [created] = await tx.insert(paymentsTable).values({

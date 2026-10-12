@@ -167,6 +167,38 @@ export interface ServiceUpdate {
   /** @nullable */
   description?: string | null;
   isActive?: boolean;
+  priceChangeNote?: string;
+  /** @nullable */
+  priceEffectiveDate?: string | null;
+}
+
+export type ServicePriceChangeChangesItem = {
+  field: string;
+  /** @nullable */
+  from: string | number | null;
+  /** @nullable */
+  to: string | number | null;
+};
+
+export interface ServicePriceChange {
+  id: number;
+  serviceId: number;
+  effectiveFrom: number;
+  price: number;
+  priceMode: string;
+  unitCount: number;
+  doctorFee: number;
+  doctorFeeMode: string;
+  materialCost: number;
+  materialCostMode: string;
+  otherCost: number;
+  otherCostMode: string;
+  changes: ServicePriceChangeChangesItem[];
+  /** @nullable */
+  note?: string | null;
+  /** @nullable */
+  changedBy?: string | null;
+  createdAt: number;
 }
 
 export interface StaffMember {
@@ -386,6 +418,7 @@ export interface PaymentInput {
   depositAmount?: number;
   applyAccountBalance?: number;
   redeemPoints?: number;
+  settleInFull?: boolean;
   manualCommission?: PaymentManualCommission;
   reminder?: PaymentReminderInput;
 }

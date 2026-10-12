@@ -7,6 +7,7 @@ import {
   patientsTable,
   patientAccountTransactionsTable,
 } from "@workspace/db";
+import { appointmentCostSql, PRICE_VERSION_JOIN } from "./service-cost";
 
 // ── باشگاه مشتریان (امتیاز وفاداری) ─────────────────────────────────────────
 // منطق کسب/خرج/برگردان امتیاز این‌جا متمرکز است تا ثبت پرداخت، حذف پرداخت و
@@ -629,14 +630,12 @@ export async function getWalletBalance(executor: LoyaltyExecutor, patientId: num
  * هزینه‌های «per_unit» × واحد مصرفی (واحد همین پرداخت، یا واحد ثبت‌شده در نوبت، یا تعداد واحد خدمت).
  */
 export async function appointmentServiceCost(tx: LoyaltyExecutor, appointmentId: number, unitsOverride?: number | null): Promise<number> {
+  // همان قاعدهٔ حسابداری: هزینه با نسخهٔ قیمتِ معتبر در روز ارائهٔ خدمت (lib/service-cost.ts)
   const override = unitsOverride && unitsOverride > 0 ? unitsOverride : null;
-  const units = sql`COALESCE(${override}, a.units_used, s.unit_count, 1)`;
   const rows = await tx.all<{ cost: number }>(sql`
-    SELECT
-      (CASE WHEN s.doctor_fee_mode = 'per_unit' THEN COALESCE(s.doctor_fee, 0) * ${units} ELSE COALESCE(s.doctor_fee, 0) END) +
-      (CASE WHEN s.material_cost_mode = 'per_unit' THEN COALESCE(s.material_cost, 0) * ${units} ELSE COALESCE(s.material_cost, 0) END) +
-      (CASE WHEN s.other_cost_mode = 'per_unit' THEN COALESCE(s.other_cost, 0) * ${units} ELSE COALESCE(s.other_cost, 0) END) AS cost
+    SELECT ${appointmentCostSql(override != null ? sql`${override}` : undefined)} AS cost
     FROM appointments a INNER JOIN services s ON s.id = a.service_id
+    ${PRICE_VERSION_JOIN}
     WHERE a.id = ${appointmentId}
   `);
   return Number(rows[0]?.cost ?? 0);

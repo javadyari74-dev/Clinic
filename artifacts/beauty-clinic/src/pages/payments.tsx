@@ -254,6 +254,8 @@ export default function Payments() {
   const [isOpen, setIsOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [fullAmountChecked, setFullAmountChecked] = useState(false);
+  // مبلغ کمتر از مانده: «تخفیف توافقی» (قیمت نهایی = مبلغ دریافتی) یا مانده به‌عنوان بدهی
+  const [settleInFull, setSettleInFull] = useState(false);
   // جمع پرداخت‌های قبلیِ نوبت (بیعانه + اقساط قبلی؛ نقدی + کیف پول + امتیاز) — از سرور
   const [currentDeposit, setCurrentDeposit] = useState(0);
 
@@ -392,6 +394,9 @@ export default function Payments() {
     form.setValue("amount", Math.max(0, dueBeforePoints - redeemToman - walletApplied));
   }, [dueBeforePoints, redeemToman, walletApplied, fullAmountChecked]);
 
+  // کسریِ مبلغ دریافتی نسبت به مانده (برای انتخاب «تخفیف توافقی» یا «بدهی»)
+  const shortfall = Math.max(0, dueBeforePoints - redeemToman - walletApplied - (Number(paidAmount) || 0));
+
   const commissionAmount = useMemo(() => {
     const base = paidAmount || 0;
     if (commCalcType === "percentage") return Math.round(base * commCalcValue / 100);
@@ -487,6 +492,7 @@ export default function Payments() {
   function resetDialog() {
     form.reset({ amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 });
     setFullAmountChecked(false);
+    setSettleInFull(false);
     setCurrentDeposit(0);
     setCommissionEnabled(false);
     setCommRecipientType("staff");
@@ -549,6 +555,7 @@ export default function Payments() {
         redeemPoints: redeemPoints > 0 ? redeemPoints : undefined,
         // سرور همین مبلغ را در همان تراکنش از کیف پول کم می‌کند
         applyAccountBalance: walletApplied > 0 ? walletApplied : undefined,
+        settleInFull: shortfall > 0 && settleInFull ? true : undefined,
         // کمیسیون دستی / اعتبار معرفی و یادآوری پیگیری — داخل تراکنش همین پرداخت در سرور
         manualCommission: commissionEnabled && commRecipientId && commissionAmount > 0
           ? {
@@ -787,6 +794,27 @@ export default function Payments() {
                   </FormItem>
                 )} />
               </div>
+
+              {shortfall > 0 && (Number(paidAmount) || 0) > 0 && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2 text-sm">
+                  <div className="text-amber-900">
+                    مبلغ دریافتی <span className="font-bold">{formatCurrency(shortfall)}</span> کمتر از مانده است. این مبلغ:
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant={settleInFull ? "default" : "outline"} onClick={() => setSettleInFull(true)}>
+                      تخفیف توافقی است (تسویه کامل)
+                    </Button>
+                    <Button type="button" size="sm" variant={!settleInFull ? "default" : "outline"} onClick={() => setSettleInFull(false)}>
+                      بدهی مراجع است (بعداً پرداخت می‌شود)
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {settleInFull
+                      ? "قیمت نهایی خدمت همین مبلغ دریافتی ثبت می‌شود و سود هم از همین مبلغ حساب می‌شود."
+                      : "نوبت باز می‌ماند و مانده در صندوق و پروندهٔ مراجع به‌عنوان بدهی نمایش داده می‌شود."}
+                  </p>
+                </div>
+              )}
 
               {/* Method */}
               <FormField control={form.control} name="method" render={({ field }) => (

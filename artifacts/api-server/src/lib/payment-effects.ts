@@ -89,8 +89,17 @@ export async function recomputeAppointmentAfterPaymentChange(tx: Tx, appointment
     changes.price = null;
     changes.unitsUsed = null;
     open = true;
-  } else if (appt.price != null && state.paid < appt.price) {
-    open = true;
+  } else {
+    // قیمت نوبت = قیمت خالصِ آخرین پرداخت تسویه‌ایِ باقی‌مانده (اگر پرداختِ با تخفیف توافقی
+    // حذف شود، قیمت به قبل برمی‌گردد)
+    const [last] = await tx.all<{ original_amount: number; discount_amount: number | null }>(sql`
+      SELECT original_amount, discount_amount FROM payments
+      WHERE appointment_id = ${appointmentId} AND COALESCE(notes, '') <> ${DEPOSIT_NOTE}
+      ORDER BY id DESC LIMIT 1
+    `);
+    const price = last ? Math.max(0, Number(last.original_amount) - Number(last.discount_amount ?? 0)) : appt.price;
+    if (price != null && price !== appt.price) changes.price = price;
+    if (price != null && state.paid < price) open = true;
   }
   if (open && appt.status === "completed") changes.status = "confirmed";
   if (Object.keys(changes).length > 0) {
