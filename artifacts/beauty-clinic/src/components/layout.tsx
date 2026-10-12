@@ -27,6 +27,7 @@ import {
   ShoppingCart,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatShamsiDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { useState, useEffect } from "react";
@@ -141,6 +142,9 @@ export function Layout({ children }: { children: ReactNode }) {
           >
             <LogOut className="h-4 w-4" />
           </Button>
+        </div>
+        <div className="px-3 text-[11px] text-sidebar-foreground/50" title="تاریخ ساخت این نسخهٔ برنامه">
+          نسخهٔ {formatShamsiDate(typeof __BUILD_TIME__ === "number" ? __BUILD_TIME__ : 0, true)}
         </div>
       </div>
     </div>
