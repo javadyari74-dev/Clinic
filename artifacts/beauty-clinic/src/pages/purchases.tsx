@@ -24,6 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableHead } from "@/components/sortable-head";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
@@ -122,6 +124,16 @@ export default function Purchases() {
       (!term || p.productName.includes(term) || p.productType.includes(term) || (p.supplier ?? "").includes(term)),
     );
   }, [all, q, typeFilter, status]);
+
+  const sort = useTableSort(filtered, {
+    purchaseDate: (p) => p.purchaseDate,
+    productType: (p) => p.productType,
+    productName: (p) => p.productName,
+    supplier: (p) => p.supplier,
+    quantity: (p) => p.quantity,
+    price: (p) => p.price,
+    status: (p) => (p.isSettled ? "تسویه شده" : "تسویه نشده"),
+  });
 
   const totals = useMemo(() => {
     let total = 0, settled = 0, unsettled = 0, unsettledCount = 0;
@@ -282,18 +294,18 @@ export default function Purchases() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="text-right">تاریخ خرید</TableHead>
-                <TableHead className="text-right">نوع محصول</TableHead>
-                <TableHead className="text-right">محصول</TableHead>
-                <TableHead className="text-right">فروشنده</TableHead>
-                <TableHead className="text-right">تعداد</TableHead>
-                <TableHead className="text-right">مبلغ خرید</TableHead>
-                <TableHead className="text-right">وضعیت</TableHead>
+                <SortableHead {...sort.head("purchaseDate")} className="text-right">تاریخ خرید</SortableHead>
+                <SortableHead {...sort.head("productType")} className="text-right">نوع محصول</SortableHead>
+                <SortableHead {...sort.head("productName")} className="text-right">محصول</SortableHead>
+                <SortableHead {...sort.head("supplier")} className="text-right">فروشنده</SortableHead>
+                <SortableHead {...sort.head("quantity")} className="text-right">تعداد</SortableHead>
+                <SortableHead {...sort.head("price")} className="text-right">مبلغ خرید</SortableHead>
+                <SortableHead {...sort.head("status")} className="text-right">وضعیت</SortableHead>
                 <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((p) => (
+              {sort.sorted.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="text-sm whitespace-nowrap">{formatShamsiDate(p.purchaseDate)}</TableCell>
                   <TableCell><Badge variant="secondary">{p.productType}</Badge></TableCell>

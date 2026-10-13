@@ -15,6 +15,8 @@ import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format"
 import { ErrorNotice } from "@/components/error-notice";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { tehranTodayISO, tehranNowHHMM } from "@/lib/tehran-date";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableHead } from "@/components/sortable-head";
 import {
   Plus, Edit2, Trash2, Zap, User, CalendarDays, CreditCard, Scissors,
   CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight, BellRing, Phone,
@@ -306,6 +308,10 @@ function AppointmentSearchPicker({
   );
 }
 
+const TH = "px-3 py-2.5 text-right font-medium";
+const SORT_TH = "px-1 text-right font-medium";
+const tsValue = (ts: number | string | null | undefined) => (ts ? Number(ts) : null);
+
 function formatDateTime(ts: number | string | null | undefined) {
   if (!ts) return "—";
   const n = Number(ts);
@@ -356,6 +362,14 @@ function ClientsTab() {
   const filtered = clients.filter(c =>
     c.name.includes(search) || c.phone.includes(search) || c.fileNumber.includes(search)
   );
+  const sort = useTableSort(filtered, {
+    fileNumber: (c) => c.fileNumber,
+    name: (c) => c.name,
+    gender: (c) => GENDER_LABEL[c.gender],
+    phone: (c) => c.phone,
+    skinType: (c) => c.skinType,
+    hairColor: (c) => c.hairColor,
+  });
 
   return (
     <div className="space-y-4">
@@ -383,13 +397,17 @@ function ClientsTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["پرونده", "نام", "جنسیت", "تلفن", "نوع پوست", "رنگ مو", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("fileNumber")} className={SORT_TH}>پرونده</SortableHead>
+                <SortableHead {...sort.head("name")} className={SORT_TH}>نام</SortableHead>
+                <SortableHead {...sort.head("gender")} className={SORT_TH}>جنسیت</SortableHead>
+                <SortableHead {...sort.head("phone")} className={SORT_TH}>تلفن</SortableHead>
+                <SortableHead {...sort.head("skinType")} className={SORT_TH}>نوع پوست</SortableHead>
+                <SortableHead {...sort.head("hairColor")} className={SORT_TH}>رنگ مو</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map(c => (
+              {sort.sorted.map(c => (
                 <tr key={c.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{toPersianDigits(c.fileNumber)}</td>
                   <td className="px-3 py-2.5 font-medium">{c.name}</td>
@@ -473,6 +491,14 @@ function ServicesTab() {
   useEffect(() => { load(); }, [load]);
 
   const filtered = services.filter(s => s.genderCategory === genderTab);
+  const sort = useTableSort(filtered, {
+    code: (s) => s.code,
+    name: (s) => s.name,
+    price: (s) => s.price,
+    commissionRate: (s) => s.commissionRate,
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+    description: (s) => s.description,
+  });
 
   const openNew = () => { setEditing(null); setForm({ genderCategory: genderTab, commissionRate: globalRate, isActive: true }); setOpen(true); };
   const openEdit = (s: Service) => { setEditing(s); setForm({ ...s, commissionRate: globalRate }); setOpen(true); };
@@ -530,13 +556,17 @@ function ServicesTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["کد خدمت", "نام خدمت", "قیمت", "نرخ کمیسیون", "وضعیت", "توضیح", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("code")} className={SORT_TH}>کد خدمت</SortableHead>
+                <SortableHead {...sort.head("name")} className={SORT_TH}>نام خدمت</SortableHead>
+                <SortableHead {...sort.head("price")} className={SORT_TH}>قیمت</SortableHead>
+                <SortableHead {...sort.head("commissionRate")} className={SORT_TH}>نرخ کمیسیون</SortableHead>
+                <SortableHead {...sort.head("status")} className={SORT_TH}>وضعیت</SortableHead>
+                <SortableHead {...sort.head("description")} className={SORT_TH}>توضیح</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map(s => (
+              {sort.sorted.map(s => (
                 <tr key={s.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5">
                     <span className="font-mono text-xs bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded">
@@ -643,6 +673,18 @@ function AppointmentsTab({ refreshKey }: { refreshKey?: number }) {
   const active = appointments.filter(a => a.status === "scheduled");
   const history = appointments.filter(a => a.status !== "scheduled");
   const shown = statusTab === "scheduled" ? active : history;
+  const sort = useTableSort(shown, {
+    code: (a) => a.appointmentCode,
+    client: (a) => a.client?.name,
+    fileNumber: (a) => a.client?.fileNumber,
+    gender: (a) => (a.client?.gender ? GENDER_LABEL[a.client.gender] : null),
+    service: (a) => a.service?.name,
+    operator: (a) => a.operatorName,
+    scheduledAt: (a) => tsValue(a.scheduledAt),
+    session: (a) => a.sessionNumber || null,
+    price: (a) => a.price || a.service?.price || null,
+    status: (a) => STATUS_LABEL[a.status],
+  });
 
   const openNew = () => {
     // Tehran calendar date (UTC date is "yesterday" between 00:00 and 03:30).
@@ -707,13 +749,21 @@ function AppointmentsTab({ refreshKey }: { refreshKey?: number }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["کد نوبت", "مراجع", "پرونده", "جنسیت", "خدمت", "اپراتور", "تاریخ نوبت", "جلسه", "قیمت", "وضعیت", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("code")} className={SORT_TH}>کد نوبت</SortableHead>
+                <SortableHead {...sort.head("client")} className={SORT_TH}>مراجع</SortableHead>
+                <SortableHead {...sort.head("fileNumber")} className={SORT_TH}>پرونده</SortableHead>
+                <SortableHead {...sort.head("gender")} className={SORT_TH}>جنسیت</SortableHead>
+                <SortableHead {...sort.head("service")} className={SORT_TH}>خدمت</SortableHead>
+                <SortableHead {...sort.head("operator")} className={SORT_TH}>اپراتور</SortableHead>
+                <SortableHead {...sort.head("scheduledAt")} className={SORT_TH}>تاریخ نوبت</SortableHead>
+                <SortableHead {...sort.head("session")} className={SORT_TH}>جلسه</SortableHead>
+                <SortableHead {...sort.head("price")} className={SORT_TH}>قیمت</SortableHead>
+                <SortableHead {...sort.head("status")} className={SORT_TH}>وضعیت</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {shown.map(a => (
+              {sort.sorted.map(a => (
                 <tr key={a.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5">
                     <span className="font-mono text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded whitespace-nowrap">
@@ -880,6 +930,16 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
 
   const totalAmount = payments.reduce((s, p) => s + p.amount, 0);
   const totalCommission = payments.reduce((s, p) => s + p.commissionAmount, 0);
+  const sort = useTableSort(payments, {
+    client: (p) => p.client?.name,
+    service: (p) => p.service?.name,
+    amount: (p) => p.amount,
+    method: (p) => METHOD_LABEL[p.method] || p.method,
+    operator: (p) => p.operatorName,
+    commission: (p) => (p.commissionAmount > 0 ? p.commissionAmount : null),
+    paidAt: (p) => tsValue(p.paidAt),
+    notes: (p) => p.notes,
+  });
 
   return (
     <div className="space-y-4">
@@ -909,13 +969,18 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["مراجع", "خدمت", "مبلغ", "روش", "اپراتور", "کمیسیون", "تاریخ پرداخت", "یادداشت"].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("client")} className={SORT_TH}>مراجع</SortableHead>
+                <SortableHead {...sort.head("service")} className={SORT_TH}>خدمت</SortableHead>
+                <SortableHead {...sort.head("amount")} className={SORT_TH}>مبلغ</SortableHead>
+                <SortableHead {...sort.head("method")} className={SORT_TH}>روش</SortableHead>
+                <SortableHead {...sort.head("operator")} className={SORT_TH}>اپراتور</SortableHead>
+                <SortableHead {...sort.head("commission")} className={SORT_TH}>کمیسیون</SortableHead>
+                <SortableHead {...sort.head("paidAt")} className={SORT_TH}>تاریخ پرداخت</SortableHead>
+                <SortableHead {...sort.head("notes")} className={SORT_TH}>یادداشت</SortableHead>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {payments.map(p => (
+              {sort.sorted.map(p => (
                 <tr key={p.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5 font-medium">{p.client?.name || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.service?.name || "—"}</td>

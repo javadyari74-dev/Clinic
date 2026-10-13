@@ -17,6 +17,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableHead } from "@/components/sortable-head";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -98,6 +100,14 @@ export default function Inventory() {
   }
 
   const lowStock = items?.filter(i => i.quantity <= (i.minQuantity ?? 0)) ?? [];
+  const sort = useTableSort(items, {
+    name: (i) => i.name,
+    category: (i) => i.category,
+    quantity: (i) => i.quantity,
+    unit: (i) => i.unit,
+    salePrice: (i) => i.salePrice || null,
+    status: (i) => (i.quantity <= (i.minQuantity ?? 0) ? "کمبود" : "موجود"),
+  });
 
   return (
     <div className="space-y-6">
@@ -218,17 +228,17 @@ export default function Inventory() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>دسته</TableHead>
-                <TableHead>موجودی</TableHead>
-                <TableHead>واحد</TableHead>
-                <TableHead>قیمت فروش</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...sort.head("name")}>نام</SortableHead>
+                <SortableHead {...sort.head("category")}>دسته</SortableHead>
+                <SortableHead {...sort.head("quantity")}>موجودی</SortableHead>
+                <SortableHead {...sort.head("unit")}>واحد</SortableHead>
+                <SortableHead {...sort.head("salePrice")}>قیمت فروش</SortableHead>
+                <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items?.map((item) => {
+              {sort.sorted.map((item) => {
                 const isLow = item.quantity <= (item.minQuantity ?? 0);
                 return (
                   <TableRow key={item.id} className={isLow ? "bg-orange-50" : undefined}>
