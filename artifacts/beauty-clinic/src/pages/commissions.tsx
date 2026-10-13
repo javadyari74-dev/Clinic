@@ -18,6 +18,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 
 const formSchema = z.object({
   recipientType: z.enum(["staff", "external"]),
@@ -80,6 +82,13 @@ export default function Commissions() {
 
   const totalUnpaid = commissions?.filter(c => !c.isPaid).reduce((s, c) => s + c.amount, 0) ?? 0;
   const totalPaid = commissions?.filter(c => c.isPaid).reduce((s, c) => s + c.amount, 0) ?? 0;
+
+  const commissionSort = useTableSort(commissions as any[] | undefined, {
+    amount: (c: any) => c.amount,
+    recipient: (c: any) => c.recipientName || "",
+    date: (c: any) => c.createdAt,
+    status: (c: any) => (c.isPaid ? "تسویه‌شده" : "پرداخت‌نشده"),
+  });
 
   function buildSummary(c: any) {
     const parts: string[] = [];
@@ -212,15 +221,15 @@ export default function Commissions() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>خلاصه تراکنش</TableHead>
-                <TableHead>دریافت‌کننده</TableHead>
-                <TableHead>تاریخ</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...commissionSort.head("amount")}>خلاصه تراکنش</SortableHead>
+                <SortableHead {...commissionSort.head("recipient")}>دریافت‌کننده</SortableHead>
+                <SortableHead {...commissionSort.head("date")}>تاریخ</SortableHead>
+                <SortableHead {...commissionSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(commissions as any[])?.map((c) => (
+              {commissionSort.sorted.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="max-w-xs">
                     <div className="text-sm font-medium leading-relaxed">

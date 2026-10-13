@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import {
   GitMerge, FolderCog, Save, History, CheckCircle2, XCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -96,6 +98,15 @@ export default function Backup() {
   const [mergeReport, setMergeReport] = useState<MergeReport | null>(null);
   const [mergeNotes, setMergeNotes] = useState<string[]>([]);
   const [reportOpen, setReportOpen] = useState(false);
+  const mergeRows = useMemo(
+    () => Object.entries(mergeReport ?? {}).filter(([key]) => key !== "totals"),
+    [mergeReport],
+  );
+  const mergeSort = useTableSort(mergeRows, {
+    section: ([key]) => SECTION_LABELS[key] ?? key,
+    added: ([, entry]) => entry.added,
+    skipped: ([, entry]) => entry.skipped,
+  });
 
   // گزارش بکاپ خودکار
   const [logs, setLogs] = useState<BackupLog[]>([]);
@@ -790,15 +801,13 @@ export default function Backup() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-muted-foreground">
                     <tr>
-                      <th className="text-right p-2 font-medium">بخش</th>
-                      <th className="text-center p-2 font-medium">اضافه‌شده</th>
-                      <th className="text-center p-2 font-medium">تکراری</th>
+                      <SortableHead {...mergeSort.head("section")} className="text-right">بخش</SortableHead>
+                      <SortableHead {...mergeSort.head("added")} className="text-center">اضافه‌شده</SortableHead>
+                      <SortableHead {...mergeSort.head("skipped")} className="text-center">تکراری</SortableHead>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {Object.entries(mergeReport)
-                      .filter(([key]) => key !== "totals")
-                      .map(([key, entry]) => (
+                    {mergeSort.sorted.map(([key, entry]) => (
                         <tr key={key}>
                           <td className="p-2">{SECTION_LABELS[key] ?? key}</td>
                           <td className="p-2 text-center font-medium text-emerald-600">{entry.added}</td>

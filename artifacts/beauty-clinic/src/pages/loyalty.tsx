@@ -22,6 +22,8 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { ErrorNotice } from "@/components/error-notice";
 import { Textarea } from "@/components/ui/textarea";
 import { PersianDatePicker } from "@/components/persian-date-picker";
@@ -67,6 +69,13 @@ function rateText(rate: number) {
 
 function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
   const { data: overview } = useGetLoyaltyOverview();
+  const recentSort = useTableSort(overview?.recent, {
+    patient: (tx) => tx.patientName,
+    type: (tx) => TYPE_LABELS[tx.type]?.label ?? tx.type,
+    amount: (tx) => txSign(tx) * Math.abs(tx.delta !== 0 ? tx.delta : tx.amount),
+    description: (tx) => tx.description,
+    date: (tx) => tx.createdAt,
+  });
   const tierMin: Record<LoyaltyTierKey, number> = {
     bronze: 0,
     silver: settings?.silverMin ?? 0,
@@ -163,15 +172,15 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="text-right">مراجع</TableHead>
-                <TableHead className="text-right">نوع</TableHead>
-                <TableHead className="text-right">مبلغ</TableHead>
-                <TableHead className="text-right">شرح</TableHead>
-                <TableHead className="text-right">تاریخ</TableHead>
+                <SortableHead {...recentSort.head("patient")} className="text-right">مراجع</SortableHead>
+                <SortableHead {...recentSort.head("type")} className="text-right">نوع</SortableHead>
+                <SortableHead {...recentSort.head("amount")} className="text-right">مبلغ</SortableHead>
+                <SortableHead {...recentSort.head("description")} className="text-right">شرح</SortableHead>
+                <SortableHead {...recentSort.head("date")} className="text-right">تاریخ</SortableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(overview?.recent ?? []).map((tx) => (
+              {recentSort.sorted.map((tx) => (
                 <TableRow key={tx.id}>
                   <TableCell className="font-medium">
                     <Link href={`/patients/${tx.patientId}`} className="text-primary hover:underline">
@@ -244,6 +253,15 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
         (!term || m.patientName.includes(term) || (m.phone ?? "").includes(term) || (m.fileNumber ?? "").includes(term)),
     );
   }, [members, q, tier]);
+  const membersSort = useTableSort(filtered, {
+    patient: (m) => m.patientName,
+    // سطح بر اساس رتبه (بالاترین سطح در کلیک اول)
+    tier: (m) => LOYALTY_TIER_KEYS.indexOf(m.tier as LoyaltyTierKey),
+    wallet: (m) => m.walletBalance,
+    rewards: (m) => m.totalRewards,
+    spend: (m) => m.spend12m,
+    joined: (m) => m.joinedAt,
+  });
 
   function openAdjust(m: LoyaltyMember) {
     setAdjusting(m);
@@ -288,17 +306,17 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="text-right">مراجع</TableHead>
-              <TableHead className="text-right">سطح</TableHead>
-              <TableHead className="text-right">کیف پول</TableHead>
-              <TableHead className="text-right">اعتبار هدیه‌شده</TableHead>
-              <TableHead className="text-right">خرید ۱۲ ماه</TableHead>
-              <TableHead className="text-right">عضویت از</TableHead>
+              <SortableHead {...membersSort.head("patient")} className="text-right">مراجع</SortableHead>
+              <SortableHead {...membersSort.head("tier")} className="text-right">سطح</SortableHead>
+              <SortableHead {...membersSort.head("wallet")} className="text-right">کیف پول</SortableHead>
+              <SortableHead {...membersSort.head("rewards")} className="text-right">اعتبار هدیه‌شده</SortableHead>
+              <SortableHead {...membersSort.head("spend")} className="text-right">خرید ۱۲ ماه</SortableHead>
+              <SortableHead {...membersSort.head("joined")} className="text-right">عضویت از</SortableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((m) => (
+            {membersSort.sorted.map((m) => (
               <TableRow key={m.patientId}>
                 <TableCell>
                   <Link href={`/patients/${m.patientId}`} className="font-medium text-primary hover:underline">
@@ -387,6 +405,11 @@ function RetroCashbackCard({ settings }: { settings: LoyaltySettings | undefined
   const [sendSmsOn, setSendSmsOn] = useState(true);
   const [smsText, setSmsText] = useState(RETRO_SMS_DEFAULT);
   const [confirming, setConfirming] = useState(false);
+  const previewSort = useTableSort(preview?.patients, {
+    name: (p) => p.name,
+    appointments: (p) => p.appointments,
+    amount: (p) => p.amount,
+  });
 
   const retro = useRetroLoyaltyCashback({
     mutation: {
@@ -474,13 +497,13 @@ function RetroCashbackCard({ settings }: { settings: LoyaltySettings | undefined
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-right">مراجع</TableHead>
-                    <TableHead className="text-right">تعداد نوبت</TableHead>
-                    <TableHead className="text-right">اعتبار</TableHead>
+                    <SortableHead {...previewSort.head("name")} className="text-right">مراجع</SortableHead>
+                    <SortableHead {...previewSort.head("appointments")} className="text-right">تعداد نوبت</SortableHead>
+                    <SortableHead {...previewSort.head("amount")} className="text-right">اعتبار</SortableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {preview.patients.map((p) => (
+                  {previewSort.sorted.map((p) => (
                     <TableRow key={p.patientId}>
                       <TableCell>{p.name}</TableCell>
                       <TableCell>{toPersianDigits(p.appointments)}</TableCell>

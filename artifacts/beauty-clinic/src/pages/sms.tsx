@@ -32,6 +32,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { toPersianDigits, formatShamsiDate } from "@/lib/format";
 import { useToast } from "@/hooks/use-toast";
 import { toastApiError } from "@/lib/api-error";
@@ -1318,6 +1320,14 @@ function LogsTab() {
   const [page, setPage] = useState(1);
   const limit = 30;
   const { data, isLoading } = useListSmsLogs({ page, limit });
+  const logsSort = useTableSort(data?.data, {
+    recipient: (log) => log.recipientName,
+    phone: (log) => log.recipientPhone,
+    type: (log) => EVENT_TYPE_LABELS[log.eventType] ?? log.eventType,
+    message: (log) => log.message,
+    status: (log) => (log.status === "sent" ? "ارسال شد" : "ناموفق"),
+    time: (log) => log.createdAt,
+  });
 
   if (isLoading) {
     return (
@@ -1348,16 +1358,16 @@ function LogsTab() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-right">گیرنده</TableHead>
-                  <TableHead className="text-right">شماره</TableHead>
-                  <TableHead className="text-right">نوع</TableHead>
-                  <TableHead className="text-right">متن</TableHead>
-                  <TableHead className="text-right">وضعیت</TableHead>
-                  <TableHead className="text-right">زمان</TableHead>
+                  <SortableHead {...logsSort.head("recipient")} className="text-right">گیرنده</SortableHead>
+                  <SortableHead {...logsSort.head("phone")} className="text-right">شماره</SortableHead>
+                  <SortableHead {...logsSort.head("type")} className="text-right">نوع</SortableHead>
+                  <SortableHead {...logsSort.head("message")} className="text-right">متن</SortableHead>
+                  <SortableHead {...logsSort.head("status")} className="text-right">وضعیت</SortableHead>
+                  <SortableHead {...logsSort.head("time")} className="text-right">زمان</SortableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {logs.map((log) => (
+                {logsSort.sorted.map((log) => (
                   <TableRow data-testid={`row-sms-log-${log.id}`} key={log.id}>
                     <TableCell>{log.recipientName ?? "—"}</TableCell>
                     <TableCell dir="ltr" className="text-right">

@@ -13,6 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import {
   ComposedChart, Bar, Line, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, ReferenceLine,
@@ -177,6 +179,30 @@ export default function Accounting() {
     { doctor: 0, material: 0, other: 0 }
   );
   const svcCostTotal = svcCostComponents.doctor + svcCostComponents.material + svcCostComponents.other;
+
+  const serviceSort = useTableSort(byService, {
+    name: s => s.serviceName,
+    count: s => s.completedCount,
+    revenue: s => s.revenue,
+    cost: s => s.totalServiceCost,
+    commissions: s => s.commissions,
+    profit: s => s.profit,
+    margin: s => s.profitMargin,
+  });
+  const expenseSort = useTableSort(expenses, {
+    category: e => catLabel(e.category),
+    description: e => e.description,
+    date: e => e.date,
+    amount: e => e.amount,
+  });
+  const svcCostSort = useTableSort(svcCostRows, {
+    name: s => s.serviceName,
+    count: s => s.completedCount,
+    doctor: s => s.doctorFeeTotal,
+    material: s => s.materialCostTotal,
+    other: s => s.otherCostTotal,
+    total: s => s.totalServiceCost,
+  });
 
   // لیزر جدا از درآمد/پورسانت مطب گروه می‌شود (همان ستون‌های زمانی) تا در نمودار سری جدا داشته باشد؛
   // profit و totalCosts سرور از قبل لیزر را شامل می‌شوند.
@@ -517,17 +543,17 @@ export default function Accounting() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/30">
-                      <TableHead className="font-bold">خدمت</TableHead>
-                      <TableHead className="font-bold text-left">نوبت</TableHead>
-                      <TableHead className="font-bold text-left">درآمد</TableHead>
-                      <TableHead className="font-bold text-left">هزینه خدمت</TableHead>
-                      <TableHead className="font-bold text-left">پورسانت</TableHead>
-                      <TableHead className="font-bold text-left">سود خالص</TableHead>
-                      <TableHead className="font-bold text-left">حاشیه سود</TableHead>
+                      <SortableHead {...serviceSort.head("name")} className="font-bold">خدمت</SortableHead>
+                      <SortableHead {...serviceSort.head("count")} className="font-bold text-left">نوبت</SortableHead>
+                      <SortableHead {...serviceSort.head("revenue")} className="font-bold text-left">درآمد</SortableHead>
+                      <SortableHead {...serviceSort.head("cost")} className="font-bold text-left">هزینه خدمت</SortableHead>
+                      <SortableHead {...serviceSort.head("commissions")} className="font-bold text-left">پورسانت</SortableHead>
+                      <SortableHead {...serviceSort.head("profit")} className="font-bold text-left">سود خالص</SortableHead>
+                      <SortableHead {...serviceSort.head("margin")} className="font-bold text-left">حاشیه سود</SortableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(byService ?? []).map(svc => (
+                    {serviceSort.sorted.map(svc => (
                       <TableRow key={svc.serviceId} className={svc.serviceId < 0 ? "bg-muted/20 text-muted-foreground" : undefined}>
                         <TableCell className="font-medium">
                           {svc.serviceName}
@@ -593,15 +619,15 @@ export default function Accounting() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>دسته‌بندی</TableHead>
-                      <TableHead>توضیح</TableHead>
-                      <TableHead>تاریخ</TableHead>
-                      <TableHead>مبلغ</TableHead>
+                      <SortableHead {...expenseSort.head("category")}>دسته‌بندی</SortableHead>
+                      <SortableHead {...expenseSort.head("description")}>توضیح</SortableHead>
+                      <SortableHead {...expenseSort.head("date")}>تاریخ</SortableHead>
+                      <SortableHead {...expenseSort.head("amount")}>مبلغ</SortableHead>
                       <TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(expenses ?? []).map(exp => (
+                    {expenseSort.sorted.map(exp => (
                       <TableRow key={exp.id}>
                         <TableCell>
                           <Badge className={`${catColor(exp.category)} text-xs`}>{catLabel(exp.category)}</Badge>
@@ -736,16 +762,16 @@ export default function Accounting() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="font-bold">خدمت</TableHead>
-                  <TableHead className="font-bold text-left">نوبت</TableHead>
-                  <TableHead className="font-bold text-left">پزشک</TableHead>
-                  <TableHead className="font-bold text-left">مواد</TableHead>
-                  <TableHead className="font-bold text-left">سایر</TableHead>
-                  <TableHead className="font-bold text-left">جمع</TableHead>
+                  <SortableHead {...svcCostSort.head("name")} className="font-bold">خدمت</SortableHead>
+                  <SortableHead {...svcCostSort.head("count")} className="font-bold text-left">نوبت</SortableHead>
+                  <SortableHead {...svcCostSort.head("doctor")} className="font-bold text-left">پزشک</SortableHead>
+                  <SortableHead {...svcCostSort.head("material")} className="font-bold text-left">مواد</SortableHead>
+                  <SortableHead {...svcCostSort.head("other")} className="font-bold text-left">سایر</SortableHead>
+                  <SortableHead {...svcCostSort.head("total")} className="font-bold text-left">جمع</SortableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {svcCostRows.map(s => (
+                {svcCostSort.sorted.map(s => (
                   <TableRow key={s.serviceId}>
                     <TableCell className="font-medium">{s.serviceName}</TableCell>
                     <TableCell className="text-left font-mono">{toPersianDigits(s.completedCount)}</TableCell>

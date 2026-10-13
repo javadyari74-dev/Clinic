@@ -5,6 +5,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -38,6 +40,14 @@ export default function Discounts() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof discounts>[0] | null>(null);
+  const discountSort = useTableSort(discounts, {
+    name: (d) => d.name,
+    code: (d) => d.code,
+    type: (d) => (d.type === "percentage" ? "درصدی" : "ثابت"),
+    value: (d) => d.value,
+    usage: (d) => d.usageCount ?? 0,
+    status: (d) => (d.isActive ? "فعال" : "غیرفعال"),
+  });
 
   const createDiscount = useCreateDiscount({
     mutation: {
@@ -189,17 +199,17 @@ export default function Discounts() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>کد</TableHead>
-                <TableHead>نوع</TableHead>
-                <TableHead>مقدار</TableHead>
-                <TableHead>استفاده</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...discountSort.head("name")}>نام</SortableHead>
+                <SortableHead {...discountSort.head("code")}>کد</SortableHead>
+                <SortableHead {...discountSort.head("type")}>نوع</SortableHead>
+                <SortableHead {...discountSort.head("value")}>مقدار</SortableHead>
+                <SortableHead {...discountSort.head("usage")}>استفاده</SortableHead>
+                <SortableHead {...discountSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {discounts?.map((d) => (
+              {discountSort.sorted.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell className="font-medium">{d.name}</TableCell>
                   <TableCell><code className="bg-muted px-2 py-0.5 rounded text-sm">{d.code}</code></TableCell>

@@ -5,6 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Plus, Pencil, Trash2, Calculator } from "lucide-react";
@@ -35,6 +37,13 @@ export default function Staff() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof staff>[0] | null>(null);
+  const staffSort = useTableSort(staff, {
+    name: (s) => s.name,
+    role: (s) => s.role,
+    phone: (s) => s.phone,
+    email: (s) => s.email,
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+  });
 
   // ── ماشین حساب کمیسیون ──
   const [calcFrom, setCalcFrom] = useState("");
@@ -257,16 +266,16 @@ export default function Staff() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>سمت</TableHead>
-                <TableHead>شماره تماس</TableHead>
-                <TableHead>ایمیل</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...staffSort.head("name")}>نام</SortableHead>
+                <SortableHead {...staffSort.head("role")}>سمت</SortableHead>
+                <SortableHead {...staffSort.head("phone")}>شماره تماس</SortableHead>
+                <SortableHead {...staffSort.head("email")}>ایمیل</SortableHead>
+                <SortableHead {...staffSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {staff?.map((s) => (
+              {staffSort.sorted.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell>{s.role}</TableCell>
