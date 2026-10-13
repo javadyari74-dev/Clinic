@@ -236,3 +236,38 @@ describe("debts on the accounting page (outside profit)", () => {
     expect(d.suppliers.total - d2.suppliers.total).toBe(5_000_000);
   });
 });
+
+describe("profit details per service and visit", () => {
+  it("lists each visit's received amount, cost parts and profit, and groups by price version over time", async () => {
+    const svc = (await call("POST", "/services", { name: "فیلر جزئیات", price: 4_000_000, doctorFee: 1_000_000, materialCost: 800_000, otherCost: 200_000 })).json;
+    const p = await patient("جزئیات سود");
+    const from = nowSec() - 5;
+    // دو هفته پیش با هزینهٔ قدیم و قیمت کامل
+    const old = await appointment(p.id, svc.id, Date.now() - 14 * DAY * 1000);
+    await call("POST", "/payments", { appointmentId: old.id, originalAmount: 4_000_000, amount: 4_000_000, method: "cash" });
+    // هزینهٔ مواد از امروز گران شد
+    await call("PUT", `/services/${svc.id}`, { materialCost: 1_300_000, priceChangeNote: "گرانی مواد" });
+    // امروز با تخفیف توافقی
+    const now = await appointment(p.id, svc.id, Date.now() + 60_000);
+    await call("POST", "/payments", { appointmentId: now.id, originalAmount: 4_000_000, amount: 3_700_000, method: "card", settleInFull: true });
+
+    const to = nowSec() + 3600;
+    const r = await call("GET", `/accounting/profit-details?from=${from}&to=${to}`);
+    expect(r.status).toBe(200);
+    const row = r.json.services.find((x: { serviceId: number }) => x.serviceId === svc.id);
+    expect(row).toMatchObject({
+      count: 2, revenue: 7_700_000, doctorCost: 2_000_000, materialCost: 2_100_000, otherCost: 400_000,
+      serviceCost: 4_500_000, profit: 3_200_000,
+    });
+    expect(row.visits.map((v: { profit: number }) => v.profit)).toEqual([2_000_000, 1_200_000]);
+    expect(row.visits[1]).toMatchObject({ revenue: 3_700_000, doctorCost: 1_000_000, materialCost: 1_300_000, otherCost: 200_000, patientName: "جزئیات سود" });
+    // دو دوره: قبل و بعد از گرانی مواد؛ سود هر نوبت از ۲ میلیون به ۱.۲ میلیون
+    expect(row.periods).toHaveLength(2);
+    expect(row.periods.map((x: { avgProfit: number }) => x.avgProfit)).toEqual([2_000_000, 1_200_000]);
+    expect(row.periods[1]).toMatchObject({ count: 1, avgMaterialCost: 1_300_000 });
+
+    // با تفکیک خدمات (by-service) همخوان است
+    const bs = (await call("GET", `/accounting/by-service?from=${from}&to=${to}`)).json.find((x: { serviceId: number }) => x.serviceId === svc.id);
+    expect(bs).toMatchObject({ revenue: row.revenue, totalServiceCost: row.serviceCost, profit: row.profit });
+  });
+});

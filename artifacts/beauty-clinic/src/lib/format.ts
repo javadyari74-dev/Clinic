@@ -6,6 +6,8 @@ export function toPersianDigits(num: number | string | null | undefined): string
 
 export function formatCurrency(amount: number | null | undefined): string {
   if (amount == null) return "۰ تومان";
+  // علامت منفی در متن راست‌به‌چپ جابه‌جا دیده می‌شود؛ با کلمه نوشته می‌شود تا ابهام نداشته باشد
+  if (amount < 0) return "منفی " + toPersianDigits(Math.abs(amount).toLocaleString()) + " تومان";
   return toPersianDigits(amount.toLocaleString()) + " تومان";
 }
 

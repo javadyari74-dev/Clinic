@@ -3,7 +3,7 @@ import { eq, sql, gte, lt, and, desc } from "drizzle-orm";
 import { db, paymentsTable, commissionsTable, servicesTable, expensesTable, laserPaymentsTable } from "@workspace/db";
 import { DEPOSIT_NOTE } from "../lib/payment-effects";
 import { tehranTodayBounds, shamsiMonthBounds, shamsiYearBounds } from "../lib/tehran-period";
-import { appointmentCostSql, costPartSql, unitsSql, PRICE_VERSION_JOIN } from "../lib/service-cost";
+import { appointmentCostSql, costPartSql, unitsSql, PRICE_VERSION_JOIN, SERVICE_DATE } from "../lib/service-cost";
 
 const router: IRouter = Router();
 
@@ -125,6 +125,113 @@ router.get("/accounting/summary", async (req, res): Promise<void> => {
     netProfit,
     expensesByCategory,
   });
+});
+
+// GET /api/accounting/profit-details?from&to — ریز سود هر خدمت و هر نوبت با همان قواعد by-service:
+//   درآمد نوبت = پرداخت‌های نقدی همان نوبت در بازه؛ هزینه (پزشک/مواد/سایر) با نسخهٔ قیمت روز خدمت و فقط
+//   در بازهٔ اولین پرداخت غیربیعانه؛ پورسانت = پورسانت‌های همان نوبت در بازه. سود = درآمد − هزینه − پورسانت.
+//   برای هر خدمت، «دوره‌ها» بر اساس نسخهٔ قیمت (تاریخ تغییر هزینه) تا تغییر سود در طول زمان دیده شود.
+router.get("/accounting/profit-details", async (req, res): Promise<void> => {
+  const range = resolveRange(req.query);
+  if ("error" in range) { res.status(400).json({ error: range.error }); return; }
+  const { start, end } = range;
+
+  const rows = await db.all<{
+    appointment_id: number; service_id: number; service_name: string; category: string | null;
+    patient_id: number | null; patient_name: string | null; service_date: number; version_from: number | null;
+    revenue: number; served: number; doctor: number; material: number; other: number; commission: number;
+  }>(sql`
+    SELECT a.id AS appointment_id, a.service_id AS service_id, s.name AS service_name, s.category AS category,
+      pt.id AS patient_id, pt.name AS patient_name, ${SERVICE_DATE} AS service_date,
+      v.effective_from AS version_from,
+      coalesce(pay.revenue, 0) AS revenue,
+      (sv.appointment_id IS NOT NULL) AS served,
+      coalesce(sv.doctor_cost, 0) AS doctor, coalesce(sv.material_cost, 0) AS material, coalesce(sv.other_cost, 0) AS other,
+      coalesce(cm.amount, 0) AS commission
+    FROM appointments a
+    INNER JOIN services s ON s.id = a.service_id
+    LEFT JOIN patients pt ON pt.id = a.patient_id
+    ${PRICE_VERSION_JOIN}
+    LEFT JOIN (
+      SELECT appointment_id, sum(amount) AS revenue FROM payments
+      WHERE paid_at >= ${start} AND paid_at < ${end} AND appointment_id IS NOT NULL GROUP BY appointment_id
+    ) pay ON pay.appointment_id = a.id
+    LEFT JOIN (${servedAppointmentsSql(start, end)}) sv ON sv.appointment_id = a.id
+    LEFT JOIN (
+      SELECT appointment_id, sum(amount) AS amount FROM commissions
+      WHERE created_at >= ${start} AND created_at < ${end} AND appointment_id IS NOT NULL GROUP BY appointment_id
+    ) cm ON cm.appointment_id = a.id
+    WHERE pay.appointment_id IS NOT NULL OR sv.appointment_id IS NOT NULL OR cm.appointment_id IS NOT NULL
+    ORDER BY service_date ASC, a.id ASC
+  `);
+
+  type Visit = {
+    appointmentId: number; patientId: number | null; patientName: string | null; serviceDate: number;
+    versionFrom: number; counted: boolean; revenue: number; doctorCost: number; materialCost: number;
+    otherCost: number; serviceCost: number; commission: number; profit: number;
+  };
+  const byService = new Map<number, { serviceId: number; serviceName: string; category: string | null; visits: Visit[] }>();
+  for (const r of rows) {
+    const doctor = Number(r.doctor), material = Number(r.material), other = Number(r.other);
+    const revenue = Number(r.revenue), commission = Number(r.commission);
+    const serviceCost = doctor + material + other;
+    const visit: Visit = {
+      appointmentId: Number(r.appointment_id),
+      patientId: r.patient_id == null ? null : Number(r.patient_id),
+      patientName: r.patient_name,
+      serviceDate: Number(r.service_date),
+      versionFrom: Number(r.version_from ?? 0),
+      counted: Boolean(Number(r.served)),
+      revenue, doctorCost: doctor, materialCost: material, otherCost: other, serviceCost, commission,
+      profit: revenue - serviceCost - commission,
+    };
+    const key = Number(r.service_id);
+    const g = byService.get(key) ?? { serviceId: key, serviceName: r.service_name, category: r.category, visits: [] };
+    g.visits.push(visit);
+    byService.set(key, g);
+  }
+
+  const sum = (vs: Visit[], k: keyof Visit) => vs.reduce((t, v) => t + Number(v[k]), 0);
+  const services = [...byService.values()].map((g) => {
+    // دوره‌ها: نوبت‌هایی که هزینه‌شان در این بازه شمرده شده، به تفکیک نسخهٔ قیمت (قدیمی → جدید)
+    const periodMap = new Map<number, Visit[]>();
+    for (const v of g.visits) if (v.counted) periodMap.set(v.versionFrom, [...(periodMap.get(v.versionFrom) ?? []), v]);
+    const periods = [...periodMap.entries()].sort((a, b) => a[0] - b[0]).map(([versionFrom, vs]) => {
+      const n = vs.length;
+      return {
+        versionFrom,
+        firstDate: Math.min(...vs.map((v) => v.serviceDate)),
+        lastDate: Math.max(...vs.map((v) => v.serviceDate)),
+        count: n,
+        avgRevenue: Math.round(sum(vs, "revenue") / n),
+        avgDoctorCost: Math.round(sum(vs, "doctorCost") / n),
+        avgMaterialCost: Math.round(sum(vs, "materialCost") / n),
+        avgOtherCost: Math.round(sum(vs, "otherCost") / n),
+        avgServiceCost: Math.round(sum(vs, "serviceCost") / n),
+        avgProfit: Math.round(sum(vs, "profit") / n),
+      };
+    });
+    const revenue = sum(g.visits, "revenue");
+    const profit = sum(g.visits, "profit");
+    return {
+      serviceId: g.serviceId,
+      serviceName: g.serviceName,
+      category: g.category,
+      count: g.visits.filter((v) => v.counted).length,
+      revenue,
+      doctorCost: sum(g.visits, "doctorCost"),
+      materialCost: sum(g.visits, "materialCost"),
+      otherCost: sum(g.visits, "otherCost"),
+      serviceCost: sum(g.visits, "serviceCost"),
+      commission: sum(g.visits, "commission"),
+      profit,
+      profitMargin: revenue > 0 ? Math.round((profit / revenue) * 100) : 0,
+      periods,
+      visits: g.visits,
+    };
+  }).sort((a, b) => b.profit - a.profit);
+
+  res.json({ from: start, to: end, services });
 });
 
 // GET /api/accounting/debts — بدهی‌ها و طلب‌های «همین الان» (مستقل از بازهٔ گزارش و خارج از سود و زیان):

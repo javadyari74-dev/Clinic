@@ -137,6 +137,65 @@ export function useAccountingDebts() {
   });
 }
 
+/** یک نوبت در ریز سود */
+export interface ProfitVisit {
+  appointmentId: number;
+  patientId: number | null;
+  patientName: string | null;
+  /** روز خدمت (ثانیه) */
+  serviceDate: number;
+  /** شروع نسخهٔ قیمتی که هزینهٔ این نوبت از آن آمده (ثانیه؛ ۰ = از ابتدا) */
+  versionFrom: number;
+  /** هزینهٔ خدمت در همین بازه شمرده شده (اولین پرداخت غیربیعانه در بازه) */
+  counted: boolean;
+  revenue: number;
+  doctorCost: number;
+  materialCost: number;
+  otherCost: number;
+  serviceCost: number;
+  commission: number;
+  profit: number;
+}
+
+/** میانگین‌های هر دورهٔ قیمت یک خدمت */
+export interface ProfitPeriod {
+  versionFrom: number;
+  firstDate: number;
+  lastDate: number;
+  count: number;
+  avgRevenue: number;
+  avgDoctorCost: number;
+  avgMaterialCost: number;
+  avgOtherCost: number;
+  avgServiceCost: number;
+  avgProfit: number;
+}
+
+export interface ServiceProfitDetail {
+  serviceId: number;
+  serviceName: string;
+  category: string | null;
+  count: number;
+  revenue: number;
+  doctorCost: number;
+  materialCost: number;
+  otherCost: number;
+  serviceCost: number;
+  commission: number;
+  profit: number;
+  profitMargin: number;
+  periods: ProfitPeriod[];
+  visits: ProfitVisit[];
+}
+
+export function useProfitDetails(range: DateRange, enabled: boolean) {
+  return useQuery<{ from: number; to: number; services: ServiceProfitDetail[] }>({
+    queryKey: ["accounting", "profit-details", range.from, range.to],
+    queryFn: () => apiFetch(`/api/accounting/profit-details?${rangeQuery(range)}`),
+    enabled,
+  });
+}
+
 export function useAccountingByService(range: DateRange) {
   return useQuery<ServiceProfit[]>({
     queryKey: ["accounting", "by-service", range.from, range.to],

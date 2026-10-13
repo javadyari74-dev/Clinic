@@ -1,4 +1,5 @@
 import { PageHeader } from "@/components/page-header";
+import { ProfitDetailsDialog } from "@/components/profit-details-dialog";
 import { StatCard as GradientStatCard, type StatTone } from "@/components/stat-card";
 import { Calculator } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -108,6 +109,7 @@ export default function Accounting() {
   const [customRange, setCustomRange] = useState<DateRange | null>(null);
   const [expOpen, setExpOpen] = useState(false);
   const [svcCostOpen, setSvcCostOpen] = useState(false);
+  const [profitOpen, setProfitOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<Expense | null>(null);
   const [newCat, setNewCat] = useState("salary");
   const [newAmount, setNewAmount] = useState("");
@@ -329,6 +331,7 @@ export default function Accounting() {
           icon={<PiggyBank className="h-5 w-5 text-green-700" />}
           colorClass={(summary?.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}
           trend={(summary?.netProfit ?? 0) >= 0 ? "up" : "down"}
+          onClick={() => setProfitOpen(true)}
         />
       </div>
 
@@ -720,6 +723,14 @@ export default function Accounting() {
       </Dialog>
 
       {/* Service Cost Breakdown Dialog */}
+      <ProfitDetailsDialog
+        open={profitOpen}
+        onOpenChange={setProfitOpen}
+        range={range}
+        rangeLabel={rangeLabel}
+        summary={summary}
+      />
+
       <Dialog open={svcCostOpen} onOpenChange={setSvcCostOpen}>
         <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
           <DialogHeader>
