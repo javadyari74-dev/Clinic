@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { UserCog } from "lucide-react";
 import { useState } from "react";
 import { useAuth, Permission } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -351,16 +353,17 @@ export default function Users() {
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">مدیریت کاربران</h1>
-          <p className="text-muted-foreground text-sm mt-1">ساخت و مدیریت حساب‌های کاربری سیستم</p>
-        </div>
-        <Button onClick={() => { setEditUser(undefined); setFormOpen(true); }}>
+      <PageHeader
+        icon={<UserCog />}
+        title="مدیریت کاربران"
+        description="ساخت و مدیریت حساب‌های کاربری سیستم"
+        actions={<>
+          <Button onClick={() => { setEditUser(undefined); setFormOpen(true); }}>
           <Plus className="h-4 w-4 ml-2" />
           کاربر جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

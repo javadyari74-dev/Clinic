@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Scissors, Eye, EyeOff } from "lucide-react";
+import { Sparkles, Eye, EyeOff } from "lucide-react";
 
 export default function Login() {
   const { login, isLoading } = useAuth();
@@ -27,11 +27,13 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background" dir="rtl">
-      <div className="w-full max-w-sm px-4">
+    <div className="relative min-h-screen overflow-hidden flex items-center justify-center bg-background" dir="rtl">
+      <div aria-hidden className="pointer-events-none absolute -top-40 -right-40 h-[32rem] w-[32rem] rounded-full bg-gradient-to-bl from-[#7f1d1d] via-[#be185d] to-[#ec4899] opacity-90 blur-[2px]" />
+      <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-24 h-80 w-80 rounded-full bg-gradient-to-tr from-[#be185d] to-[#f9a8d4] opacity-50" />
+      <div className="relative w-full max-w-sm px-4">
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-sidebar-primary flex items-center justify-center shadow-lg">
-            <Scissors className="h-7 w-7 text-white" />
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-[#be185d] to-[#7f1d1d] flex items-center justify-center shadow-[0_12px_30px_-10px_rgba(127,29,29,0.6)] ring-4 ring-white">
+            <Sparkles className="h-7 w-7 text-white" />
           </div>
           <div className="text-center">
             <h1 className="text-2xl font-bold text-foreground">مطب زیبایی دکتر یاری</h1>
@@ -39,7 +41,7 @@ export default function Login() {
           </div>
         </div>
 
-        <Card className="shadow-lg border-border">
+        <Card className="rounded-3xl border-white/60 bg-card/95 backdrop-blur shadow-[0_20px_50px_-20px_rgba(127,29,29,0.45)]">
           <CardHeader className="pb-4">
             <CardTitle className="text-lg text-center">ورود</CardTitle>
           </CardHeader>

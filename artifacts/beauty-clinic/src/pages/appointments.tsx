@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { CalendarDays } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
@@ -933,16 +935,17 @@ export default function Appointments() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">نوبت‌ها</h1>
-          <p className="text-muted-foreground mt-1">مدیریت نوبت‌های مطب</p>
-        </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+      <PageHeader
+        icon={<CalendarDays />}
+        title="نوبت‌ها"
+        description="مدیریت نوبت‌های مطب"
+        actions={<>
+          <Button className="gap-2" onClick={() => setIsOpen(true)}>
           <Plus className="h-4 w-4" />
           نوبت جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -375,10 +376,11 @@ export default function Backup() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">پشتیبان‌گیری</h1>
-        <p className="text-muted-foreground mt-1">صادرات و پشتیبان‌گیری از داده‌های مطب</p>
-      </div>
+      <PageHeader
+        icon={<Database />}
+        title="پشتیبان‌گیری"
+        description="صادرات و پشتیبان‌گیری از داده‌های مطب"
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* دانلود پشتیبان (شامل هش رمز کاربران)، خروجی مراجعین و تغییر مسیرها فقط برای مدیر؛

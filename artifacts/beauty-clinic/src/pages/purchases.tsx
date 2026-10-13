@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -228,46 +230,29 @@ export default function Purchases() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-            <ShoppingCart className="h-7 w-7 text-primary" />
-            خریدها
-          </h1>
-          <p className="text-muted-foreground mt-1">ثبت خرید محصولات و مواد مصرفی، و وضعیت تسویه با فروشنده</p>
-        </div>
-        <div className="flex gap-2">
+      <PageHeader
+        icon={<ShoppingCart />}
+        title="خریدها"
+        description="ثبت خرید محصولات و مواد مصرفی، و وضعیت تسویه با فروشنده"
+        actions={<>
+          <div className="flex gap-2">
           <Button variant="outline" className="gap-2" onClick={() => setProductsOpen(true)}>
-            <Package className="h-4 w-4" /> محصولات ذخیره‌شده
-            {(savedProducts?.length ?? 0) > 0 && <Badge variant="secondary">{toPersianDigits(savedProducts?.length ?? 0)}</Badge>}
+          <Package className="h-4 w-4" /> محصولات ذخیره‌شده
+          {(savedProducts?.length ?? 0) > 0 && <Badge variant="secondary">{toPersianDigits(savedProducts?.length ?? 0)}</Badge>}
           </Button>
           <Button className="gap-2" onClick={openCreate}>
-            <Plus className="h-4 w-4" /> خرید جدید
+          <Plus className="h-4 w-4" /> خرید جدید
           </Button>
-        </div>
-      </div>
+          </div>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground font-medium">جمع خریدها</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totals.total)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{toPersianDigits(filtered.length)} خرید</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground font-medium">تسویه‌شده</CardTitle></CardHeader>
-          <CardContent><div className="text-2xl font-bold text-emerald-700">{formatCurrency(totals.settled)}</div></CardContent>
-        </Card>
-        <Card className={totals.unsettled > 0 ? "border-red-200" : ""}>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground font-medium">تسویه‌نشده (بدهی به فروشنده)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{formatCurrency(totals.unsettled)}</div>
-            <p className="text-xs text-muted-foreground mt-1">{toPersianDigits(totals.unsettledCount)} خرید</p>
-          </CardContent>
-        </Card>
+        <StatCard tone="rose" title="جمع خریدها" value={formatCurrency(totals.total)} sub={<>{toPersianDigits(filtered.length)} خرید</>} />
+        <StatCard tone="wine" title="تسویه‌شده" value={formatCurrency(totals.settled)} />
+        <StatCard tone="amber" title="تسویه‌نشده (بدهی به فروشنده)" value={formatCurrency(totals.unsettled)} sub={<>{toPersianDigits(totals.unsettledCount)} خرید</>} />
       </div>
 
       <Card>

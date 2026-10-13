@@ -1,3 +1,6 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
+import { HandCoins } from "lucide-react";
 import { useState } from "react";
 import { useListCommissions, useCreateCommission, useUpdateCommission, useDeleteCommission, getListCommissionsQueryKey, useListStaff, useListCommissionRecipients } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -110,44 +113,24 @@ export default function Commissions() {
         onConfirm={() => { deleteCommission.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">کمیسیون</h1>
-          <p className="text-muted-foreground mt-1">مدیریت پرداخت‌های کمیسیونی</p>
-        </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+      <PageHeader
+        icon={<HandCoins />}
+        title="کمیسیون"
+        description="مدیریت پرداخت‌های کمیسیونی"
+        actions={<>
+          <Button className="gap-2" onClick={() => setIsOpen(true)}>
           <Plus className="h-4 w-4" />
           ثبت کمیسیون
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">پرداخت‌نشده</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalUnpaid)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">تسویه‌شده</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalPaid)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">تعداد کل</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{toPersianDigits(commissions?.length ?? 0)} رکورد</div>
-          </CardContent>
-        </Card>
+        <StatCard tone="amber" title="پرداخت‌نشده" value={formatCurrency(totalUnpaid)} />
+        <StatCard tone="wine" title="تسویه‌شده" value={formatCurrency(totalPaid)} />
+        <StatCard tone="pink" title="تعداد کل" value={<>{toPersianDigits(commissions?.length ?? 0)} رکورد</>} />
       </div>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>

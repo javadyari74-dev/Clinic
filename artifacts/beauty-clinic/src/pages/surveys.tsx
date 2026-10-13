@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -204,12 +205,11 @@ export default function Surveys() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">نظرسنجی‌ها</h1>
-        <p className="text-muted-foreground mt-1">
-          رضایت مراجعین پس از مراجعه — پیامک نظرسنجی به‌صورت خودکار پس از ثبت پرداخت ارسال می‌شود و منشی امتیاز را پس از تماس ثبت می‌کند
-        </p>
-      </div>
+      <PageHeader
+        icon={<Star />}
+        title="نظرسنجی‌ها"
+        description="رضایت مراجعین پس از مراجعه — پیامک نظرسنجی به‌صورت خودکار پس از ثبت پرداخت ارسال می‌شود و منشی امتیاز را پس از تماس ثبت می‌کند"
+      />
 
       <div className="flex flex-wrap items-center gap-3">
         <Tabs value={status} onValueChange={(v) => { setStatus(v as "all" | ListSurveysStatus); setPage(1); }}>

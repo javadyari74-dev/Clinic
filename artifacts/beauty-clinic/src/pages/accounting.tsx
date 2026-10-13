@@ -1,3 +1,6 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard as GradientStatCard, type StatTone } from "@/components/stat-card";
+import { Calculator } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { PersianDatePicker } from "@/components/persian-date-picker";
@@ -67,38 +70,35 @@ function catColor(v: string) {
   return CATEGORIES.find(c => c.value === v)?.color ?? "bg-gray-100 text-gray-700";
 }
 
+// کارت آمار حسابداری روی کارت رنگی مشترک؛ رنگ کارت از colorClass قبلی می‌آید
 function StatCard({ title, value, sub, trend, icon, colorClass, onClick }: {
   title: string; value: string; sub?: string;
   trend?: "up" | "down" | "neutral"; icon: React.ReactNode; colorClass: string;
   onClick?: () => void;
 }) {
+  const tone: StatTone =
+    colorClass.includes("teal") ? "teal"
+    : colorClass.includes("purple") ? "plum"
+    : colorClass.includes("orange") ? "amber"
+    : colorClass.includes("blue") ? "wine"
+    : colorClass.includes("red") ? "amber"
+    : colorClass.includes("green") ? "crimson"
+    : "rose";
+  const arrow = trend === "up" ? "▲ " : trend === "down" ? "▼ " : "";
   return (
-    <Card
+    <GradientStatCard
+      title={title}
+      value={value}
+      sub={(sub || arrow || onClick) ? (
+        <>
+          {arrow}{sub}
+          {onClick && <span className="block mt-0.5 font-semibold">برای مشاهده جزئیات کلیک کنید ›</span>}
+        </>
+      ) : undefined}
+      icon={icon}
+      tone={tone}
       onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
-      onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
-      className={onClick ? "cursor-pointer transition hover:shadow-md hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : undefined}
-    >
-      <CardContent className="pt-5">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground mb-1">{title}</p>
-            <p className={`text-2xl font-bold ${colorClass}`}>{value}</p>
-            {sub && <p className="text-xs text-muted-foreground mt-1">{sub}</p>}
-            {onClick && <p className="text-[11px] text-primary mt-1 font-medium">برای مشاهده جزئیات کلیک کنید ›</p>}
-          </div>
-          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass.includes("green") ? "bg-green-100" : colorClass.includes("red") ? "bg-red-100" : "bg-primary/10"}`}>
-            {icon}
-          </div>
-        </div>
-        {trend && (
-          <div className={`flex items-center gap-1 mt-2 text-xs ${trend === "up" ? "text-green-600" : trend === "down" ? "text-red-600" : "text-muted-foreground"}`}>
-            {trend === "up" ? <TrendingUp className="h-3 w-3" /> : trend === "down" ? <TrendingDown className="h-3 w-3" /> : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+    />
   );
 }
 
@@ -250,16 +250,17 @@ export default function Accounting() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">حسابداری و سود و زیان</h1>
-          <p className="text-muted-foreground mt-1">تحلیل مالی دقیق مطب — درآمد، هزینه، و سود خالص</p>
-        </div>
-        <Button className="gap-2" onClick={() => setExpOpen(true)}>
+      <PageHeader
+        icon={<Calculator />}
+        title="حسابداری و سود و زیان"
+        description="تحلیل مالی دقیق مطب — درآمد، هزینه، و سود خالص"
+        actions={<>
+          <Button className="gap-2" onClick={() => setExpOpen(true)}>
           <Plus className="h-4 w-4" />
           ثبت هزینه
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {/* انتخاب بازهٔ زمانی (تقویم شمسی) */}
       <div className="flex flex-wrap items-center gap-2">
@@ -286,7 +287,7 @@ export default function Accounting() {
       {isError && <ErrorNotice onRetry={retry} />}
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
         <StatCard
           title={`درآمد مطب — ${periodLabel}`}
           value={formatCurrency(summary?.revenue)}

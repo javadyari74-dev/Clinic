@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { Scissors } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, getGetServicePriceHistoryQueryKey, type Service } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -484,16 +486,17 @@ export default function Services() {
         onConfirm={() => { deleteService.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">خدمات</h1>
-          <p className="text-muted-foreground mt-1">مدیریت خدمات، تعرفه‌ها، و هزینه‌های انجام</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Scissors />}
+        title="خدمات"
+        description="مدیریت خدمات، تعرفه‌ها، و هزینه‌های انجام"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           خدمت جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

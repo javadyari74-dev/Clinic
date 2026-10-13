@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useMemo } from "react";
 import {
   useListPatients, useCreatePatient, useDeletePatient, useUpdatePatient,
@@ -265,18 +266,17 @@ export default function Patients() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">مراجعین</h1>
-          <p className="text-muted-foreground mt-1">
-            مدیریت پرونده‌ها — {toPersianDigits(patientsList?.total ?? 0)} مراجع
-          </p>
-        </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+      <PageHeader
+        icon={<Users />}
+        title="مراجعین"
+        description={<>مدیریت پرونده‌ها — {toPersianDigits(patientsList?.total ?? 0)} مراجع</>}
+        actions={<>
+          <Button className="gap-2" onClick={() => setIsOpen(true)}>
           <Plus className="h-4 w-4" />
           مراجع جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

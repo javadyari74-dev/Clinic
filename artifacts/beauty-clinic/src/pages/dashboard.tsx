@@ -11,14 +11,27 @@ import { ErrorNotice } from "@/components/error-notice";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
+import { tehranNowHHMM } from "@/lib/tehran-date";
 import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
-  Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone,
+  Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone, Plus,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer,
 } from "recharts";
+
+/** سلام بر اساس ساعت تهران */
+function greeting(): string {
+  const h = Number(tehranNowHHMM().slice(0, 2));
+  if (h >= 5 && h < 12) return "صبح بخیر";
+  if (h >= 12 && h < 17) return "ظهر بخیر";
+  if (h >= 17 && h < 20) return "عصر بخیر";
+  return "شب بخیر";
+}
 
 // ─── Shamsi Calendar Helpers ─────────────────────────────────────────────────
 
@@ -248,59 +261,53 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">داشبورد</h1>
-        <p className="text-muted-foreground mt-1">خلاصه وضعیت مطب در یک نگاه</p>
-      </div>
+      <h2 className="sr-only">داشبورد</h2>
+      <PageHeader
+        title={`سلام دکتر، ${greeting()} 🌸`}
+        description={
+          summary
+            ? `امروز ${toPersianDigits(summary.appointmentsToday || 0)} نوبت دارید · ${toPersianDigits(summary.pendingAppointments || 0)} در انتظار`
+            : "خلاصه وضعیت مطب در یک نگاه"
+        }
+        actions={
+          <Link href="/appointments">
+            <Button className="gap-1"><Plus className="h-4 w-4" /> ثبت نوبت جدید</Button>
+          </Link>
+        }
+      />
 
       {isError && <ErrorNotice onRetry={retry} />}
 
       {/* ── Stats ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">درآمد این ماه</CardTitle>
-            <Wallet className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary?.monthlyRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">ماه شمسی جاری · بدون لیزر</p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">نوبت‌های امروز</CardTitle>
-            <CalendarDays className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.appointmentsToday || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {summary?.pendingAppointments || 0} در انتظار
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">کل مراجعین</CardTitle>
-            <Users className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.totalPatients || 0}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">نوبت‌های تکمیل شده</CardTitle>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.completedThisMonth || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">در ماه جاری</p>
-          </CardContent>
-        </Card>
+        <StatCard
+          tone="rose"
+          title="درآمد این ماه"
+          value={formatCurrency(summary?.monthlyRevenue)}
+          sub="ماه شمسی جاری · بدون لیزر"
+          icon={<Wallet />}
+          spark={chartData && chartData.length > 1 ? chartData.slice(-7).map((d) => d.revenue) : undefined}
+        />
+        <StatCard
+          tone="wine"
+          title="نوبت‌های امروز"
+          value={toPersianDigits(summary?.appointmentsToday || 0)}
+          sub={`${toPersianDigits(summary?.pendingAppointments || 0)} در انتظار`}
+          icon={<CalendarDays />}
+        />
+        <StatCard
+          tone="pink"
+          title="کل مراجعین"
+          value={toPersianDigits(summary?.totalPatients || 0)}
+          icon={<Users />}
+        />
+        <StatCard
+          tone="crimson"
+          title="نوبت‌های تکمیل شده"
+          value={toPersianDigits(summary?.completedThisMonth || 0)}
+          sub="در ماه جاری"
+          icon={<CheckCircle />}
+        />
       </div>
 
       {/* ── Birthday Alerts ── */}

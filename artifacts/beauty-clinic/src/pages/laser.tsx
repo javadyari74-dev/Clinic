@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { PriceInput } from "@/components/price-input";
 import { useAuth } from "@/hooks/use-auth";
@@ -945,16 +947,10 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="grid grid-cols-2 gap-3 flex-1">
-          <div className="rounded-lg border bg-green-50 px-4 py-3">
-            <p className="text-xs text-muted-foreground">جمع دریافتی</p>
-            <p className="text-lg font-bold text-green-700">{formatCurrency(totalAmount)}</p>
-          </div>
-          <div className="rounded-lg border bg-amber-50 px-4 py-3">
-            <p className="text-xs text-muted-foreground">جمع کمیسیون‌ها</p>
-            <p className="text-lg font-bold text-amber-700">{formatCurrency(totalCommission)}</p>
-          </div>
+          <StatCard tone="teal" title="جمع دریافتی" value={formatCurrency(totalAmount)} />
+          <StatCard tone="amber" title="جمع کمیسیون‌ها" value={formatCurrency(totalCommission)} />
         </div>
-        <Button onClick={openNew} className="bg-rose-700 hover:bg-rose-800 text-white self-center">
+        <Button onClick={openNew} className="self-center">
           <Plus className="h-4 w-4 ml-1" /> ثبت پرداخت
         </Button>
       </div>
@@ -1180,13 +1176,11 @@ export default function LaserPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-rose-100 rounded-lg"><Zap className="h-6 w-6 text-rose-700" /></div>
-        <div>
-          <h1 className="text-2xl font-bold">بخش لیزر</h1>
-          <p className="text-sm text-muted-foreground">مدیریت مراجعین، نوبت‌ها، خدمات و صندوق لیزر</p>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Zap />}
+        title="بخش لیزر"
+        description="مدیریت مراجعین، نوبت‌ها، خدمات و صندوق لیزر"
+      />
 
       <Tabs defaultValue="clients" className="space-y-4">
         <TabsList className="grid grid-cols-5 w-full max-w-2xl">

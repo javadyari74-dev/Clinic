@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { UserCircle } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useListStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, getListStaffQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -134,16 +136,17 @@ export default function Staff() {
         onConfirm={() => { deleteStaff.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">کارمندان</h1>
-          <p className="text-muted-foreground mt-1">مدیریت پرسنل مطب</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<UserCircle />}
+        title="کارمندان"
+        description="مدیریت پرسنل مطب"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           کارمند جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   useListPayments, useCreatePayment, useDeletePayment, getListPaymentsQueryKey,
@@ -656,40 +658,23 @@ export default function Payments() {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">صندوق</h1>
-          <p className="text-muted-foreground mt-1">مدیریت پرداخت‌ها و دریافت‌ها</p>
-        </div>
-        <Button className="gap-2" onClick={() => { resetDialog(); setIsOpen(true); }}>
+      <PageHeader
+        icon={<CreditCard />}
+        title="صندوق"
+        description="مدیریت پرداخت‌ها و دریافت‌ها"
+        actions={<>
+          <Button className="gap-2" onClick={() => { resetDialog(); setIsOpen(true); }}>
           <Plus className="h-4 w-4" />
           ثبت پرداخت
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Banknote className="h-4 w-4" /> دریافتی امروز
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(totalToday)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <CreditCard className="h-4 w-4" /> کل تراکنش‌ها
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{toPersianDigits(payments?.length ?? 0)} تراکنش</div>
-          </CardContent>
-        </Card>
+        <StatCard tone="rose" title="دریافتی امروز" value={formatCurrency(totalToday)} icon={<Banknote />} />
+        <StatCard tone="wine" title="کل تراکنش‌ها" value={<>{toPersianDigits(payments?.length ?? 0)} تراکنش</>} icon={<CreditCard />} />
       </div>
 
       <ConfirmDeleteDialog

@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { UserRound } from "lucide-react";
 import { useState } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { useParams, useLocation } from "wouter";
@@ -314,21 +316,16 @@ export default function PatientDetail() {
         onCancel={() => setDeleteTarget(null)}
       />
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/patients")} className="gap-1 text-muted-foreground">
-          <ArrowRight className="h-4 w-4" />
-          بازگشت
-        </Button>
-        <Separator orientation="vertical" className="h-5" />
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-            {patient.name}
-            <TierBadge tier={patient.tier} showLabel />
-          </h1>
-          <p className="text-sm text-muted-foreground">پرونده مراجع</p>
-        </div>
-        <div className="mr-auto flex items-center gap-2">
-          <Button size="sm" variant="outline" className="gap-2" onClick={openEditDialog}>
+      <PageHeader
+        icon={<UserRound />}
+        title={patient.name}
+        description="پرونده مراجع"
+        actions={<>
+          <Button size="sm" className="gap-1" onClick={() => navigate("/patients")}>
+            <ArrowRight className="h-4 w-4" />
+            بازگشت
+          </Button>
+          <Button size="sm" className="gap-2" onClick={openEditDialog}>
             <Pencil className="h-4 w-4" />
             ویرایش اطلاعات
           </Button>
@@ -336,8 +333,10 @@ export default function PatientDetail() {
             <CalendarPlus className="h-4 w-4" />
             دریافت نوبت
           </Button>
-        </div>
-      </div>
+        </>}
+      >
+        {patient.tier && <TierBadge tier={patient.tier} showLabel />}
+      </PageHeader>
 
       {/* Edit Patient Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>

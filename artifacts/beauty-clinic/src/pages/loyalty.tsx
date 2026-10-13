@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
@@ -91,51 +93,10 @@ function OverviewTab({ settings }: { settings: LoyaltySettings | undefined }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Users className="h-4 w-4" /> اعضای باشگاه
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{toPersianDigits(overview?.totalMembers ?? 0)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Gift className="h-4 w-4 text-emerald-600" /> اعتبار هدیه‌شده تا امروز
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xl font-bold text-emerald-700">{formatCurrency(overview?.totalRewards ?? 0)}</p>
-            <p className="text-xs text-muted-foreground mt-1">سود خدمت، تولد و معرفی</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-amber-600" /> موجودی کیف پول اعضا
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xl font-bold text-amber-600">{formatCurrency(overview?.walletTotal ?? 0)}</p>
-            <p className="text-xs text-muted-foreground mt-1">قابل استفاده در صندوق</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Hourglass className="h-4 w-4 text-orange-600" /> در شرف انقضا (۳۰ روز)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xl font-bold text-orange-600">{formatCurrency(overview?.expiringSoonAmount ?? 0)}</p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {settings?.expiryMonths ? `${toPersianDigits(overview?.expiringSoonMembers ?? 0)} عضو` : "انقضا غیرفعال است"}
-            </p>
-          </CardContent>
-        </Card>
+        <StatCard tone="rose" title="اعضای باشگاه" value={toPersianDigits(overview?.totalMembers ?? 0)} icon={<Users />} />
+        <StatCard tone="wine" title="اعتبار هدیه‌شده تا امروز" value={formatCurrency(overview?.totalRewards ?? 0)} sub="سود خدمت، تولد و معرفی" icon={<Gift />} />
+        <StatCard tone="pink" title="موجودی کیف پول اعضا" value={formatCurrency(overview?.walletTotal ?? 0)} sub="قابل استفاده در صندوق" icon={<Wallet />} />
+        <StatCard tone="amber" title="در شرف انقضا (۳۰ روز)" value={formatCurrency(overview?.expiringSoonAmount ?? 0)} sub={<>{settings?.expiryMonths ? `${toPersianDigits(overview?.expiringSoonMembers ?? 0)} عضو` : "انقضا غیرفعال است"}</>} icon={<Hourglass />} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
@@ -734,15 +695,11 @@ export default function Loyalty() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Award className="h-7 w-7 text-amber-600" />
-          باشگاه مشتریان
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          عضویت خودکار با اولین پرداخت، سطح‌بندی بر اساس خرید، و اعتبار کیف پول از سود هر خدمت که در صندوق قابل استفاده است
-        </p>
-      </div>
+      <PageHeader
+        icon={<Award />}
+        title="باشگاه مشتریان"
+        description="عضویت خودکار با اولین پرداخت، سطح‌بندی بر اساس خرید، و اعتبار کیف پول از سود هر خدمت که در صندوق قابل استفاده است"
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

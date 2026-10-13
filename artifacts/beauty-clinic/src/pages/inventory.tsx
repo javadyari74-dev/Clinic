@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { Box } from "lucide-react";
 import { useState } from "react";
 import { useListInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, getListInventoryQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -118,16 +120,17 @@ export default function Inventory() {
         onConfirm={() => { deleteItem.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">انبار</h1>
-          <p className="text-muted-foreground mt-1">مدیریت موجودی و ملزومات</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Box />}
+        title="انبار"
+        description="مدیریت موجودی و ملزومات"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           آیتم جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

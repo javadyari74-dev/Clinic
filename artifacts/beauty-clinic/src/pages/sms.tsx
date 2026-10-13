@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -1421,13 +1422,11 @@ function LogsTab() {
 export default function Sms() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <MessageSquare className="size-6" />
-          پنل پیامکی
-        </h1>
-        <p className="mt-1 text-muted-foreground">ارسال خودکار و دستی پیامک از طریق پنل ملی‌پیامک</p>
-      </div>
+      <PageHeader
+        icon={<MessageSquare />}
+        title="پنل پیامکی"
+        description="ارسال خودکار و دستی پیامک از طریق پنل ملی‌پیامک"
+      />
 
       <Tabs defaultValue="settings" dir="rtl">
         <TabsList>

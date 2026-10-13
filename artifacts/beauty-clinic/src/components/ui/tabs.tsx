@@ -3,7 +3,12 @@ import * as TabsPrimitive from "@radix-ui/react-tabs"
 
 import { cn } from "@/lib/utils"
 
-const Tabs = TabsPrimitive.Root
+// برنامه فارسی است: پیش‌فرض راست‌به‌چپ (ترتیب زبانه‌ها و کلیدهای جهت)
+const Tabs = React.forwardRef<
+  React.ElementRef<typeof TabsPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Root>
+>(({ dir = "rtl", ...props }, ref) => <TabsPrimitive.Root ref={ref} dir={dir} {...props} />)
+Tabs.displayName = TabsPrimitive.Root.displayName
 
 const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,

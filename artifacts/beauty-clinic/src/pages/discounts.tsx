@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { Percent } from "lucide-react";
 import { useState } from "react";
 import { useListDiscounts, useCreateDiscount, useUpdateDiscount, useDeleteDiscount, getListDiscountsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -117,16 +119,17 @@ export default function Discounts() {
         onConfirm={() => { deleteDiscount.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">تخفیفات</h1>
-          <p className="text-muted-foreground mt-1">مدیریت کدهای تخفیف</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Percent />}
+        title="تخفیفات"
+        description="مدیریت کدهای تخفیف"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           تخفیف جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

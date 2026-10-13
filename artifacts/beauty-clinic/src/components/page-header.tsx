@@ -25,7 +25,7 @@ export function PageHeader({
     <div
       className={cn(
         "relative overflow-hidden rounded-3xl px-6 py-5 md:px-7 md:py-6 text-white",
-        "bg-gradient-to-l from-[#7f1d1d] via-[#be185d] to-[#ec4899] shadow-[0_14px_40px_-16px_rgba(127,29,29,0.55)]",
+        "bg-gradient-to-r from-[#7f1d1d] via-[#be185d] to-[#ec4899] shadow-[0_14px_40px_-16px_rgba(127,29,29,0.55)]",
         "flex flex-col gap-4 md:flex-row md:items-center md:justify-between",
         className,
       )}

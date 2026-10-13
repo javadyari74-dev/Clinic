@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { BellRing } from "lucide-react";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -304,10 +306,11 @@ export default function Reminders() {
       </Dialog>
 
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">یادآوری‌ها</h1>
-        <p className="text-muted-foreground mt-1">مدیریت یادآوری‌ها و پیگیری‌ها</p>
-      </div>
+      <PageHeader
+        icon={<BellRing />}
+        title="یادآوری‌ها"
+        description="مدیریت یادآوری‌ها و پیگیری‌ها"
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

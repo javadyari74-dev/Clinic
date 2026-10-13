@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
@@ -348,16 +349,17 @@ export default function CommissionRecipients() {
         onConfirm={() => { del.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">گیرندگان کمیسیون</h1>
-          <p className="text-muted-foreground mt-1">مدیریت کارمندان و گیرندگان خارجی کمیسیون</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Users />}
+        title="گیرندگان کمیسیون"
+        description="مدیریت کارمندان و گیرندگان خارجی کمیسیون"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           گیرنده خارجی جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

@@ -1,3 +1,6 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
+import { BarChart3 } from "lucide-react";
 import { useGetReportsSummary, useGetRevenueChart } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatCurrency, toPersianDigits } from "@/lib/format";
@@ -31,53 +34,19 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">گزارشات</h1>
-        <p className="text-muted-foreground mt-1">تحلیل جامع عملکرد مطب</p>
-      </div>
+      <PageHeader
+        icon={<BarChart3 />}
+        title="گزارشات"
+        description="تحلیل جامع عملکرد مطب"
+      />
 
       {isError && <ErrorNotice onRetry={retry} />}
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <TrendingUp className="h-4 w-4" /> کل درآمد
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-700">{formatCurrency(summary?.totalRevenue)}</div>
-            <p className="text-xs text-muted-foreground mt-1">از ابتدا، پرداخت‌های نقدی مطب · بدون لیزر</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Users className="h-4 w-4" /> کل مراجعین
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{toPersianDigits(summary?.totalPatients ?? 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
-              <Calendar className="h-4 w-4" /> کل نوبت‌ها
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{toPersianDigits(summary?.totalAppointments ?? 0)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">کمیسیون پرداخت‌نشده</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{formatCurrency(summary?.totalUnpaidCommissions)}</div>
-          </CardContent>
-        </Card>
+        <StatCard tone="rose" title="کل درآمد" value={formatCurrency(summary?.totalRevenue)} sub="از ابتدا، پرداخت‌های نقدی مطب · بدون لیزر" icon={<TrendingUp />} />
+        <StatCard tone="wine" title="کل مراجعین" value={toPersianDigits(summary?.totalPatients ?? 0)} icon={<Users />} />
+        <StatCard tone="pink" title="کل نوبت‌ها" value={toPersianDigits(summary?.totalAppointments ?? 0)} icon={<Calendar />} />
+        <StatCard tone="amber" title="کمیسیون پرداخت‌نشده" value={formatCurrency(summary?.totalUnpaidCommissions)} />
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
