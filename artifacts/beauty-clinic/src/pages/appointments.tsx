@@ -28,6 +28,8 @@ import { Check, ChevronsUpDown, Plus, Pencil, Trash2, CalendarCheck, BellRing } 
 import { Textarea } from "@/components/ui/textarea";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { TierBadge } from "@/components/tier-badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { AppointmentCalendar } from "@/components/appointment-calendar";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
@@ -250,31 +252,52 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
   );
 }
 
-type HeaderProps = { ids: number[]; isAdmin: boolean; selected: Set<number>; onToggleAll: (ids: number[]) => void };
+const appSortAccessors = {
+  time: (a: AppRow) => a.scheduledAt,
+  patient: (a: AppRow) => a.patientName,
+  service: (a: AppRow) => a.serviceName,
+  session: (a: AppRow) => a.sessionNumber,
+  deposit: (a: AppRow) => (a.deposit && a.deposit > 0 ? a.deposit : null),
+  status: (a: AppRow) => statuses[a.status]?.label ?? a.status,
+  staff: (a: AppRow) => a.staffName,
+};
 
-function AppTableHeader({ ids, isAdmin, selected, onToggleAll }: HeaderProps) {
+type AppTableProps = Omit<RowProps, "app"> & { rows: AppRow[]; emptyText: string; onToggleAll: (ids: number[]) => void };
+
+function AppointmentTable({ rows, emptyText, onToggleAll, ...rowProps }: AppTableProps) {
+  const { isAdmin, selected } = rowProps;
+  const sort = useTableSort(rows, appSortAccessors);
+  const ids = rows.map(a => a.id);
   return (
-    <TableHeader>
-      <TableRow>
-        {isAdmin && (
-          <TableHead className="w-10 pr-4">
-            <Checkbox
-              checked={ids.length > 0 && ids.every(id => selected.has(id))}
-              onCheckedChange={() => onToggleAll(ids)}
-              aria-label="انتخاب همه"
-            />
-          </TableHead>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {isAdmin && (
+            <TableHead className="w-10 pr-4">
+              <Checkbox
+                checked={ids.length > 0 && ids.every(id => selected.has(id))}
+                onCheckedChange={() => onToggleAll(ids)}
+                aria-label="انتخاب همه"
+              />
+            </TableHead>
+          )}
+          <SortableHead {...sort.head("time")}>زمان</SortableHead>
+          <SortableHead {...sort.head("patient")}>مراجع</SortableHead>
+          <SortableHead {...sort.head("service")}>خدمت</SortableHead>
+          <SortableHead {...sort.head("session")}>جلسه</SortableHead>
+          <SortableHead {...sort.head("deposit")}>بیعانه</SortableHead>
+          <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
+          <SortableHead {...sort.head("staff")}>پرسنل</SortableHead>
+          {isAdmin && <TableHead />}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sort.sorted.map(app => <AppointmentRow key={app.id} app={app} {...rowProps} />)}
+        {!rows.length && (
+          <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">{emptyText}</TableCell></TableRow>
         )}
-        <TableHead>زمان</TableHead>
-        <TableHead>مراجع</TableHead>
-        <TableHead>خدمت</TableHead>
-        <TableHead>جلسه</TableHead>
-        <TableHead>بیعانه</TableHead>
-        <TableHead>وضعیت</TableHead>
-        <TableHead>پرسنل</TableHead>
-        {isAdmin && <TableHead />}
-      </TableRow>
-    </TableHeader>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -373,6 +396,14 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   }
 
   const entries = list?.data ?? [];
+  const sort = useTableSort(entries, {
+    patient: (e: WaitingEntry) => e.patientName,
+    service: (e: WaitingEntry) => e.serviceName,
+    range: (e: WaitingEntry) => e.preferredFrom || e.preferredTo || null,
+    note: (e: WaitingEntry) => e.note,
+    createdAt: (e: WaitingEntry) => e.createdAt,
+    status: (e: WaitingEntry) => waitingStatuses[e.status]?.label ?? e.status,
+  });
 
   return (
     <Card>
@@ -396,17 +427,17 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>مراجع</TableHead>
-              <TableHead>خدمت</TableHead>
-              <TableHead>بازه تاریخ دلخواه</TableHead>
-              <TableHead>یادداشت</TableHead>
-              <TableHead>تاریخ ثبت</TableHead>
-              <TableHead>وضعیت</TableHead>
+              <SortableHead {...sort.head("patient")}>مراجع</SortableHead>
+              <SortableHead {...sort.head("service")}>خدمت</SortableHead>
+              <SortableHead {...sort.head("range")}>بازه تاریخ دلخواه</SortableHead>
+              <SortableHead {...sort.head("note")}>یادداشت</SortableHead>
+              <SortableHead {...sort.head("createdAt")}>تاریخ ثبت</SortableHead>
+              <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {entries.map(entry => (
+            {sort.sorted.map(entry => (
               <TableRow key={entry.id}>
                 <TableCell className="font-medium">
                   <span className="flex items-center gap-1.5">
@@ -899,8 +930,6 @@ export default function Appointments() {
   }
 
   const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
-  const activeIds = (appointmentsList?.data ?? []).map(a => a.id);
-  const historyIds = historyList.map(a => a.id);
 
   return (
     <div className="space-y-6">
@@ -1289,15 +1318,7 @@ export default function Appointments() {
               </Select>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <AppTableHeader ids={activeIds} isAdmin={isAdmin} selected={selected} onToggleAll={toggleSelectAll} />
-                <TableBody>
-                  {(appointmentsList?.data ?? []).map(app => <AppointmentRow key={app.id} app={app as AppRow} {...rowProps} />)}
-                  {!appointmentsList?.data?.length && (
-                    <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">نوبتی یافت نشد</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <AppointmentTable rows={(appointmentsList?.data ?? []) as AppRow[]} emptyText="نوبتی یافت نشد" onToggleAll={toggleSelectAll} {...rowProps} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -1305,15 +1326,7 @@ export default function Appointments() {
         <TabsContent value="history">
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <AppTableHeader ids={historyIds} isAdmin={isAdmin} selected={selected} onToggleAll={toggleSelectAll} />
-                <TableBody>
-                  {historyList.map(app => <AppointmentRow key={app.id} app={app as AppRow} {...rowProps} />)}
-                  {!historyList.length && (
-                    <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">تاریخچه‌ای یافت نشد</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <AppointmentTable rows={historyList as AppRow[]} emptyText="تاریخچه‌ای یافت نشد" onToggleAll={toggleSelectAll} {...rowProps} />
             </CardContent>
           </Card>
         </TabsContent>

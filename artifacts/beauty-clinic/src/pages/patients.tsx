@@ -6,6 +6,7 @@ import {
   getGetPatientQueryOptions, getListPatientAppointmentsQueryOptions,
   getListPatientNotesQueryOptions, getListPatientAccountTransactionsQueryOptions,
 } from "@workspace/api-client-react";
+import type { Patient } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,11 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
 import { formatShamsiDate, formatCurrency } from "@/lib/format";
 import { TierBadge } from "@/components/tier-badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { PATIENT_TIERS } from "@/lib/tiers";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { prefetchPatientDetail } from "@/lib/page-loaders";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, FolderOpen, Users, FileText, Phone, ArrowUpDown, Trash2, Pencil, ChevronsUpDown, Check } from "lucide-react";
+import { Search, Plus, FolderOpen, Users, FileText, Phone, Trash2, Pencil, ChevronsUpDown, Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { cn } from "@/lib/utils";
@@ -92,14 +95,17 @@ function ReferrerCell({ patient }: { patient: PatientWithReferrer }) {
   return content;
 }
 
+function fileNumberValue(fileNumber: string): number | string {
+  const n = parseInt(fileNumber.replace(/\D/g, ""), 10);
+  return Number.isNaN(n) ? fileNumber : n;
+}
+
 export default function Patients() {
   const [, navigate] = useLocation();
   const [search, setSearch] = useState("");
   const [isOpen, setIsOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [patientToEdit, setPatientToEdit] = useState<any | null>(null);
-  const [sortBy, setSortBy] = useState<"fileNumber" | "name" | "createdAt">("createdAt");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [patientToDelete, setPatientToDelete] = useState<{ id: number; name: string } | null>(null);
   const { data: patientsList, isError, refetch } = useListPatients({ q: search, limit: 200 });
   const { data: allPatients } = useListPatients({ limit: 1000 });
@@ -232,30 +238,30 @@ export default function Patients() {
     } });
   }
 
-  function toggleSort(col: typeof sortBy) {
-    if (sortBy === col) setSortDir(d => d === "asc" ? "desc" : "asc");
-    else { setSortBy(col); setSortDir("asc"); }
-  }
+  const patientRows = patientsList?.data ?? [];
+  const listSort = useTableSort(patientRows, {
+    fileNumber: (p: Patient) => fileNumberValue(p.fileNumber),
+    name: (p: Patient) => p.name,
+    phone: (p: Patient) => p.phone,
+    referrer: (p: Patient) => (p.referrerType && p.referrerId ? p.referrerName : null),
+    balance: (p: Patient) => (p.accountBalance && p.accountBalance > 0 ? p.accountBalance : null),
+    createdAt: (p: Patient) => p.createdAt,
+  }, { key: "createdAt", dir: "desc" });
+  const sorted = listSort.sorted;
 
-  const sorted = useMemo(() => {
-    const list = [...(patientsList?.data ?? [])];
-    list.sort((a, b) => {
-      let av: string | number = sortBy === "fileNumber" ? a.fileNumber : sortBy === "name" ? a.name : a.createdAt;
-      let bv: string | number = sortBy === "fileNumber" ? b.fileNumber : sortBy === "name" ? b.name : b.createdAt;
-      if (sortBy === "fileNumber") {
-        const an = parseInt(String(av).replace(/\D/g, ""), 10) || 0;
-        const bn = parseInt(String(bv).replace(/\D/g, ""), 10) || 0;
-        return sortDir === "asc" ? an - bn : bn - an;
-      }
-      if (typeof av === "string") return sortDir === "asc" ? av.localeCompare(bv as string, "fa") : (bv as string).localeCompare(av, "fa");
-      return sortDir === "asc" ? (av as number) - (bv as number) : (bv as number) - (av as number);
-    });
-    return list;
-  }, [patientsList, sortBy, sortDir]);
-
-  const SortIcon = ({ col }: { col: typeof sortBy }) => (
-    <ArrowUpDown className={`h-3 w-3 mr-1 inline ${sortBy === col ? "text-primary" : "text-muted-foreground/50"}`} />
+  const filesByNumber = useMemo(
+    () => [...patientRows].sort((a, b) => (parseInt(a.fileNumber.replace(/\D/g, ""), 10) || 0) - (parseInt(b.fileNumber.replace(/\D/g, ""), 10) || 0)),
+    [patientRows],
   );
+  const filesSort = useTableSort(filesByNumber, {
+    fileNumber: (p: Patient) => fileNumberValue(p.fileNumber),
+    name: (p: Patient) => p.name,
+    phone: (p: Patient) => p.phone,
+    referrer: (p: Patient) => (p.referrerType && p.referrerId ? p.referrerName : null),
+    gender: (p: Patient) => (p.gender ? (p.gender === "female" ? "خانم" : p.gender === "male" ? "آقا" : p.gender) : null),
+    createdAt: (p: Patient) => p.createdAt,
+    notes: (p: Patient) => p.notes,
+  });
 
   return (
     <div className="space-y-6">
@@ -661,18 +667,12 @@ export default function Patients() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("fileNumber")}>
-                      <SortIcon col="fileNumber" />شماره پرونده
-                    </TableHead>
-                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("name")}>
-                      <SortIcon col="name" />نام مراجع
-                    </TableHead>
-                    <TableHead>شماره تماس</TableHead>
-                    <TableHead>معرف</TableHead>
-                    <TableHead>موجودی اکانت</TableHead>
-                    <TableHead className="cursor-pointer select-none" onClick={() => toggleSort("createdAt")}>
-                      <SortIcon col="createdAt" />تاریخ ثبت
-                    </TableHead>
+                    <SortableHead {...listSort.head("fileNumber")}>شماره پرونده</SortableHead>
+                    <SortableHead {...listSort.head("name")}>نام مراجع</SortableHead>
+                    <SortableHead {...listSort.head("phone")}>شماره تماس</SortableHead>
+                    <SortableHead {...listSort.head("referrer")}>معرف</SortableHead>
+                    <SortableHead {...listSort.head("balance")}>موجودی اکانت</SortableHead>
+                    <SortableHead {...listSort.head("createdAt")}>تاریخ ثبت</SortableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -756,25 +756,20 @@ export default function Patients() {
               <Table>
                 <TableHeader>
                   <TableRow className="bg-muted/30">
-                    <TableHead className="font-bold text-foreground">شماره پرونده</TableHead>
-                    <TableHead className="font-bold text-foreground">نام مراجع</TableHead>
-                    <TableHead className="font-bold text-foreground">تماس</TableHead>
-                    <TableHead className="font-bold text-foreground">معرف</TableHead>
-                    <TableHead className="font-bold text-foreground">جنسیت</TableHead>
-                    <TableHead className="font-bold text-foreground">تاریخ ثبت</TableHead>
-                    <TableHead className="font-bold text-foreground">هشدار</TableHead>
+                    <SortableHead {...filesSort.head("fileNumber")} className="font-bold text-foreground">شماره پرونده</SortableHead>
+                    <SortableHead {...filesSort.head("name")} className="font-bold text-foreground">نام مراجع</SortableHead>
+                    <SortableHead {...filesSort.head("phone")} className="font-bold text-foreground">تماس</SortableHead>
+                    <SortableHead {...filesSort.head("referrer")} className="font-bold text-foreground">معرف</SortableHead>
+                    <SortableHead {...filesSort.head("gender")} className="font-bold text-foreground">جنسیت</SortableHead>
+                    <SortableHead {...filesSort.head("createdAt")} className="font-bold text-foreground">تاریخ ثبت</SortableHead>
+                    <SortableHead {...filesSort.head("notes")} className="font-bold text-foreground">هشدار</SortableHead>
                     <TableHead className="font-bold text-foreground text-center">ویرایش</TableHead>
                     {isAdmin && <TableHead className="font-bold text-foreground text-center">حذف</TableHead>}
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {[...(patientsList?.data ?? [])]
-                    .sort((a, b) => {
-                      const an = parseInt(a.fileNumber.replace(/\D/g, ""), 10) || 0;
-                      const bn = parseInt(b.fileNumber.replace(/\D/g, ""), 10) || 0;
-                      return an - bn;
-                    })
+                  {filesSort.sorted
                     .map((patient) => (
                       <TableRow
                         key={patient.id}

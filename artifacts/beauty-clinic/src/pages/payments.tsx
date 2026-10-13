@@ -31,6 +31,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { useToast } from "@/hooks/use-toast";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -634,6 +636,16 @@ export default function Payments() {
   const todayStart = tehranDayStartSec();
   const totalToday = payments?.reduce((sum, p) => (p.paidAt >= todayStart ? sum + p.amount : sum), 0) ?? 0;
 
+  const paymentSort = useTableSort(payments, {
+    paidAt: (p) => p.paidAt,
+    patient: (p) => (p as any).patientName,
+    service: (p) => (p as any).serviceName,
+    amount: (p) => p.amount,
+    originalAmount: (p) => (p.originalAmount !== p.amount ? p.originalAmount : null),
+    method: (p) => methods[p.method] ?? p.method,
+    notes: (p) => p.notes,
+  });
+
   const activeDiscounts = discounts?.filter(d => d.isActive) ?? [];
 
   // نوبت‌های لغونشده‌ای که هنوز پرداخت تسویه ندارند یا مانده دارند (پرداخت قسطی)
@@ -1188,18 +1200,18 @@ export default function Payments() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>تاریخ</TableHead>
-                <TableHead>مراجع</TableHead>
-                <TableHead>خدمت</TableHead>
-                <TableHead>مبلغ دریافتی</TableHead>
-                <TableHead>مبلغ اصلی</TableHead>
-                <TableHead>روش</TableHead>
-                <TableHead>یادداشت</TableHead>
+                <SortableHead {...paymentSort.head("paidAt")}>تاریخ</SortableHead>
+                <SortableHead {...paymentSort.head("patient")}>مراجع</SortableHead>
+                <SortableHead {...paymentSort.head("service")}>خدمت</SortableHead>
+                <SortableHead {...paymentSort.head("amount")}>مبلغ دریافتی</SortableHead>
+                <SortableHead {...paymentSort.head("originalAmount")}>مبلغ اصلی</SortableHead>
+                <SortableHead {...paymentSort.head("method")}>روش</SortableHead>
+                <SortableHead {...paymentSort.head("notes")}>یادداشت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {payments?.map((p) => (
+              {paymentSort.sorted.map((p) => (
                 <TableRow
                   key={p.id}
                   onMouseEnter={() => prefetchPayment(p.id)}

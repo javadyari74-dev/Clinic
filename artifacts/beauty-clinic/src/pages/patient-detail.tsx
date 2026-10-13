@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -53,6 +53,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
 
@@ -262,6 +264,18 @@ export default function PatientDetail() {
     });
   }
 
+  const apptList = appointments?.data ?? [];
+  const nowMs = Date.now();
+  const upcoming = apptList.filter(a => toMs(a.scheduledAt) > nowMs);
+  const past = apptList.filter(a => toMs(a.scheduledAt) <= nowMs);
+  const apptSort = useTableSort([...upcoming, ...past], {
+    date: (a) => a.scheduledAt,
+    service: (a) => a.serviceName,
+    staff: (a) => a.staffName,
+    price: (a) => a.price ?? ((a.paidTotal ?? 0) > 0 ? a.paidTotal : null),
+    status: (a) => statuses[a.status]?.label ?? a.status,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
@@ -285,10 +299,6 @@ export default function PatientDetail() {
     );
   }
 
-  const apptList = appointments?.data ?? [];
-  const nowMs = Date.now();
-  const upcoming = apptList.filter(a => toMs(a.scheduledAt) > nowMs);
-  const past = apptList.filter(a => toMs(a.scheduledAt) <= nowMs);
   // مجموع پرداخت‌ها از پرداخت‌های واقعی (شامل بیعانه و اقساط)، نه قیمت نوبت‌های تکمیل‌شده
   const totalSpent = apptList.reduce((s, a) => s + (a.paidTotal ?? 0), 0);
   // بدهی: جمع ماندهٔ نوبت‌های لغونشده
@@ -694,11 +704,11 @@ export default function PatientDetail() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead>تاریخ</TableHead>
-                <TableHead>خدمت</TableHead>
-                <TableHead>پزشک</TableHead>
-                <TableHead>قیمت / پرداخت</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...apptSort.head("date")}>تاریخ</SortableHead>
+                <SortableHead {...apptSort.head("service")}>خدمت</SortableHead>
+                <SortableHead {...apptSort.head("staff")}>پزشک</SortableHead>
+                <SortableHead {...apptSort.head("price")}>قیمت / پرداخت</SortableHead>
+                <SortableHead {...apptSort.head("status")}>وضعیت</SortableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -707,56 +717,34 @@ export default function PatientDetail() {
                   <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">نوبتی ثبت نشده</TableCell>
                 </TableRow>
               )}
-              {upcoming.map((a) => (
-                <TableRow key={a.id} className="bg-blue-50/50">
-                  <TableCell className="font-medium text-sm">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
-                  <TableCell>{a.serviceName}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
-                        {statuses[a.status]?.label ?? a.status}
-                      </Badge>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-muted-foreground hover:text-primary"
-                        title="ثبت یادآوری"
-                        onClick={() => openReminderDialog(a.serviceName)}
-                        data-testid={`button-reminder-appt-${a.id}`}
-                      >
-                        <Bell className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {past.map((a) => (
-                <TableRow key={a.id}>
-                  <TableCell className="text-sm text-muted-foreground">{formatShamsiDate(a.scheduledAt, true)}</TableCell>
-                  <TableCell>{a.serviceName}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
-                  <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
-                        {statuses[a.status]?.label ?? a.status}
-                      </Badge>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 text-muted-foreground hover:text-primary"
-                        title="ثبت یادآوری"
-                        onClick={() => openReminderDialog(a.serviceName)}
-                        data-testid={`button-reminder-appt-${a.id}`}
-                      >
-                        <Bell className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {apptSort.sorted.map((a) => {
+                const isUpcoming = toMs(a.scheduledAt) > nowMs;
+                return (
+                  <TableRow key={a.id} className={isUpcoming ? "bg-blue-50/50" : undefined}>
+                    <TableCell className={isUpcoming ? "font-medium text-sm" : "text-sm text-muted-foreground"}>{formatShamsiDate(a.scheduledAt, true)}</TableCell>
+                    <TableCell>{a.serviceName}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{a.staffName || "—"}</TableCell>
+                    <TableCell className="text-sm"><ApptMoney a={a} /></TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
+                          {statuses[a.status]?.label ?? a.status}
+                        </Badge>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary"
+                          title="ثبت یادآوری"
+                          onClick={() => openReminderDialog(a.serviceName)}
+                          data-testid={`button-reminder-appt-${a.id}`}
+                        >
+                          <Bell className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </CardContent>

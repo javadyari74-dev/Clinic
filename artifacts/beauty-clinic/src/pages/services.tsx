@@ -23,6 +23,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -365,6 +367,17 @@ export default function Services() {
     });
   }, [services, searchTerm, activeCategory]);
 
+  const serviceSort = useTableSort(filteredServices, {
+    name: (s) => s.name,
+    category: (s) => s.category,
+    duration: (s) => s.durationMinutes ?? 0,
+    price: (s) => profitOf(s).price,
+    cost: (s) => { const { cost } = profitOf(s); return cost > 0 ? cost : null; },
+    profit: (s) => { const { cost, profit } = profitOf(s); return cost > 0 ? profit : null; },
+    margin: (s) => { const { cost, margin } = profitOf(s); return cost > 0 ? margin : null; },
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+  });
+
   const createService = useCreateService({
     mutation: {
       onSuccess: () => {
@@ -596,19 +609,19 @@ export default function Services() {
           <Table>
             <TableHeader>
               <TableRow className="h-9">
-                <TableHead className="py-2">نام خدمت</TableHead>
-                <TableHead className="py-2">دسته‌بندی</TableHead>
-                <TableHead className="py-2">مدت</TableHead>
-                <TableHead className="py-2">قیمت</TableHead>
-                {showFinancials && <TableHead className="py-2">هزینه کل</TableHead>}
-                {showFinancials && <TableHead className="py-2">سود هر نوبت</TableHead>}
-                {showFinancials && <TableHead className="py-2">حاشیه</TableHead>}
-                <TableHead className="py-2">وضعیت</TableHead>
+                <SortableHead {...serviceSort.head("name")}>نام خدمت</SortableHead>
+                <SortableHead {...serviceSort.head("category")}>دسته‌بندی</SortableHead>
+                <SortableHead {...serviceSort.head("duration")}>مدت</SortableHead>
+                <SortableHead {...serviceSort.head("price")}>قیمت</SortableHead>
+                {showFinancials && <SortableHead {...serviceSort.head("cost")}>هزینه کل</SortableHead>}
+                {showFinancials && <SortableHead {...serviceSort.head("profit")}>سود هر نوبت</SortableHead>}
+                {showFinancials && <SortableHead {...serviceSort.head("margin")}>حاشیه</SortableHead>}
+                <SortableHead {...serviceSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="py-2 text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredServices.map((s) => {
+              {serviceSort.sorted.map((s) => {
                 const { price: effPrice, cost, profit, margin } = profitOf(s);
                 const hasCost = cost > 0;
                 const isPerUnit = [s.priceMode, s.doctorFeeMode, s.materialCostMode, s.otherCostMode].includes("per_unit");
