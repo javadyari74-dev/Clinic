@@ -26,6 +26,7 @@ import {
   Gift,
   ShoppingCart,
   ChevronDown,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatShamsiDate } from "@/lib/format";
@@ -142,13 +143,13 @@ export function Layout({ children }: { children: ReactNode }) {
       >
         <div
           className={cn(
-            "flex items-center gap-3 px-3 py-2 rounded-md transition-all duration-200 cursor-pointer",
+            "flex items-center gap-3 px-4 py-2 rounded-full transition-all duration-200 cursor-pointer",
             isActive
-              ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-sm font-medium"
-              : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+              ? "bg-white text-sidebar shadow-[0_6px_18px_-6px_rgba(0,0,0,0.35)] font-bold"
+              : "text-sidebar-foreground/80 hover:bg-white/10 hover:text-sidebar-foreground"
           )}
         >
-          <Icon className="h-5 w-5" />
+          <Icon className={cn("h-5 w-5", isActive && "text-sidebar-primary")} />
           <span className="text-sm">{item.label}</span>
         </div>
       </Link>
@@ -158,7 +159,12 @@ export function Layout({ children }: { children: ReactNode }) {
   const SidebarContent = () => (
     <div className="flex flex-col h-full bg-sidebar text-sidebar-foreground">
       <div className="px-6 pt-6 pb-3">
-        <h1 className="text-xl font-bold text-sidebar-primary-foreground tracking-tight">مطب زیبایی دکتر یاری</h1>
+        <h1 className="flex items-center gap-2.5 text-lg font-extrabold text-sidebar-primary-foreground tracking-tight">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-sidebar-primary shadow-[0_6px_16px_-6px_rgba(0,0,0,0.4)]">
+            <Sparkles className="h-4 w-4" />
+          </span>
+          مطب زیبایی دکتر یاری
+        </h1>
       </div>
       <nav className="flex-1 overflow-y-auto py-2 px-3 space-y-1">
         {dailyItems.map(renderItem)}
@@ -175,7 +181,7 @@ export function Layout({ children }: { children: ReactNode }) {
                 onClick={() => toggleGroup(g.key, !open)}
                 disabled={hasActive}
                 aria-expanded={open}
-                className="w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold text-sidebar-foreground/60 hover:text-sidebar-foreground disabled:cursor-default disabled:hover:text-sidebar-foreground/60"
+                className="w-full flex items-center justify-between px-4 py-1.5 text-xs font-semibold text-sidebar-foreground/60 hover:text-sidebar-foreground disabled:cursor-default disabled:hover:text-sidebar-foreground/60"
               >
                 <span>{g.label}</span>
                 {!hasActive && (
@@ -187,8 +193,8 @@ export function Layout({ children }: { children: ReactNode }) {
           );
         })}
       </nav>
-      <div className="p-4 border-t border-sidebar-border space-y-2">
-        <div className="flex items-center gap-3 px-3 py-2">
+      <div className="p-4 space-y-2">
+        <div className="flex items-center gap-3 px-3 py-2 rounded-full bg-black/20">
           <div className="w-8 h-8 rounded-full bg-sidebar-primary flex items-center justify-center text-sidebar-primary-foreground font-bold flex-shrink-0">
             {user?.role === "admin" ? <ShieldCheck className="h-4 w-4" /> : user?.role === "laser_operator" ? <Zap className="h-4 w-4" /> : <UserCircle className="h-4 w-4" />}
           </div>
@@ -217,7 +223,7 @@ export function Layout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background w-full" dir="rtl">
-      <aside className="hidden md:block w-64 flex-shrink-0 border-l border-border z-10 shadow-sm">
+      <aside className="hidden md:block w-64 flex-shrink-0 z-10 shadow-[0_0_40px_-12px_rgba(127,29,29,0.45)]">
         <SidebarContent />
       </aside>
 
@@ -228,7 +234,7 @@ export function Layout({ children }: { children: ReactNode }) {
       </Sheet>
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        <header className="flex items-center gap-3 h-14 px-4 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
+        <header className="flex items-center gap-3 h-14 px-4 md:px-8 bg-background/80 backdrop-blur-sm sticky top-0 z-20">
           <Button variant="ghost" size="icon" className="md:hidden flex-shrink-0" onClick={() => setIsMobileOpen(true)}>
             <Menu className="h-5 w-5" />
           </Button>
