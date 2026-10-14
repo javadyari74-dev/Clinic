@@ -482,12 +482,9 @@ export default function Payments() {
   const deletePayment = useDeletePayment({
     mutation: {
       onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getListPaymentsQueryKey() });
-        // حذف پرداخت وضعیت نوبت، کمیسیون‌ها، کیف پول و یادآوری را هم برمی‌گرداند
-        queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListPatientsQueryKey() });
+        // حذف پرداخت درآمد، وضعیت نوبت، کمیسیون‌ها، کیف پول، باشگاه، حسابداری و داشبورد را تغییر
+        // می‌دهد؛ همهٔ داده‌ها دوباره خوانده می‌شوند تا هیچ عددی از حافظه نماند
+        queryClient.invalidateQueries();
         toast({ title: "پرداخت حذف شد" });
       },
       // پیام خطای سرور (مثلاً «پورسانت این پرداخت تسویه شده است…») نمایش داده می‌شود
@@ -638,7 +635,32 @@ export default function Payments() {
   const todayStart = tehranDayStartSec();
   const totalToday = payments?.reduce((sum, p) => (p.paidAt >= todayStart ? sum + p.amount : sum), 0) ?? 0;
 
-  const paymentSort = useTableSort(payments, {
+  // پرداخت احتمالاً تکراری: همان مراجع + همان خدمت + همان مبلغ در فاصلهٔ ۷ روز
+  // (مثلاً پرداختی که حذف نشده و دوباره ثبت شده)
+  const [onlyDuplicates, setOnlyDuplicates] = useState(false);
+  const duplicateIds = useMemo(() => {
+    const ids = new Set<number>();
+    const groups = new Map<string, NonNullable<typeof payments>>();
+    for (const p of payments ?? []) {
+      const name = (p as any).patientName as string | null | undefined;
+      if (!name || !(p.amount > 0)) continue;
+      const key = `${name}|${(p as any).serviceName ?? ""}|${p.amount}`;
+      groups.set(key, [...(groups.get(key) ?? []), p]);
+    }
+    for (const list of groups.values()) {
+      const sorted = [...list].sort((a, b) => a.paidAt - b.paidAt);
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].paidAt - sorted[i - 1].paidAt <= 7 * 86400) { ids.add(sorted[i].id); ids.add(sorted[i - 1].id); }
+      }
+    }
+    return ids;
+  }, [payments]);
+  const visiblePayments = useMemo(
+    () => (onlyDuplicates ? (payments ?? []).filter((p) => duplicateIds.has(p.id)) : payments),
+    [payments, onlyDuplicates, duplicateIds],
+  );
+
+  const paymentSort = useTableSort(visiblePayments, {
     paidAt: (p) => p.paidAt,
     patient: (p) => (p as any).patientName,
     service: (p) => (p as any).serviceName,
@@ -1182,6 +1204,17 @@ export default function Payments() {
       {/* ─── Payments Table ──────────────────────────────────────────── */}
       <Card>
         <CardContent className="pt-4">
+          {duplicateIds.size > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="duplicate-payments-notice">
+              <span>
+                {toPersianDigits(duplicateIds.size)} پرداخت احتمالاً تکراری است (همان مراجع، خدمت و مبلغ در کمتر از ۷ روز).
+                اگر تکراری‌اند، اضافه را حذف کنید تا از دریافتی کم شود.
+              </span>
+              <Button size="sm" variant={onlyDuplicates ? "default" : "outline"} onClick={() => setOnlyDuplicates((v) => !v)}>
+                {onlyDuplicates ? "نمایش همهٔ پرداخت‌ها" : "فقط موارد تکراری"}
+              </Button>
+            </div>
+          )}
           <Table>
             <TableHeader>
               <TableRow>
@@ -1203,7 +1236,14 @@ export default function Payments() {
                   onFocus={() => prefetchPayment(p.id)}
                 >
                   <TableCell>{formatShamsiDate(p.paidAt, true)}</TableCell>
-                  <TableCell className="text-sm">{(p as any).patientName || "—"}</TableCell>
+                  <TableCell className="text-sm">
+                    {(p as any).patientName || "—"}
+                    {duplicateIds.has(p.id) && (
+                      <Badge variant="outline" className="mr-1 border-amber-400 bg-amber-50 text-amber-800 text-[10px]" title="همین مراجع، همین خدمت و همین مبلغ در کمتر از ۷ روز دوباره ثبت شده است">
+                        احتمالاً تکراری
+                      </Badge>
+                    )}
+                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-[160px] truncate">
                     {(p as any).serviceName || "—"}
                     {(p as any).sessionNumber ? ` (جلسه ${toPersianDigits((p as any).sessionNumber)})` : ""}
