@@ -27,7 +27,10 @@ import {
   ShoppingCart,
   ChevronDown,
   Sparkles,
+  History,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { customFetch } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { formatShamsiDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -89,6 +92,7 @@ export const navItems: NavItem[] = [
   { href: "/backup", label: "پشتیبان‌گیری", icon: Database, group: "admin", permission: "backup" },
   { href: "/users", label: "مدیریت کاربران", icon: UserCog, group: "admin", adminOnly: true },
   { href: "/client-errors", label: "گزارش‌های خطا", icon: Bug, group: "admin", adminOnly: true },
+  { href: "/activity-log", label: "تاریخچهٔ تغییرات", icon: History, group: "admin", adminOnly: true },
 ];
 
 const NAV_OPEN_KEY = "clinic_nav_open_groups";
@@ -105,6 +109,44 @@ function loadOpenGroups(): Record<string, boolean> {
   } catch {
     return {};
   }
+}
+
+interface LastBackup { lastBackupAt: number | null; ok: boolean }
+
+/** «۲۳ مهر ساعت ۱۰:۱۲» */
+export function formatBackupTime(sec: number): string {
+  const d = new Date(sec * 1000);
+  const day = new Intl.DateTimeFormat("fa-IR", { calendar: "persian", month: "long", day: "numeric" }).format(d);
+  const time = new Intl.DateTimeFormat("fa-IR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+  return `${day} ساعت ${time}`;
+}
+
+// زمان آخرین بکاپ — فقط برای مدیر یا دارندهٔ دسترسی پشتیبان‌گیری (همان قاعدهٔ سرور)
+function LastBackupLine({ enabled }: { enabled: boolean }) {
+  const { data } = useQuery({
+    queryKey: ["/api/backup/last"],
+    queryFn: () => customFetch<LastBackup>("/api/backup/last"),
+    enabled,
+    staleTime: 10 * 60_000,
+    refetchInterval: 10 * 60_000,
+    retry: false,
+  });
+  if (!enabled || !data) return null;
+  if (!data.ok || data.lastBackupAt == null) {
+    return (
+      <div
+        className="px-3 text-[11px] font-medium text-amber-400"
+        title={data.lastBackupAt ? `آخرین پشتیبان: ${formatBackupTime(data.lastBackupAt)}` : undefined}
+      >
+        {data.lastBackupAt ? `آخرین پشتیبان: ${formatBackupTime(data.lastBackupAt)} (قدیمی)` : "پشتیبان گرفته نشده"}
+      </div>
+    );
+  }
+  return (
+    <div className="px-3 text-[11px] text-sidebar-foreground/50" title="آخرین پشتیبان خودکار">
+      آخرین پشتیبان: {formatBackupTime(data.lastBackupAt)}
+    </div>
+  );
 }
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -217,6 +259,7 @@ export function Layout({ children }: { children: ReactNode }) {
         <div className="px-3 text-[11px] text-sidebar-foreground/50" title="تاریخ ساخت این نسخهٔ برنامه">
           نسخهٔ {formatShamsiDate(typeof __BUILD_TIME__ === "number" ? __BUILD_TIME__ : 0, true)}
         </div>
+        <LastBackupLine enabled={Boolean(user) && (user?.role === "admin" || hasPermission("backup"))} />
       </div>
     </div>
   );

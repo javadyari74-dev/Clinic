@@ -57,7 +57,7 @@ const KEEP_ALL_RECENT = 20;
 const BACKUP_DIR_KEY = "backup_dir";
 // پوشهٔ نسخهٔ دوم (مثلاً فلش یا پوشهٔ همگام‌شده با Google Drive)؛ خالی = غیرفعال
 export const BACKUP_MIRROR_DIR_KEY = "backup_mirror_dir";
-const LAST_AUTO_BACKUP_KEY = "last_auto_backup_at";
+export const LAST_AUTO_BACKUP_KEY = "last_auto_backup_at";
 
 // کلیدهای app_settings که مختص همین دستگاه‌اند (مسیر پوشه‌ها، زمان آخرین اجرا،
 // نشانهٔ اصلاح‌های یک‌بارهٔ داده) و نباید در پشتیبان بیایند یا با بازیابی/ادغام

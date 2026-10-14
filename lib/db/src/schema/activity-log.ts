@@ -10,9 +10,11 @@ export const activityLogTable = sqliteTable("activity_log", {
   entityType: text("entity_type").notNull(),
   entityId: integer("entity_id"),
   description: text("description").notNull(),
+  // کاربری که تغییر را انجام داده (رکوردهای قدیمی‌تر: null)
+  username: text("username"),
   createdAt: integer("created_at").notNull().$defaultFn(() => Math.floor(Date.now() / 1000)),
 });
 
-export const insertActivityLogSchema = createInsertSchema(activityLogTable).omit({ id: true, uuid: true, createdAt: true });
+export const insertActivityLogSchema = createInsertSchema(activityLogTable).omit({ id: true, uuid: true, createdAt: true, username: true });
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 export type ActivityLog = typeof activityLogTable.$inferSelect;

@@ -48,6 +48,7 @@ import {
   MergeError,
   buildBackupData,
   BACKUP_MIRROR_DIR_KEY,
+  LAST_AUTO_BACKUP_KEY,
   coerceDateColumns,
   isDeviceLocalSettingKey,
 } from "../lib/backup-service";
@@ -309,6 +310,16 @@ router.put("/backup/settings", requireAdmin, async (req, res): Promise<void> => 
     isDefault: false,
     message: "مسیر ذخیره بکاپ با موفقیت ذخیره شد",
   });
+});
+
+// GET /api/backup/last — زمان آخرین بکاپ موفق (خودکار/روزانه/دستیِ «همین الان»)
+// برای نشانگر پایین منوی کناری. ok=false یعنی بکاپی نیست یا از ۲ روز قدیمی‌تر است.
+const BACKUP_STALE_SEC = 2 * 86_400;
+router.get("/backup/last", async (_req, res): Promise<void> => {
+  const ms = Number(await getSetting(LAST_AUTO_BACKUP_KEY)) || 0;
+  const lastBackupAt = ms > 0 ? Math.floor(ms / 1000) : null;
+  const ok = lastBackupAt != null && Math.floor(Date.now() / 1000) - lastBackupAt <= BACKUP_STALE_SEC;
+  res.json({ lastBackupAt, ok });
 });
 
 // GET /api/backup/logs — گزارش بکاپ‌های خودکار

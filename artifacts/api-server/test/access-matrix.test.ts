@@ -118,6 +118,7 @@ const LOOKUP: Perm[] = ["patients", "appointments", "payments", "reminders", "sm
 const MATRIX: Array<[() => string, Perm[]]> = [
   [() => "/dashboard/summary", ["dashboard"]],
   [() => "/activity", ["dashboard"]],
+  [() => "/activity/log", []],
   [() => "/dashboard/revenue-chart", ["dashboard", "reports"]],
   [() => "/patients", LOOKUP],
   [() => `/patients/${P}`, LOOKUP],
@@ -146,6 +147,7 @@ const MATRIX: Array<[() => string, Perm[]]> = [
   [() => "/reports/summary", ["reports"]],
   [() => "/backup/settings", ["backup"]],
   [() => "/backup/logs", ["backup"]],
+  [() => "/backup/last", ["backup"]],
   [() => "/backup/download", []],
   [() => "/users", []],
 ];

@@ -1,5 +1,6 @@
 import { Router, type IRouter, type RequestHandler } from "express";
 import { requireAuth, requireAdmin, requirePermission } from "../lib/auth";
+import { runWithActor } from "../lib/activity";
 import healthRouter from "./health";
 import authRouter from "./auth";
 import clientErrorsRouter from "./client-errors";
@@ -36,6 +37,10 @@ router.use(clientErrorsRouter);
 router.use(internalBackupRouter);
 
 router.use(requireAuth);
+
+// کاربر واردشده برای ادامهٔ درخواست در AsyncLocalStorage نگه داشته می‌شود تا
+// logActivity «چه کسی» را در تاریخچهٔ تغییرات ثبت کند.
+router.use((req, _res, next) => runWithActor(req.jwtUser?.username, next));
 
 // کنترل دسترسی سمت سرور برای همهٔ بخش‌ها. محدودیت منوی فرانت‌اند به‌تنهایی
 // کافی نیست چون هر کاربر واردشده می‌تواند مستقیم API را صدا بزند.
@@ -75,6 +80,8 @@ export const routeAccessRules: Rule[] = [
   // نمودار درآمد در داشبورد و صفحهٔ گزارشات
   { pattern: "/dashboard/revenue-chart", check: any("dashboard", "reports") },
   { pattern: "/dashboard", check: any("dashboard") },
+  // تاریخچهٔ کامل تغییرات (با نام کاربران) فقط برای مدیر
+  { pattern: "/activity/log", check: requireAdmin },
   { pattern: "/activity", check: any("dashboard") },
 
   { pattern: "/sms", check: any("sms") },

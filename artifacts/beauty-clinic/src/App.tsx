@@ -39,6 +39,7 @@ const Accounting = lazy(pageLoaders.accounting);
 const Users = lazy(pageLoaders.users);
 const Laser = lazy(pageLoaders.laser);
 const ClientErrors = lazy(pageLoaders.clientErrors);
+const ActivityLog = lazy(pageLoaders.activityLog);
 
 function PageFallback() {
   return (
@@ -253,6 +254,11 @@ function Router() {
             <Route path="/client-errors">
               <Protected adminOnly>
                 <ClientErrors />
+              </Protected>
+            </Route>
+            <Route path="/activity-log">
+              <Protected adminOnly>
+                <ActivityLog />
               </Protected>
             </Route>
             <Route component={NotFound} />

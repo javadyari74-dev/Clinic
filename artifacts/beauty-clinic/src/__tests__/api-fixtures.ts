@@ -293,6 +293,16 @@ const activity = [
   },
 ];
 
+const activityLogPage = {
+  items: [{ ...activity[0], username: "admin" }],
+  total: 1,
+  hasMore: false,
+  entityTypes: ["patient"],
+  actions: ["create"],
+};
+const emptyActivityLogPage = { items: [], total: 0, hasMore: false, entityTypes: [], actions: [] };
+const lastBackup = { lastBackupAt: NOW - 3600, ok: true };
+
 const dashboardSummary = {
   totalPatients: 2,
   appointmentsToday: 1,
@@ -521,6 +531,8 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/dashboard\/summary$/, () => dashboardSummary, emptyObj],
   [/\/api\/dashboard\/revenue-chart$/, () => revenueChart, emptyArr],
   [/\/api\/activity$/, () => activity, emptyArr],
+  [/\/api\/activity\/log$/, () => activityLogPage, () => emptyActivityLogPage],
+  [/\/api\/backup\/last$/, () => lastBackup, () => ({ lastBackupAt: null, ok: false })],
   [/\/api\/reports\/summary$/, () => reportsSummary, emptyObj],
   [/\/api\/accounting\/summary$/, () => accountingSummary, emptyObj],
   [/\/api\/accounting\/debts$/, () => accountingDebts, emptyObj],
