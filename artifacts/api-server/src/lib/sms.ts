@@ -562,7 +562,7 @@ export function fireAppointmentSms(args: {
   })();
 }
 
-export function firePaymentSms(args: {
+export interface PaymentSmsArgs {
   patientId?: number | null;
   patientName: string | null;
   phone: string | null;
@@ -570,49 +570,60 @@ export function firePaymentSms(args: {
   serviceName?: string | null;
   /** اگر باشگاه فعال و مراجع عضو است: اعتبار سودِ این پرداخت و موجودی کیف پول (تومان) و سطح */
   loyalty?: { earned: number; balance: number; tierLabel: string } | null;
-}): void {
+}
+
+/**
+ * ساخت و ارسال پیامک پرداخت (همان متن/پترن پیامک ثبت پرداخت) و برگرداندن نتیجه.
+ * روشن‌بودن پیامک پرداخت این‌جا بررسی نمی‌شود (فراخوان بررسی می‌کند).
+ */
+export async function sendPaymentSms(args: PaymentSmsArgs, settingsArg?: SmsSettings): Promise<SendSmsResult> {
+  const settings = settingsArg ?? (await getSmsSettings());
+  const templates = await getSmsTemplates();
+  const name = args.patientName ?? "";
+  const amount = formatToman(args.amount);
+  const service = args.serviceName || "خدمات";
+  const loyalty = args.loyalty ?? null;
+  const points = loyalty ? formatToman(loyalty.earned) : "";
+  const balance = loyalty ? formatToman(loyalty.balance) : "";
+  const text = renderTemplate(templates.payment, {
+    "نام": name,
+    "مبلغ": amount,
+    "خدمت": service,
+    "اعتبار": points,
+    "امتیاز": points,
+    "موجودی": balance,
+    "سطح": loyalty?.tierLabel ?? "",
+    "باشگاه": !loyalty
+      ? ""
+      : loyalty.earned > 0
+        ? ` ${points} تومان اعتبار هدیه از سود این خدمت به کیف پول شما اضافه شد؛ موجودی کیف پول: ${balance} تومان.`
+        : ` موجودی کیف پول شما: ${balance} تومان.`,
+  });
+  // پترن پرداختِ همراه با امتیاز فقط وقتی کدش تنظیم شده؛ وگرنه همان پترن پرداخت عادی
+  const usePaymentLoyaltyPattern = !!loyalty && settings.bodyIdPaymentLoyalty !== "";
+  return sendSms({
+    to: args.phone ?? "",
+    text,
+    eventType: "payment",
+    recipientName: args.patientName,
+    patientId: args.patientId ?? null,
+    // ترتیب متغیرها: PATTERN_VAR_ORDER.payment (+ امتیاز و موجودی در پترن باشگاهی)
+    pattern:
+      settings.sendMode === "pattern"
+        ? usePaymentLoyaltyPattern
+          ? { bodyId: settings.bodyIdPaymentLoyalty, args: [name, amount, service, points, balance] }
+          : { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
+        : undefined,
+  });
+}
+
+export function firePaymentSms(args: PaymentSmsArgs): void {
   void (async () => {
     try {
       const settings = await getSmsSettings();
       if (!settings.enabledPayment) return;
       if (args.amount <= 0) return;
-      const templates = await getSmsTemplates();
-      const name = args.patientName ?? "";
-      const amount = formatToman(args.amount);
-      const service = args.serviceName || "خدمات";
-      const loyalty = args.loyalty ?? null;
-      const points = loyalty ? formatToman(loyalty.earned) : "";
-      const balance = loyalty ? formatToman(loyalty.balance) : "";
-      const text = renderTemplate(templates.payment, {
-        "نام": name,
-        "مبلغ": amount,
-        "خدمت": service,
-        "اعتبار": points,
-        "امتیاز": points,
-        "موجودی": balance,
-        "سطح": loyalty?.tierLabel ?? "",
-        "باشگاه": !loyalty
-          ? ""
-          : loyalty.earned > 0
-            ? ` ${points} تومان اعتبار هدیه از سود این خدمت به کیف پول شما اضافه شد؛ موجودی کیف پول: ${balance} تومان.`
-            : ` موجودی کیف پول شما: ${balance} تومان.`,
-      });
-      // پترن پرداختِ همراه با امتیاز فقط وقتی کدش تنظیم شده؛ وگرنه همان پترن پرداخت عادی
-      const usePaymentLoyaltyPattern = !!loyalty && settings.bodyIdPaymentLoyalty !== "";
-      await sendSms({
-        to: args.phone ?? "",
-        text,
-        eventType: "payment",
-        recipientName: args.patientName,
-        patientId: args.patientId ?? null,
-        // ترتیب متغیرها: PATTERN_VAR_ORDER.payment (+ امتیاز و موجودی در پترن باشگاهی)
-        pattern:
-          settings.sendMode === "pattern"
-            ? usePaymentLoyaltyPattern
-              ? { bodyId: settings.bodyIdPaymentLoyalty, args: [name, amount, service, points, balance] }
-              : { bodyId: settings.bodyIdPayment, args: [name, amount, service] }
-            : undefined,
-      });
+      await sendPaymentSms(args, settings);
     } catch (err) {
       logger.warn({ err }, "firePaymentSms failed");
     }

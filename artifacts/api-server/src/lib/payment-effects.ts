@@ -253,7 +253,13 @@ async function linkedCommissionConditions(tx: Tx, payment: PaymentRow) {
 export async function reversePaymentEffects(
   tx: Tx,
   payment: PaymentRow,
-  opts: { ignoreWalletOf?: number; skipCashbackReconcile?: boolean; skipAppointmentRecompute?: boolean } = {},
+  opts: {
+    ignoreWalletOf?: number;
+    skipCashbackReconcile?: boolean;
+    skipAppointmentRecompute?: boolean;
+    /** ویرایش پرداخت: منفی‌شدن کیف پول پس از ساخت دوبارهٔ پرداخت بررسی می‌شود، نه این‌جا */
+    skipWalletCheck?: boolean;
+  } = {},
 ): Promise<void> {
   // ۱) کمیسیون‌ها
   const commConds = await linkedCommissionConditions(tx, payment);
@@ -274,7 +280,7 @@ export async function reversePaymentEffects(
   }
   // اگر اعتبارِ داده‌شده از این پرداخت قبلاً خرج شده باشد، کیف پول منفی می‌شود → لغو
   for (const pid of new Set(linkedTxns.filter((t) => t.amount > 0).map((t) => t.patientId))) {
-    if (pid === opts.ignoreWalletOf) continue;
+    if (opts.skipWalletCheck || pid === opts.ignoreWalletOf) continue;
     const p = await tx.select({ balance: patientsTable.accountBalance }).from(patientsTable).where(eq(patientsTable.id, pid)).get();
     if (p && p.balance < 0) throw new PaymentEffectError(PAYMENT_EFFECT_MESSAGES.walletNegative);
   }

@@ -1,6 +1,6 @@
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   useListPayments, useCreatePayment, useDeletePayment, getListPaymentsQueryKey,
   useListAppointments, getListAppointmentsQueryKey,
@@ -12,8 +12,9 @@ import {
   getGetPaymentQueryOptions,
   useGetPatientLoyalty, getGetPatientLoyaltyQueryKey,
   getListPatientAppointmentsQueryKey,
+  useCreateAppointment, customFetch, type Payment,
 } from "@workspace/api-client-react";
-import { onApiError } from "@/lib/api-error";
+import { onApiError, toastApiError } from "@/lib/api-error";
 import { LoyaltyTierBadge } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,7 +29,17 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits, gregorianDateToUnix } from "@/lib/format";
-import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Award } from "lucide-react";
+import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Award, Pencil, Printer, MessageSquare, Search, FileSpreadsheet } from "lucide-react";
+import { useLocation, useSearch } from "wouter";
+import { PersianDateRangePicker } from "@/components/persian-date-range-picker";
+import { presetRange, formatRangeLabel } from "@/lib/shamsi-range";
+import type { DateRange } from "@/hooks/use-accounting";
+import { exportCsv, csvDate } from "@/lib/export-csv";
+import { PaymentEditDialog } from "@/components/payment-edit-dialog";
+import {
+  PaymentNextAppointment, EMPTY_NEXT_APPOINTMENT, nextAppointmentMs, tehranHHMM,
+  type NextAppointmentValue,
+} from "@/components/payment-next-appointment";
 import { useAuth } from "@/hooks/use-auth";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -40,6 +51,20 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+
+// فیلتر تاریخ صندوق
+type DatePreset = "all" | "today" | "week" | "month" | "custom";
+const DATE_PRESETS: { key: Exclude<DatePreset, "custom">; label: string }[] = [
+  { key: "today", label: "امروز" },
+  { key: "week", label: "این هفته" },
+  { key: "month", label: "این ماه" },
+  { key: "all", label: "همه" },
+];
+
+/** یکسان‌سازی حروف عربی/فارسی و بزرگی/کوچکی برای جست‌وجو */
+function normalizeSearch(s: string): string {
+  return s.trim().toLowerCase().replace(/ي/g, "ی").replace(/ك/g, "ک").replace(/\u200c/g, " ");
+}
 
 const methods: Record<string, string> = {
   cash: "نقد",
@@ -109,8 +134,41 @@ function receiptFromPayment(p: {
 }
 
 // ─── Receipt Dialog ────────────────────────────────────────────────────────────
+// چاپ رسید: فقط بخش رسید چاپ می‌شود (بقیهٔ صفحه و پنجره در چاپ پنهان است)
+const RECEIPT_PRINT_STYLE = `
+@media print {
+  body * { visibility: hidden !important; }
+  #payment-receipt-print, #payment-receipt-print * { visibility: visible !important; }
+  #payment-receipt-print {
+    position: fixed !important; top: 0; right: 0; left: 0;
+    margin: 0 auto; width: 80mm; max-width: 100%; padding: 4mm;
+    background: #fff !important; color: #000 !important;
+  }
+  @page { margin: 6mm; }
+}
+`;
+
+async function sendReceiptSms(paymentId: number): Promise<void> {
+  await customFetch<{ ok: boolean }>(`/api/payments/${paymentId}/send-receipt`, { method: "POST" });
+}
+
 function ReceiptDialog({ receipt, open, onClose }: { receipt: ReceiptData | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [sending, setSending] = useState(false);
   if (!receipt) return null;
+
+  async function sendSms() {
+    if (!receipt) return;
+    setSending(true);
+    try {
+      await sendReceiptSms(receipt.paymentId);
+      toast({ title: "پیامک رسید ارسال شد" });
+    } catch (err) {
+      toastApiError(err, "ارسال پیامک رسید ناموفق بود");
+    } finally {
+      setSending(false);
+    }
+  }
 
   const discountRow = receipt.discountAmount && receipt.discountAmount > 0;
   const depositRow  = receipt.depositAmount  && receipt.depositAmount  > 0;
@@ -122,7 +180,8 @@ function ReceiptDialog({ receipt, open, onClose }: { receipt: ReceiptData | null
           <DialogTitle className="text-center text-lg">رسید پرداخت</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 font-vazirmatn" dir="rtl">
+        <style>{RECEIPT_PRINT_STYLE}</style>
+        <div id="payment-receipt-print" className="space-y-4 font-vazirmatn" dir="rtl">
           {/* Header */}
           <div className="text-center border-b pb-3">
             <div className="font-bold text-base text-rose-800">مطب زیبایی دکتر یاری</div>
@@ -219,8 +278,16 @@ function ReceiptDialog({ receipt, open, onClose }: { receipt: ReceiptData | null
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="w-full">بستن</Button>
+        <DialogFooter className="flex-row gap-2 sm:justify-between print:hidden">
+          <Button variant="outline" className="flex-1 gap-1" onClick={() => window.print()}>
+            <Printer className="h-4 w-4" />
+            چاپ
+          </Button>
+          <Button variant="outline" className="flex-1 gap-1" onClick={sendSms} disabled={sending}>
+            <MessageSquare className="h-4 w-4" />
+            {sending ? "در حال ارسال..." : "ارسال پیامک رسید"}
+          </Button>
+          <Button variant="secondary" onClick={onClose} className="flex-1">بستن</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -292,6 +359,14 @@ export default function Payments() {
   const [svcReminderType, setSvcReminderType] = useState<"followup" | "payment">("followup");
   const [svcReminderDate, setSvcReminderDate] = useState("");
 
+  // نوبت بعدی (اختیاری): پس از ثبت موفق پرداخت ساخته می‌شود
+  const [nextAppt, setNextAppt] = useState<NextAppointmentValue>(EMPTY_NEXT_APPOINTMENT);
+  const pendingNextApptRef = useRef<{ patientId: number; serviceId: number; staffId?: number; scheduledAt: number } | null>(null);
+  const createAppointment = useCreateAppointment();
+
+  // ویرایش پرداخت (فقط مدیر)
+  const [editTarget, setEditTarget] = useState<Payment | null>(null);
+
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: { amount: 0, originalAmount: 0, method: "cash", unitsUsed: 1 },
@@ -351,6 +426,11 @@ export default function Payments() {
     } else {
       form.setValue("notes", "");
     }
+  }, [selectedAppt]);
+
+  // ساعت پیش‌فرض نوبت بعدی = ساعت همین نوبت (به وقت تهران)
+  useEffect(() => {
+    setNextAppt((v) => ({ ...v, time: selectedAppt ? tehranHHMM(selectedAppt.scheduledAt) : "" }));
   }, [selectedAppt]);
 
   // با تغییر واحد مصرفی، مبلغ اصلی خدمات per_unit بازمحاسبه می‌شود
@@ -460,8 +540,22 @@ export default function Payments() {
         setActiveReceipt(receipt);
         setReceiptOpen(true);
         toast({ title: "پرداخت با موفقیت ثبت شد" });
+
+        // نوبت بعدی: خطای آن ثبت پرداخت را مختل نمی‌کند
+        const plan = pendingNextApptRef.current;
+        pendingNextApptRef.current = null;
+        if (plan) {
+          createAppointment.mutateAsync({ data: plan })
+            .then(() => {
+              queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+              queryClient.invalidateQueries({ queryKey: getListPatientAppointmentsQueryKey(plan.patientId) });
+              toast({ title: "نوبت بعدی ثبت شد", description: formatShamsiDate(plan.scheduledAt, true) });
+            })
+            .catch((err) => toastApiError(err, "پرداخت ثبت شد ولی ثبت نوبت بعدی ناموفق بود"));
+        }
       },
       onError: (error) => {
+        pendingNextApptRef.current = null;
         // پیام خطای سرور (فارسی) را نمایش می‌دهیم تا رد شدن پرداخت کیف پول
         // برای اپراتور قابل فهم باشد (به‌ویژه «موجودی اکانت کافی نیست»).
         const serverMessage =
@@ -511,6 +605,7 @@ export default function Payments() {
     setRedeemInput("");
     setWalletEnabled(false);
     setWalletInput("");
+    setNextAppt(EMPTY_NEXT_APPOINTMENT);
   }
 
   function onSubmit(values: z.infer<typeof formSchema>) {
@@ -538,6 +633,25 @@ export default function Payments() {
     if (svcReminderEnabled && !svcReminderDate) {
       toast({ title: "تاریخ یادآوری را انتخاب کنید", variant: "destructive" });
       return;
+    }
+    // نوبت بعدی: همان مراجع، خدمت و پرسنلِ نوبت فعلی
+    pendingNextApptRef.current = null;
+    if (nextAppt.enabled && appt) {
+      const scheduledAt = nextAppointmentMs(nextAppt);
+      if (!scheduledAt) {
+        toast({ title: "تاریخ و ساعت نوبت بعدی را کامل وارد کنید", variant: "destructive" });
+        return;
+      }
+      if (scheduledAt <= Date.now()) {
+        toast({ title: "زمان نوبت بعدی باید در آینده باشد", variant: "destructive" });
+        return;
+      }
+      pendingNextApptRef.current = {
+        patientId: appt.patientId,
+        serviceId: appt.serviceId,
+        staffId: appt.staffId ?? undefined,
+        scheduledAt,
+      };
     }
     // مبلغ تخفیف اعمال‌شده تا روی ردیف پرداخت ذخیره و در رسید نمایش داده شود
     const discountAmt = discountEnabled && selectedDiscount
@@ -655,10 +769,33 @@ export default function Payments() {
     }
     return ids;
   }, [payments]);
-  const visiblePayments = useMemo(
-    () => (onlyDuplicates ? (payments ?? []).filter((p) => duplicateIds.has(p.id)) : payments),
-    [payments, onlyDuplicates, duplicateIds],
+  // جست‌وجو و فیلتر (مراجع/خدمت/یادداشت، روش، بازهٔ تاریخ)
+  const [searchText, setSearchText] = useState("");
+  const [methodFilter, setMethodFilter] = useState<string>("all");
+  const [datePreset, setDatePreset] = useState<DatePreset>("all");
+  const [customRange, setCustomRange] = useState<DateRange | null>(null);
+  const dateRange = useMemo<DateRange | null>(
+    () => (datePreset === "all" ? null : datePreset === "custom" ? customRange : presetRange(datePreset)),
+    [datePreset, customRange],
   );
+  const filteredPayments = useMemo(() => {
+    const q = normalizeSearch(searchText);
+    return (payments ?? []).filter((p) => {
+      if (methodFilter !== "all" && p.method !== methodFilter) return false;
+      if (dateRange && (p.paidAt < dateRange.from || p.paidAt >= dateRange.to)) return false;
+      if (q) {
+        const hay = normalizeSearch([p.patientName, p.serviceName, p.notes].filter(Boolean).join(" "));
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [payments, searchText, methodFilter, dateRange]);
+  const visiblePayments = useMemo(
+    () => (onlyDuplicates ? filteredPayments.filter((p) => duplicateIds.has(p.id)) : filteredPayments),
+    [filteredPayments, onlyDuplicates, duplicateIds],
+  );
+  const visibleTotal = useMemo(() => visiblePayments.reduce((sum, p) => sum + p.amount, 0), [visiblePayments]);
+  const filtersActive = !!searchText.trim() || methodFilter !== "all" || datePreset !== "all" || onlyDuplicates;
 
   const paymentSort = useTableSort(visiblePayments, {
     paidAt: (p) => p.paidAt,
@@ -677,6 +814,39 @@ export default function Payments() {
   const unpaidAppointments = allActiveAppointments.filter(
     a => !a.hasCheckoutPayment || (a.remaining ?? 0) > 0
   );
+
+  function exportFiltered() {
+    exportCsv(`صندوق-${new Date().toISOString().slice(0, 10)}`, [
+      { header: "تاریخ", value: (p) => csvDate(p.paidAt) },
+      { header: "مراجع", value: (p) => p.patientName ?? "" },
+      { header: "خدمت", value: (p) => p.serviceName ?? "" },
+      { header: "جلسه", value: (p) => p.sessionNumber ?? "" },
+      { header: "مبلغ دریافتی", value: (p) => p.amount },
+      { header: "مبلغ اصلی", value: (p) => p.originalAmount },
+      { header: "تخفیف", value: (p) => p.discountAmount ?? "" },
+      { header: "کیف پول", value: (p) => p.walletAmount ?? "" },
+      { header: "روش", value: (p) => methods[p.method] ?? p.method },
+      { header: "یادداشت", value: (p) => p.notes ?? "" },
+    ], paymentSort.sorted);
+  }
+
+  // ‎/payments?appointmentId=123 (مثلاً از پروندهٔ مراجع): پنجرهٔ ثبت پرداخت با همان نوبت باز می‌شود
+  const urlSearch = useSearch();
+  const [location, setLocation] = useLocation();
+  useEffect(() => {
+    const raw = new URLSearchParams(urlSearch).get("appointmentId");
+    if (!raw || !apptList) return;
+    const id = Number(raw);
+    if (Number.isInteger(id) && id > 0 && unpaidAppointments.some((a) => a.id === id)) {
+      resetDialog();
+      form.setValue("appointmentId", id);
+      setIsOpen(true);
+    } else {
+      toast({ title: "این نوبت در فهرست نوبت‌های قابل پرداخت نیست", description: "ممکن است قبلاً تسویه یا لغو شده باشد.", variant: "destructive" });
+    }
+    // پارامتر پاک می‌شود تا با تازه‌سازی صفحه دوباره باز نشود
+    setLocation(location, { replace: true });
+  }, [urlSearch, apptList]);
 
   return (
     <div className="space-y-6">
@@ -705,6 +875,13 @@ export default function Payments() {
         description={`آیا از حذف «${deleteTarget?.label ?? ''}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
         onConfirm={() => { deletePayment.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
+      />
+
+      {/* ─── Edit Payment Dialog (admin) ─────────────────────────────── */}
+      <PaymentEditDialog
+        payment={editTarget}
+        open={!!editTarget}
+        onOpenChange={(o) => { if (!o) setEditTarget(null); }}
       />
 
       {/* ─── Receipt Dialog ──────────────────────────────────────────── */}
@@ -928,6 +1105,11 @@ export default function Payments() {
                   </div>
                 )}
               </div>
+
+              <Separator />
+
+              {/* نوبت بعدی */}
+              <PaymentNextAppointment value={nextAppt} onChange={setNextAppt} disabled={!selectedAppt} />
 
               <Separator />
 
@@ -1204,6 +1386,66 @@ export default function Payments() {
       {/* ─── Payments Table ──────────────────────────────────────────── */}
       <Card>
         <CardContent className="pt-4">
+          {/* جست‌وجو و فیلترها */}
+          <div className="mb-3 space-y-2" data-testid="payments-filters">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[200px]">
+                <Search className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  className="pr-8"
+                  placeholder="جست‌وجو در مراجع، خدمت یا یادداشت..."
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  aria-label="جست‌وجوی پرداخت‌ها"
+                />
+              </div>
+              <Select value={methodFilter} onValueChange={setMethodFilter}>
+                <SelectTrigger className="w-[150px]" aria-label="روش پرداخت"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">همهٔ روش‌ها</SelectItem>
+                  {Object.entries(methods).map(([k, v]) => <SelectItem key={k} value={k}>{v}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button variant="outline" className="gap-1" onClick={exportFiltered} disabled={visiblePayments.length === 0}>
+                <FileSpreadsheet className="h-4 w-4" />
+                خروجی اکسل
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {DATE_PRESETS.map(({ key, label }) => (
+                <Button
+                  key={key}
+                  size="sm"
+                  variant={datePreset === key ? "default" : "outline"}
+                  onClick={() => setDatePreset(key)}
+                >
+                  {label}
+                </Button>
+              ))}
+              <PersianDateRangePicker
+                value={datePreset === "custom" ? customRange : null}
+                active={datePreset === "custom"}
+                onChange={(r) => { setCustomRange(r); setDatePreset("custom"); }}
+              />
+              {dateRange && (
+                <span className="text-xs text-muted-foreground">بازه: {formatRangeLabel(dateRange)}</span>
+              )}
+              {filtersActive && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setSearchText(""); setMethodFilter("all"); setDatePreset("all"); setOnlyDuplicates(false); }}
+                >
+                  پاک کردن فیلترها
+                </Button>
+              )}
+            </div>
+            <div className="text-sm text-muted-foreground" data-testid="payments-filter-summary">
+              {toPersianDigits(visiblePayments.length)} تراکنش
+              {" — "}جمع دریافتی: <span className="font-bold text-green-700">{formatCurrency(visibleTotal)}</span>
+            </div>
+          </div>
+
           {duplicateIds.size > 0 && (
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="duplicate-payments-notice">
               <span>
@@ -1276,6 +1518,17 @@ export default function Payments() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          className="text-sky-700 hover:text-sky-800 hover:bg-sky-50"
+                          title="ویرایش پرداخت"
+                          onClick={() => setEditTarget(p)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
+                      {user?.role === "admin" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="text-destructive"
                           onClick={() => setDeleteTarget({ id: p.id, label: `پرداخت ${formatCurrency(p.amount)}` })}
                         >
@@ -1289,6 +1542,11 @@ export default function Payments() {
               {!isLoading && !payments?.length && (
                 <TableRow>
                   <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">پرداختی ثبت نشده</TableCell>
+                </TableRow>
+              )}
+              {!isLoading && !!payments?.length && visiblePayments.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">پرداختی با این فیلترها یافت نشد</TableCell>
                 </TableRow>
               )}
             </TableBody>
