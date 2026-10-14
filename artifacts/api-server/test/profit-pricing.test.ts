@@ -352,3 +352,29 @@ describe("a package billed on one appointment (cost scales with the billed amoun
     expect((await loyalty.fixOverstatedCashback(dbm.db)).find((f) => f.appointmentId === a.id)).toBeUndefined();
   });
 });
+
+describe("per-unit price with fixed («کل») costs — Opera, 11 cc", () => {
+  it("2,390,000 per cc, costs 1.3M + 300k + 100k «کل»: 11 cc → cost 18.7M, profit 7.59M; the old 1,106,000 credit is corrected", async () => {
+    const svc = (await call("POST", "/services", {
+      name: "اپرا سی‌سی", price: 2_390_000, priceMode: "per_unit", unitCount: 1,
+      doctorFee: 1_300_000, materialCost: 300_000, otherCost: 100_000,
+    })).json;
+    const p = await patient("خرامان دارابی");
+    const a = await appointment(p.id, svc.id);
+    const from = nowSec() - 5;
+    const base0 = await summary(from, nowSec() + 5);
+    const pay = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 26_290_000, amount: 26_290_000, unitsUsed: 11, method: "cash" });
+    expect(pay.status).toBe(201);
+
+    const s = await summary(from, nowSec() + 5);
+    expect(s.serviceCosts - base0.serviceCosts).toBe(18_700_000);
+    const det = (await call("GET", `/accounting/profit-details?from=${from}&to=${nowSec() + 5}`)).json;
+    expect(det.services.find((x: { serviceId: number }) => x.serviceId === svc.id)).toMatchObject({ serviceCost: 18_700_000, profit: 7_590_000 });
+
+    // اعتبار اشتباه نسخهٔ قبل (۴.۵٪ از ۲۴.۵۹ م) با اصلاح یک‌باره به ۴.۵٪ از ۷.۵۹ م ≈ ۳۴۱ هزار می‌رسد
+    const loyalty = await import("../src/lib/loyalty");
+    await loyalty.creditWallet(dbm.db, p.id, 1_106_000, "loyalty_cashback", "اعتبار سود خدمت (اپرا)", pay.json.id);
+    await loyalty.fixOverstatedCashback(dbm.db);
+    expect(await loyalty.getWalletBalance(dbm.db, p.id)).toBe(341_000);
+  });
+});

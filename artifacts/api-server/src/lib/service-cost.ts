@@ -31,18 +31,20 @@ export function unitsSql(unitsOverride?: SQL): SQL {
 }
 
 /**
- * ضریب مقدار فروخته‌شده: اگر مبلغ ناخالصِ صورت‌حساب این نوبت (مبلغ اصلی آخرین پرداخت تسویه، پیش از
- * تخفیف) از قیمت فهرست خدمت بیشتر باشد ــ مثلاً پکیج چند جلسه‌ای یک‌جا در یک نوبت پرداخت شده ــ
- * هزینه هم به همان نسبت بیشتر است (۲۶ میلیون از خدمتی ۲.۴ میلیونی ≈ ۱۰.۸ برابر هزینه).
+ * ضریب مقدار فروخته‌شده برای هزینه‌های «کل»: هزینهٔ «کل» برای قیمت فهرستِ خدمت وارد شده (قیمت
+ * کل، یا برای قیمت «هر واحد» = قیمت واحد × تعداد واحد پیش‌فرض خدمت). اگر مبلغ صورت‌حساب این نوبت
+ * (مبلغ اصلی آخرین پرداخت تسویه، پیش از تخفیف) بیشتر باشد ــ ۱۱ سی‌سی از خدمتی که قیمتش برای ۱ سی‌سی
+ * است، یا پکیج چند جلسه‌ای در یک نوبت ــ هزینهٔ «کل» هم به همان نسبت بیشتر است.
+ * هزینه‌های «هر واحد» خودشان در تعداد واحد ضرب می‌شوند و این ضریب را نمی‌گیرند.
  * تخفیف و چانه‌زنی هزینه را کم نمی‌کند (حداقل ضریب ۱).
  */
-export function billedFactorSql(unitsOverride?: SQL): SQL {
-  const units = unitsSql(unitsOverride);
-  const listPrice = sql`(CASE WHEN ${col("price_mode")} = 'per_unit' THEN coalesce(${col("price")}, 0) * ${units} ELSE coalesce(${col("price")}, 0) END)`;
+export function billedFactorSql(): SQL {
+  const referencePrice = sql`(CASE WHEN ${col("price_mode")} = 'per_unit'
+    THEN coalesce(${col("price")}, 0) * max(coalesce(${col("unit_count")}, 1), 1) ELSE coalesce(${col("price")}, 0) END)`;
   return sql`max(1.0, coalesce(
     (SELECT bp.original_amount FROM payments bp
       WHERE bp.appointment_id = a.id AND coalesce(bp.notes, '') <> 'بیعانه'
-      ORDER BY bp.id DESC LIMIT 1) * 1.0 / nullif(${listPrice}, 0),
+      ORDER BY bp.id DESC LIMIT 1) * 1.0 / nullif(${referencePrice}, 0),
     1.0))`;
 }
 
@@ -52,9 +54,10 @@ export function costPartSql(part: "doctor" | "material" | "other", unitsOverride
     ? ["doctor_fee", "doctor_fee_mode"]
     : part === "material" ? ["material_cost", "material_cost_mode"] : ["other_cost", "other_cost_mode"];
   const units = unitsSql(unitsOverride);
-  const base = sql`(CASE WHEN ${col(mode)} = 'per_unit' THEN coalesce(${col(fee)}, 0) * ${units} ELSE coalesce(${col(fee)}, 0) END)`;
-  if (!billed) return base;
-  return sql`CAST(round(${base} * ${billedFactorSql(unitsOverride)}) AS integer)`;
+  const total = billed
+    ? sql`CAST(round(coalesce(${col(fee)}, 0) * ${billedFactorSql()}) AS integer)`
+    : sql`coalesce(${col(fee)}, 0)`;
+  return sql`(CASE WHEN ${col(mode)} = 'per_unit' THEN coalesce(${col(fee)}, 0) * ${units} ELSE ${total} END)`;
 }
 
 /** هزینهٔ کل خدمتِ نوبت با نسخهٔ معتبر در روز خدمت (ستون‌های خالی = صفر) */

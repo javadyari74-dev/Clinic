@@ -93,7 +93,34 @@ export default function PatientDetail() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
-  const { hasPermission } = useAuth();
+  const { hasPermission, user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  // حذف نوبت از سابقهٔ پرونده (فقط مدیر): همراه با پرداخت‌هایش؛ سرور درآمد، کیف پول و اعتبار سود،
+  // کمیسیون و امتیاز را کامل برمی‌گرداند
+  const [apptDelete, setApptDelete] = useState<{ id: number; label: string; paid: number } | null>(null);
+  const [apptDeleting, setApptDeleting] = useState(false);
+  async function deleteApptWithPayments(target: { id: number; paid: number }) {
+    setApptDeleting(true);
+    try {
+      const token = localStorage.getItem("clinic_auth_token");
+      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const res = await fetch(`${base}/api/appointments/${target.id}?withPayments=1`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null) as { error?: string } | null;
+        toast({ title: "حذف نوبت ناموفق بود", description: data?.error ?? `خطای ${res.status}`, variant: "destructive" });
+        return;
+      }
+      // پرداخت، کیف پول، باشگاه و حسابداری همه تغییر کرده‌اند
+      await queryClient.invalidateQueries();
+      toast({ title: target.paid > 0 ? "نوبت همراه با پرداخت‌هایش حذف شد" : "نوبت حذف شد" });
+    } finally {
+      setApptDeleting(false);
+      setApptDelete(null);
+    }
+  }
   const [noteText, setNoteText] = useState("");
   const [apptOpen, setApptOpen] = useState(false);
   const [apptServiceId, setApptServiceId] = useState("");
@@ -739,6 +766,20 @@ export default function PatientDetail() {
                         >
                           <Bell className="h-3.5 w-3.5" />
                         </Button>
+                        {isAdmin && (
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            title="حذف نوبت"
+                            aria-label="حذف نوبت"
+                            disabled={apptDeleting}
+                            onClick={() => setApptDelete({ id: a.id, label: `${a.serviceName ?? "نوبت"} — ${formatShamsiDate(a.scheduledAt)}`, paid: a.paidTotal ?? 0 })}
+                            data-testid={`button-delete-appt-${a.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -748,6 +789,16 @@ export default function PatientDetail() {
           </Table>
         </CardContent>
       </Card>
+
+      <ConfirmDeleteDialog
+        open={!!apptDelete}
+        title={`حذف نوبت «${apptDelete?.label ?? ""}»`}
+        description={apptDelete && apptDelete.paid > 0
+          ? `این نوبت ${formatCurrency(apptDelete.paid)} پرداخت دارد. با حذف، پرداخت‌ها هم حذف و از مجموع پرداخت‌ها و درآمد کم می‌شوند و اعتبار سود کیف پول، کمیسیون و امتیازِ آن‌ها کامل برگردانده می‌شود. این کار قابل بازگشت نیست.`
+          : "این نوبت حذف می‌شود. این کار قابل بازگشت نیست."}
+        onConfirm={() => { if (apptDelete) void deleteApptWithPayments(apptDelete); }}
+        onCancel={() => setApptDelete(null)}
+      />
 
       {/* Quick Reminder Dialog */}
       <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>

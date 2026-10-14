@@ -96,7 +96,8 @@ export async function repairShamsiReminderDates(): Promise<number> {
 
 // یک‌بار پس از ارتقا: اعتبار سودهایی که با هزینهٔ «یک جلسه» برای صورت‌حساب‌های چند برابری
 // حساب شده بودند اصلاح می‌شوند (lib/loyalty.ts → fixOverstatedCashback). جمع مبلغ کسرشده را برمی‌گرداند.
-const BILLED_CASHBACK_FIX_KEY = "data_fix_billed_cost_cashback";
+// v2: هزینهٔ «کل» در خدمات «هر واحد» هم به نسبت واحدهای فروخته‌شده (اجرای دوباره روی داده‌های قبلی بی‌خطر است)
+const BILLED_CASHBACK_FIX_KEY = "data_fix_billed_cost_cashback_v2";
 export async function fixOverstatedCashbackOnce(): Promise<number> {
   return db.transaction(async (tx) => {
     const done = await tx.select().from(appSettingsTable).where(eq(appSettingsTable.key, BILLED_CASHBACK_FIX_KEY)).get();
