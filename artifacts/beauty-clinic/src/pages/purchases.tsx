@@ -37,7 +37,8 @@ import { useToast } from "@/hooks/use-toast";
 import { onApiError } from "@/lib/api-error";
 import { formatCurrency, formatShamsiDate, gregorianDateToUnix, toPersianDigits, unixToGregorianDate } from "@/lib/format";
 import { tehranTodayISO } from "@/lib/tehran-date";
-import { ShoppingCart, Plus, Pencil, Trash2, Search, CheckCircle2, Clock, Package, ChevronsUpDown } from "lucide-react";
+import { ShoppingCart, Plus, Pencil, Trash2, Search, CheckCircle2, Clock, Package, ChevronsUpDown, FileSpreadsheet } from "lucide-react";
+import { exportCsv, csvDate } from "@/lib/export-csv";
 
 // ─── خریدها ───────────────────────────────────────────────────────────────────
 // ثبت خرید مواد و محصولات (نوع محصول، خود محصول، تاریخ و مبلغ خرید) و وضعیت تسویه.
@@ -146,6 +147,25 @@ export default function Purchases() {
     }
     return { total, settled, unsettled, unsettledCount };
   }, [filtered]);
+
+  // خروجی اکسل همان ردیف‌هایی که الان دیده می‌شوند (فیلتر و ترتیب جدول)
+  function handleExport() {
+    const parts = ["خریدها"];
+    if (typeFilter !== "all") parts.push(typeFilter);
+    if (status !== "all") parts.push(status === "settled" ? "تسویه-شده" : "تسویه-نشده");
+    parts.push(csvDate(Math.floor(Date.now() / 1000)).replace(/\//g, "-"));
+    exportCsv(parts.join("-").replace(/\s+/g, "-"), [
+      { header: "تاریخ خرید", value: (p) => csvDate(p.purchaseDate) },
+      { header: "نوع محصول", value: (p) => p.productType },
+      { header: "محصول", value: (p) => p.productName },
+      { header: "فروشنده", value: (p) => p.supplier ?? "" },
+      { header: "تعداد", value: (p) => p.quantity },
+      { header: "مبلغ خرید", value: (p) => p.price },
+      { header: "وضعیت", value: (p) => (p.isSettled ? "تسویه شده" : "تسویه نشده") },
+      { header: "تاریخ تسویه", value: (p) => csvDate(p.settledAt) },
+      { header: "یادداشت", value: (p) => p.notes ?? "" },
+    ], sort.sorted);
+  }
 
   function openCreate() {
     setEditing(null);
@@ -265,6 +285,10 @@ export default function Purchases() {
             {([["all", "همه"], ["unsettled", "تسویه نشده"], ["settled", "تسویه شده"]] as const).map(([k, label]) => (
               <Button key={k} size="sm" variant={status === k ? "default" : "outline"} onClick={() => setStatus(k)}>{label}</Button>
             ))}
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExport} disabled={!filtered.length} data-testid="export-purchases">
+              <FileSpreadsheet className="h-4 w-4" />
+              خروجی اکسل
+            </Button>
           </div>
           {types.length > 0 && (
             <div className="flex flex-wrap gap-2">

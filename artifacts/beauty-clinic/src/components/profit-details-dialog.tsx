@@ -8,12 +8,13 @@ import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components
 import { SortableHead } from "@/components/sortable-head";
 import { useTableSort } from "@/hooks/use-table-sort";
 import {
-  useProfitDetails,
+  useProfitDetails, readMinMarginPct,
   type AccountingSummary, type DateRange, type ProfitPeriod, type ProfitVisit, type ServiceProfitDetail,
 } from "@/hooks/use-accounting";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { ChevronDown, PiggyBank, Search, TrendingDown, TrendingUp, Minus } from "lucide-react";
+import { exportCsv, csvDate } from "@/lib/export-csv";
+import { ChevronDown, PiggyBank, Search, TrendingDown, TrendingUp, Minus, FileSpreadsheet } from "lucide-react";
 
 // ─── ریز سود: هر خدمت با هزینهٔ پزشک/مواد/سایر و سود، و تغییر سود در طول زمان ─────────
 // «دوره» = بازه‌ای که یک نسخهٔ قیمت/هزینهٔ خدمت معتبر بوده (از تاریخچهٔ قیمت خدمات)؛
@@ -121,7 +122,7 @@ function VisitsTable({ visits }: { visits: ProfitVisit[] }) {
   );
 }
 
-function ServiceRow({ s, open, onToggle }: { s: ServiceProfitDetail; open: boolean; onToggle: () => void }) {
+function ServiceRow({ s, open, onToggle, minMargin }: { s: ServiceProfitDetail; open: boolean; onToggle: () => void; minMargin: number }) {
   const change = profitChange(s);
   const avg = s.count > 0 ? Math.round(s.profit / s.count) : null;
   return (
@@ -137,6 +138,9 @@ function ServiceRow({ s, open, onToggle }: { s: ServiceProfitDetail; open: boole
           <div className="text-left">
             <div className={cn("text-lg font-extrabold", s.profit >= 0 ? "text-green-700" : "text-red-600")}><Money v={s.profit} /></div>
             <Badge variant="secondary" className="text-[10px]">حاشیه {toPersianDigits(s.profitMargin)}٪</Badge>
+            {s.revenue > 0 && s.profitMargin < minMargin && (
+              <Badge className="text-[10px] mr-1 bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">حاشیهٔ کم</Badge>
+            )}
           </div>
         </div>
         <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
@@ -231,17 +235,22 @@ export function ProfitDetailsDialog({
   range,
   rangeLabel,
   summary,
+  exportLabel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   range: DateRange;
   rangeLabel: string;
   summary?: AccountingSummary;
+  /** برچسب دوره برای نام فایل خروجی، مثلاً «مهر-۱۴۰۵» */
+  exportLabel?: string;
 }) {
   const { data, isLoading, isError } = useProfitDetails(range, open);
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("profit");
   const [openIds, setOpenIds] = useState<Set<number>>(new Set());
+  // با هر بار باز شدن دوباره خوانده می‌شود تا تغییر تنظیم در صفحهٔ خدمات اعمال شود
+  const minMargin = useMemo(() => readMinMarginPct(), [open]);
 
   const services = useMemo(() => {
     const term = q.trim();
@@ -262,6 +271,23 @@ export function ProfitDetailsDialog({
     }
     return t;
   }, [data]);
+
+  // خروجی اکسل: یک ردیف به ازای هر نوبتِ خدمت‌های در حال نمایش (همان جست‌وجو و ترتیب)
+  function handleExport() {
+    const rows = services.flatMap((s) => s.visits.map((v) => ({ s, v })));
+    const label = (exportLabel ?? rangeLabel).trim().replace(/\s+/g, "-");
+    exportCsv(`ریز-سود-${label}`, [
+      { header: "خدمت", value: (r) => r.s.serviceName },
+      { header: "تاریخ", value: (r) => csvDate(r.v.serviceDate) },
+      { header: "مراجع", value: (r) => r.v.patientName ?? "" },
+      { header: "دریافتی", value: (r) => r.v.revenue },
+      { header: "پزشک", value: (r) => (r.v.counted ? r.v.doctorCost : 0) },
+      { header: "مواد", value: (r) => (r.v.counted ? r.v.materialCost : 0) },
+      { header: "سایر", value: (r) => (r.v.counted ? r.v.otherCost : 0) },
+      { header: "پورسانت", value: (r) => r.v.commission },
+      { header: "سود", value: (r) => r.v.profit },
+    ], rows);
+  }
 
   const toggle = (id: number) => setOpenIds((cur) => {
     const next = new Set(cur);
@@ -314,13 +340,17 @@ export function ProfitDetailsDialog({
           {([["profit", "بیشترین سود"], ["revenue", "بیشترین دریافتی"], ["count", "بیشترین نوبت"], ["change", "بیشترین افت سود"]] as const).map(([k, label]) => (
             <Button key={k} size="sm" variant={sortKey === k ? "default" : "outline"} onClick={() => setSortKey(k)}>{label}</Button>
           ))}
+          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExport} disabled={!services.length} data-testid="profit-details-export">
+            <FileSpreadsheet className="h-4 w-4" />
+            خروجی اکسل
+          </Button>
         </div>
 
         {isLoading && <p className="text-sm text-muted-foreground py-6 text-center">در حال محاسبه…</p>}
         {isError && <p className="text-sm text-destructive py-6 text-center">بارگذاری ریز سود ناموفق بود</p>}
         <div className="space-y-3">
           {services.map((s) => (
-            <ServiceRow key={s.serviceId} s={s} open={openIds.has(s.serviceId)} onToggle={() => toggle(s.serviceId)} />
+            <ServiceRow key={s.serviceId} s={s} open={openIds.has(s.serviceId)} onToggle={() => toggle(s.serviceId)} minMargin={minMargin} />
           ))}
           {!isLoading && data && services.length === 0 && (
             <p className="text-sm text-muted-foreground py-6 text-center">در این بازه خدمتی با پرداخت ثبت نشده است</p>

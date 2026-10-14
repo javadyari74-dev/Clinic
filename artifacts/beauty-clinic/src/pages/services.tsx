@@ -11,7 +11,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff, History } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff, History, Copy, AlertTriangle } from "lucide-react";
+import { readMinMarginPct, writeMinMarginPct } from "@/hooks/use-accounting";
 import { ServicePriceHistoryDialog } from "@/components/service-price-history-dialog";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { Label } from "@/components/ui/label";
@@ -73,6 +74,26 @@ function profitOf(s: {
     effective(s.materialCost, s.materialCostMode, uc) +
     effective(s.otherCost, s.otherCostMode, uc);
   return { price, cost, profit: price - cost, margin: price > 0 ? Math.round(((price - cost) / price) * 100) : 0 };
+}
+
+/** مقادیر فرم از روی یک خدمت ذخیره‌شده (برای ویرایش و کپی) */
+function formValuesOf(s: Service): FormValues {
+  return {
+    name: s.name,
+    category: s.category ?? "",
+    price: s.price,
+    durationMinutes: s.durationMinutes ?? 30,
+    doctorFee: s.doctorFee ?? 0,
+    materialCost: s.materialCost ?? 0,
+    otherCost: s.otherCost ?? 0,
+    unitCount: s.unitCount ?? 1,
+    unitLabel: s.unitLabel ?? "",
+    priceMode: (s.priceMode as Mode) ?? "total",
+    doctorFeeMode: (s.doctorFeeMode as Mode) ?? "total",
+    materialCostMode: (s.materialCostMode as Mode) ?? "total",
+    otherCostMode: (s.otherCostMode as Mode) ?? "total",
+    description: s.description ?? "",
+  };
 }
 
 function ModeToggle({ value, onChange }: { value: Mode; onChange: (v: Mode) => void }) {
@@ -346,6 +367,17 @@ export default function Services() {
   // توضیح و تاریخ اعمال تغییر قیمت/هزینه (فقط در ویرایش، وقتی قیمت یا هزینه‌ای عوض شده)
   const [priceNote, setPriceNote] = useState("");
   const [priceDate, setPriceDate] = useState("");
+  // حداقل حاشیهٔ سود مطلوب (٪) — در localStorage همین دستگاه
+  const [minMargin, setMinMargin] = useState<number>(() => readMinMarginPct());
+  const [minMarginText, setMinMarginText] = useState<string>(() => String(readMinMarginPct()));
+  function changeMinMargin(text: string) {
+    setMinMarginText(text);
+    const n = Number(text);
+    if (text.trim() !== "" && Number.isFinite(n)) {
+      setMinMargin(n);
+      writeMinMarginPct(n);
+    }
+  }
 
   // Derived: unique categories with counts
   const categories = useMemo(() => {
@@ -379,6 +411,12 @@ export default function Services() {
     margin: (s) => { const { cost, margin } = profitOf(s); return cost > 0 ? margin : null; },
     status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
   });
+
+  // خدمات (فیلترشده) با هزینهٔ ثبت‌شده که حاشیهٔ هر نوبتشان زیر حد مطلوب است
+  const lowMarginServices = useMemo(
+    () => filteredServices.filter((s) => { const { cost, margin } = profitOf(s); return cost > 0 && margin < minMargin; }),
+    [filteredServices, minMargin],
+  );
 
   const createService = useCreateService({
     mutation: {
@@ -430,22 +468,16 @@ export default function Services() {
     setEditing(s);
     setPriceNote("");
     setPriceDate("");
-    form.reset({
-      name: s.name,
-      category: s.category ?? "",
-      price: s.price,
-      durationMinutes: s.durationMinutes ?? 30,
-      doctorFee: s.doctorFee ?? 0,
-      materialCost: s.materialCost ?? 0,
-      otherCost: s.otherCost ?? 0,
-      unitCount: s.unitCount ?? 1,
-      unitLabel: s.unitLabel ?? "",
-      priceMode: (s.priceMode as Mode) ?? "total",
-      doctorFeeMode: (s.doctorFeeMode as Mode) ?? "total",
-      materialCostMode: (s.materialCostMode as Mode) ?? "total",
-      otherCostMode: (s.otherCostMode as Mode) ?? "total",
-      description: s.description ?? "",
-    });
+    form.reset(formValuesOf(s));
+    setIsOpen(true);
+  }
+
+  // کپی خدمت: فرم «خدمت جدید» با همهٔ مقادیر همان خدمت؛ ذخیره یعنی ثبت خدمت تازه
+  function openDuplicate(s: Service) {
+    setEditing(null);
+    setPriceNote("");
+    setPriceDate("");
+    form.reset({ ...formValuesOf(s), name: `${s.name} (کپی)` });
     setIsOpen(true);
   }
 
@@ -499,6 +531,21 @@ export default function Services() {
       />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Label htmlFor="min-margin" className="text-muted-foreground">حداقل حاشیهٔ سود مطلوب (٪)</Label>
+        <Input
+          id="min-margin"
+          type="number"
+          dir="ltr"
+          min={0}
+          max={100}
+          className="h-8 w-20"
+          value={minMarginText}
+          onChange={(e) => changeMinMargin(e.target.value)}
+          data-testid="min-margin-input"
+        />
+      </div>
 
       <ServicePriceHistoryDialog service={historyFor} onOpenChange={(o) => !o && setHistoryFor(null)} />
 
@@ -606,6 +653,17 @@ export default function Services() {
         </CardContent>
       </Card>
 
+      {showFinancials && lowMarginServices.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-200" data-testid="low-margin-notice">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            حاشیهٔ سود {toPersianDigits(lowMarginServices.length)} خدمت کمتر از {toPersianDigits(minMargin)}٪ است:
+            {" "}{lowMarginServices.slice(0, 5).map((s) => s.name).join("، ")}
+            {lowMarginServices.length > 5 && " و …"}
+          </span>
+        </div>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="pt-2 pb-2">
@@ -659,9 +717,14 @@ export default function Services() {
                     {showFinancials && (
                       <TableCell className="py-1.5">
                         {hasCost
-                          ? <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
-                              {toPersianDigits(margin)}٪
-                            </Badge>
+                          ? <span className="inline-flex items-center gap-1">
+                              <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
+                                {toPersianDigits(margin)}٪
+                              </Badge>
+                              {margin < minMargin && (
+                                <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">حاشیهٔ کم</Badge>
+                              )}
+                            </span>
                           : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                     )}
@@ -671,6 +734,7 @@ export default function Services() {
                     <TableCell className="py-1.5 text-left">
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="تاریخچهٔ قیمت" aria-label="تاریخچهٔ قیمت" onClick={() => setHistoryFor({ id: s.id, name: s.name })}><History className="h-3 w-3" /></Button>
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="ویرایش" aria-label="ویرایش" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="کپی" aria-label="کپی خدمت" onClick={() => openDuplicate(s)}><Copy className="h-3 w-3" /></Button>
                       {user?.role === "admin" && (
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => setDeleteTarget({ id: s.id, label: s.name })}>
                           <Trash2 className="h-3 w-3" />

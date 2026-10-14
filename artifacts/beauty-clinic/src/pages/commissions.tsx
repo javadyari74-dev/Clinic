@@ -12,7 +12,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, CheckCircle, Trash2, Clock } from "lucide-react";
+import { Plus, CheckCircle, Trash2, Clock, FileSpreadsheet } from "lucide-react";
+import { exportCsv, csvDate } from "@/lib/export-csv";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
@@ -92,6 +93,20 @@ export default function Commissions() {
     date: (c: any) => c.createdAt,
     status: (c: any) => (c.isPaid ? "تسویه‌شده" : "پرداخت‌نشده"),
   });
+
+  // خروجی اکسل با همان ترتیب جدول؛ مبلغ خام (بدون «تومان»)
+  function handleExport() {
+    const today = csvDate(Math.floor(Date.now() / 1000)).replace(/\//g, "-");
+    exportCsv(`کمیسیون‌ها-${today}`, [
+      { header: "مبلغ", value: (c: any) => c.amount },
+      { header: "نرخ٪", value: (c: any) => c.rate ?? "" },
+      { header: "توضیح", value: (c: any) => c.description ?? "" },
+      { header: "دریافت‌کننده", value: (c: any) => c.recipientName ?? "" },
+      { header: "نوع", value: (c: any) => (c.recipientType === "staff" ? "پرسنل" : "خارجی") },
+      { header: "تاریخ", value: (c: any) => csvDate(c.createdAt) },
+      { header: "وضعیت", value: (c: any) => (c.isPaid ? "تسویه‌شده" : "پرداخت‌نشده") },
+    ], commissionSort.sorted);
+  }
 
   function buildSummary(c: any) {
     const parts: string[] = [];
@@ -201,6 +216,12 @@ export default function Commissions() {
 
       <Card>
         <CardContent className="pt-4">
+          <div className="flex justify-end mb-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExport} disabled={!commissions?.length} data-testid="export-commissions">
+              <FileSpreadsheet className="h-4 w-4" />
+              خروجی اکسل
+            </Button>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>

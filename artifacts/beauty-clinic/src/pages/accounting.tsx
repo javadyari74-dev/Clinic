@@ -1,7 +1,11 @@
 import { PageHeader } from "@/components/page-header";
 import { ProfitDetailsDialog } from "@/components/profit-details-dialog";
 import { StatCard as GradientStatCard, type StatTone } from "@/components/stat-card";
-import { Calculator } from "lucide-react";
+import { Calculator, FileSpreadsheet } from "lucide-react";
+import { DateObject } from "react-multi-date-picker";
+import persian from "react-date-object/calendars/persian";
+import persian_fa from "react-date-object/locales/persian_fa";
+import { exportCsv, csvDate } from "@/lib/export-csv";
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { PersianDatePicker } from "@/components/persian-date-picker";
@@ -37,7 +41,7 @@ import {
   type DateRange, type ChartPoint, type Expense,
 } from "@/hooks/use-accounting";
 import {
-  PRESET_LABELS, presetRange, formatRangeLabel, buildChartSeries, formatAxisAmount,
+  PRESET_LABELS, presetRange, formatRangeLabel, buildChartSeries, formatAxisAmount, rangeFromDays, rangeDays,
   type RangePreset,
 } from "@/lib/shamsi-range";
 
@@ -71,11 +75,61 @@ function catColor(v: string) {
   return CATEGORIES.find(c => c.value === v)?.color ?? "bg-gray-100 text-gray-700";
 }
 
+function shamsiOf(d: Date): DateObject {
+  return new DateObject({ date: d, calendar: persian, locale: persian_fa });
+}
+
+/**
+ * بازهٔ هم‌اندازهٔ درست قبل از بازهٔ فعلی برای مقایسه: «این ماه»/«ماه گذشته» ← ماه شمسی قبل،
+ * «امسال» ← سال شمسی قبل، امروز/هفته/بازهٔ دلخواه ← همان تعداد روزِ درست قبل. «همه» مقایسه ندارد.
+ */
+function previousRange(preset: RangePreset, range: DateRange): { range: DateRange; label: string } | null {
+  if (preset === "all" || range.from === 0) return null;
+  const from = new Date(range.from * 1000);
+  const prevDay = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1);
+  if (preset === "month" || preset === "lastMonth") {
+    const first = shamsiOf(prevDay).toFirstOfMonth().toDate();
+    return { range: rangeFromDays(first, prevDay), label: shamsiOf(prevDay).format("MMMM") };
+  }
+  if (preset === "year") {
+    const first = shamsiOf(prevDay).toFirstOfYear().toDate();
+    return { range: rangeFromDays(first, prevDay), label: `سال ${shamsiOf(prevDay).format("YYYY")}` };
+  }
+  const days = Math.max(1, rangeDays(range));
+  const first = new Date(prevDay.getFullYear(), prevDay.getMonth(), prevDay.getDate() - (days - 1));
+  const label = preset === "today" ? "دیروز" : preset === "week" ? "هفتهٔ قبل" : "بازهٔ قبل";
+  return { range: rangeFromDays(first, prevDay), label };
+}
+
+/** برچسب دوره برای نام فایل خروجی: «مهر-۱۴۰۵»، «۱۴۰۵»، «همه» یا متن بازه */
+function exportPeriodLabel(preset: RangePreset, range: DateRange): string {
+  let text: string;
+  if (preset === "all") text = "همه";
+  else if (preset === "month" || preset === "lastMonth") text = shamsiOf(new Date(range.from * 1000)).format("MMMM YYYY");
+  else if (preset === "year") text = shamsiOf(new Date(range.from * 1000)).format("YYYY");
+  else text = formatRangeLabel(range);
+  return text.trim().replace(/\s+/g, "-");
+}
+
+interface Comparison { text: string; good: boolean | null }
+
+/** «▲ ۱۲٪ نسبت به مهر»؛ goodWhenUp: افزایش این رقم خوب است (درآمد/سود) یا بد (هزینه‌ها) */
+function compareTo(cur: number | undefined, prev: number | undefined, label: string, goodWhenUp: boolean): Comparison | undefined {
+  if (cur === undefined || prev === undefined) return undefined;
+  if (cur === prev) return { text: `بدون تغییر نسبت به ${label}`, good: null };
+  if (prev === 0) return { text: `${cur > prev ? "▲" : "▼"} نسبت به ${label} (قبلاً صفر)`, good: (cur > prev) === goodWhenUp };
+  const pct = Math.round(((cur - prev) / Math.abs(prev)) * 100);
+  const up = cur > prev;
+  return { text: `${up ? "▲" : "▼"} ${toPersianDigits(Math.abs(pct))}٪ نسبت به ${label}`, good: up === goodWhenUp };
+}
+
 // کارت آمار حسابداری روی کارت رنگی مشترک؛ رنگ کارت از colorClass قبلی می‌آید
-function StatCard({ title, value, sub, trend, icon, colorClass, onClick }: {
+function StatCard({ title, value, sub, trend, icon, colorClass, onClick, compare }: {
   title: string; value: string; sub?: string;
   trend?: "up" | "down" | "neutral"; icon: React.ReactNode; colorClass: string;
   onClick?: () => void;
+  /** مقایسه با دورهٔ قبل (سبز = خوب، قرمز = بد) */
+  compare?: Comparison;
 }) {
   const tone: StatTone =
     colorClass.includes("teal") ? "teal"
@@ -90,9 +144,19 @@ function StatCard({ title, value, sub, trend, icon, colorClass, onClick }: {
     <GradientStatCard
       title={title}
       value={value}
-      sub={(sub || arrow || onClick) ? (
+      sub={(sub || arrow || onClick || compare) ? (
         <>
           {arrow}{sub}
+          {compare && (
+            <span
+              data-testid="stat-compare"
+              className={`block mt-1 w-fit rounded-md px-1.5 py-0.5 text-[11px] font-semibold ${
+                compare.good === null ? "bg-white/20 text-white"
+                : compare.good ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}
+            >
+              {compare.text}
+            </span>
+          )}
           {onClick && <span className="block mt-0.5 font-semibold">برای مشاهده جزئیات کلیک کنید ›</span>}
         </>
       ) : undefined}
@@ -125,6 +189,13 @@ export default function Accounting() {
   const rangeLabel = formatRangeLabel(range);
 
   const { data: summary, isError: summaryError, refetch: refetchSummary } = useAccountingSummary(range);
+  // مقایسه با دورهٔ هم‌اندازهٔ قبلی (برای «همه» نیست؛ آن‌وقت همان بازه دوباره خوانده می‌شود و از کش می‌آید)
+  const prev = useMemo(() => previousRange(preset, range), [preset, range]);
+  const { data: prevSummaryRaw } = useAccountingSummary(prev?.range ?? range);
+  const prevSummary = prev ? prevSummaryRaw : undefined;
+  const cmp = (key: "revenue" | "laserRevenue" | "serviceCosts" | "expenses" | "commissions" | "netProfit", goodWhenUp: boolean) =>
+    prev && summary && prevSummary ? compareTo(summary[key], prevSummary[key], prev.label, goodWhenUp) : undefined;
+  const fileLabel = exportPeriodLabel(preset, range);
   const { data: debts } = useAccountingDebts();
   const { data: byService, isError: byServiceError, refetch: refetchByService } = useAccountingByService(range);
   const { data: chart, isError: chartError, refetch: refetchChart } = useAccountingChart(range);
@@ -246,6 +317,28 @@ export default function Accounting() {
       },
     });
   }
+  function exportServices() {
+    exportCsv(`سود-خدمات-${fileLabel}`, [
+      { header: "خدمت", value: (s) => s.serviceName },
+      { header: "تعداد", value: (s) => s.completedCount },
+      { header: "درآمد", value: (s) => s.revenue },
+      { header: "دستمزد پزشک", value: (s) => s.doctorFeeTotal },
+      { header: "مواد", value: (s) => s.materialCostTotal },
+      { header: "سایر", value: (s) => s.otherCostTotal },
+      { header: "پورسانت", value: (s) => s.commissions },
+      { header: "سود", value: (s) => s.profit },
+      { header: "حاشیه٪", value: (s) => s.profitMargin },
+    ], serviceSort.sorted);
+  }
+  function exportExpenses() {
+    exportCsv(`هزینه‌ها-${fileLabel}`, [
+      { header: "دسته‌بندی", value: (e) => catLabel(e.category) },
+      { header: "توضیح", value: (e) => e.description },
+      { header: "تاریخ", value: (e) => csvDate(e.date) },
+      { header: "مبلغ", value: (e) => e.amount },
+    ], expenseSort.sorted);
+  }
+
   const tooltipStyle = { fontFamily: "Vazirmatn", textAlign: "right" as const, direction: "rtl" as const };
   const axisTick = { fontFamily: "Vazirmatn", fontSize: 10 };
 
@@ -294,6 +387,7 @@ export default function Accounting() {
           title={`درآمد مطب — ${periodLabel}`}
           value={formatCurrency(summary?.revenue)}
           sub="پرداخت‌های نقدی، بدون لیزر"
+          compare={cmp("revenue", true)}
           icon={<Wallet className="h-5 w-5 text-primary" />}
           colorClass="text-foreground"
         />
@@ -303,6 +397,7 @@ export default function Accounting() {
           sub={summary ? `پورسانت لیزر: ${formatCurrency(summary.laserCommissions)}` : undefined}
           icon={<Zap className="h-5 w-5 text-teal-600" />}
           colorClass="text-teal-600"
+          compare={cmp("laserRevenue", true)}
         />
         <StatCard
           title={`هزینه خدمات — ${periodLabel}`}
@@ -310,6 +405,7 @@ export default function Accounting() {
           sub="پزشک + مواد + سایر"
           icon={<Package className="h-5 w-5 text-purple-600" />}
           colorClass="text-purple-600"
+          compare={cmp("serviceCosts", false)}
           onClick={() => setSvcCostOpen(true)}
         />
         <StatCard
@@ -317,12 +413,14 @@ export default function Accounting() {
           value={formatCurrency(summary?.expenses)}
           icon={<TrendingDown className="h-5 w-5 text-orange-600" />}
           colorClass="text-orange-600"
+          compare={cmp("expenses", false)}
         />
         <StatCard
           title={`پورسانت پرداختی — ${periodLabel}`}
           value={formatCurrency(summary?.commissions)}
           icon={<Users className="h-5 w-5 text-blue-600" />}
           colorClass="text-blue-600"
+          compare={cmp("commissions", false)}
         />
         <StatCard
           title={`سود خالص — ${periodLabel}`}
@@ -331,6 +429,7 @@ export default function Accounting() {
           icon={<PiggyBank className="h-5 w-5 text-green-700" />}
           colorClass={(summary?.netProfit ?? 0) >= 0 ? "text-green-700" : "text-red-600"}
           trend={(summary?.netProfit ?? 0) >= 0 ? "up" : "down"}
+          compare={cmp("netProfit", true)}
           onClick={() => setProfitOpen(true)}
         />
       </div>
@@ -542,6 +641,12 @@ export default function Accounting() {
                 </CardContent>
               </Card>
             )}
+            <div className="flex justify-end">
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={exportServices} disabled={!byService?.length} data-testid="export-services">
+                <FileSpreadsheet className="h-4 w-4" />
+                خروجی اکسل
+              </Button>
+            </div>
             <Card>
               <CardContent className="p-0">
                 <Table>
@@ -613,10 +718,16 @@ export default function Accounting() {
               <p className="text-sm text-muted-foreground">
                 ثبت هزینه‌های ثابت مثل اجاره، حقوق، قبض‌ها و مواد مصرفی
               </p>
-              <Button size="sm" className="gap-2" onClick={() => setExpOpen(true)}>
-                <Plus className="h-3.5 w-3.5" />
-                هزینه جدید
-              </Button>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={exportExpenses} disabled={!expenses?.length} data-testid="export-expenses">
+                  <FileSpreadsheet className="h-4 w-4" />
+                  خروجی اکسل
+                </Button>
+                <Button size="sm" className="gap-2" onClick={() => setExpOpen(true)}>
+                  <Plus className="h-3.5 w-3.5" />
+                  هزینه جدید
+                </Button>
+              </div>
             </div>
             <Card>
               <CardContent className="p-0">
@@ -729,6 +840,7 @@ export default function Accounting() {
         range={range}
         rangeLabel={rangeLabel}
         summary={summary}
+        exportLabel={fileLabel}
       />
 
       <Dialog open={svcCostOpen} onOpenChange={setSvcCostOpen}>

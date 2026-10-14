@@ -36,7 +36,8 @@ import { txSign, txAmountText } from "@/lib/loyalty-format";
 import { useToast } from "@/hooks/use-toast";
 import { toastApiError } from "@/lib/api-error";
 import { useAuth } from "@/hooks/use-auth";
-import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet, History } from "lucide-react";
+import { Award, Users, Coins, Settings2, Hourglass, Gift, Search, PlusCircle, MessageSquare, Wallet, History, FileSpreadsheet } from "lucide-react";
+import { exportCsv, csvDate } from "@/lib/export-csv";
 
 const TYPE_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   cashback: { label: "اعتبار سود", variant: "default" },
@@ -224,6 +225,23 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
     joined: (m) => m.joinedAt,
   });
 
+  // خروجی اکسل اعضای در حال نمایش (همان جست‌وجو، سطح و ترتیب جدول)
+  function handleExport() {
+    const parts = ["اعضای-باشگاه"];
+    if (tier !== "all") parts.push(LOYALTY_TIER_META[tier].label);
+    parts.push(csvDate(Math.floor(Date.now() / 1000)).replace(/\//g, "-"));
+    exportCsv(parts.join("-").replace(/\s+/g, "-"), [
+      { header: "مراجع", value: (m) => m.patientName },
+      { header: "تلفن", value: (m) => m.phone ?? "" },
+      { header: "شماره پرونده", value: (m) => m.fileNumber ?? "" },
+      { header: "سطح", value: (m) => LOYALTY_TIER_META[m.tier as LoyaltyTierKey]?.label ?? m.tier },
+      { header: "کیف پول", value: (m) => m.walletBalance },
+      { header: "اعتبار هدیه‌شده", value: (m) => m.totalRewards },
+      { header: "خرید ۱۲ ماه", value: (m) => m.spend12m },
+      { header: "عضویت از", value: (m) => csvDate(m.joinedAt) },
+    ], membersSort.sorted);
+  }
+
   function openAdjust(m: LoyaltyMember) {
     setAdjusting(m);
     setAmountInput("");
@@ -258,7 +276,10 @@ function MembersTab({ settings }: { settings: LoyaltySettings | undefined }) {
               {LOYALTY_TIER_META[t].emoji} {LOYALTY_TIER_META[t].label} ({toPersianDigits((members ?? []).filter((m) => m.tier === t).length)})
             </Button>
           ))}
-          <Button size="sm" className="gap-1 mr-auto" onClick={() => { setNotifyTarget(null); setNotifyOpen(true); }}>
+          <Button size="sm" variant="outline" className="gap-1.5 mr-auto" onClick={handleExport} disabled={!filtered.length} data-testid="export-loyalty-members">
+            <FileSpreadsheet className="h-4 w-4" /> خروجی اکسل
+          </Button>
+          <Button size="sm" className="gap-1" onClick={() => { setNotifyTarget(null); setNotifyOpen(true); }}>
             <MessageSquare className="h-4 w-4" /> ارسال پیام به اعضا
           </Button>
         </div>

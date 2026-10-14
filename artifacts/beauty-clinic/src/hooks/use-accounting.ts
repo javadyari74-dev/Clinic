@@ -258,3 +258,24 @@ export function useDeleteExpense() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["accounting"] }),
   });
 }
+
+// ─── حداقل حاشیهٔ سود مطلوب (تنظیم محلی همین دستگاه؛ صفحهٔ خدمات و ریز سود) ─────────
+export const MIN_MARGIN_KEY = "clinic_min_margin_pct";
+export const DEFAULT_MIN_MARGIN = 20;
+
+export function readMinMarginPct(): number {
+  try {
+    const raw = localStorage.getItem(MIN_MARGIN_KEY);
+    if (raw === null || raw.trim() === "") return DEFAULT_MIN_MARGIN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : DEFAULT_MIN_MARGIN;
+  } catch {
+    return DEFAULT_MIN_MARGIN;
+  }
+}
+
+export function writeMinMarginPct(v: number): void {
+  try {
+    localStorage.setItem(MIN_MARGIN_KEY, String(v));
+  } catch { /* ذخیره‌سازی در دسترس نیست */ }
+}
