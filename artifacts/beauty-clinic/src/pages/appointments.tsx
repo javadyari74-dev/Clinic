@@ -167,6 +167,40 @@ async function bulkDeleteAppointments(ids: number[], withPayments = false): Prom
   return { deleted: Number(data?.deleted ?? ids.length), skipped: Array.isArray(data?.skipped) ? data!.skipped! : [] };
 }
 
+type BulkStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
+type BulkStatusResult = {
+  changed: number;
+  unchanged: number;
+  skipped: { id: number; reason: string }[];
+  message?: string;
+};
+
+/** تغییر وضعیت گروهی: نوبت‌های دارای پرداخت لغو نمی‌شوند و در skipped برمی‌گردند */
+async function bulkSetAppointmentStatus(ids: number[], status: BulkStatus): Promise<BulkStatusResult> {
+  const token = localStorage.getItem("clinic_auth_token");
+  const res = await fetch(`${API_BASE}/api/appointments/bulk-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ ids, status }),
+  });
+  const data = await res.json().catch(() => null) as Partial<BulkStatusResult> & { error?: string } | null;
+  if (!res.ok) {
+    throw Object.assign(new Error("خطا در تغییر وضعیت گروهی"), { data });
+  }
+  return {
+    changed: Number(data?.changed ?? 0),
+    unchanged: Number(data?.unchanged ?? 0),
+    skipped: Array.isArray(data?.skipped) ? data!.skipped! : [],
+    message: data?.message,
+  };
+}
+
+const BULK_STATUS_ACTIONS: { status: BulkStatus; label: string; className: string }[] = [
+  { status: "confirmed", label: "تأیید", className: "text-blue-700 border-blue-200 hover:bg-blue-50" },
+  { status: "completed", label: "انجام‌شده", className: "text-green-700 border-green-200 hover:bg-green-50" },
+  { status: "cancelled", label: "لغو", className: "text-red-700 border-red-200 hover:bg-red-50" },
+];
+
 type AppRow = {
   id: number;
   scheduledAt: number;
@@ -184,6 +218,8 @@ type AppRow = {
 type RowProps = {
   app: AppRow;
   isAdmin: boolean;
+  /** ستون انتخاب (تغییر وضعیت گروهی برای دسترسی «نوبت‌ها»، حذف گروهی فقط مدیر) */
+  canSelect: boolean;
   selected: Set<number>;
   onToggle: (id: number) => void;
   onEdit: (app: AppRow) => void;
@@ -192,14 +228,14 @@ type RowProps = {
   onPrefetch: (id: number) => void;
 };
 
-function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
+function AppointmentRow({ app, isAdmin, canSelect, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
   return (
     <TableRow
       className={selected.has(app.id) ? "bg-muted/50" : undefined}
       onMouseEnter={() => onPrefetch(app.id)}
       onFocus={() => onPrefetch(app.id)}
     >
-      {isAdmin && (
+      {canSelect && (
         <TableCell className="w-10 pr-4">
           <Checkbox checked={selected.has(app.id)} onCheckedChange={() => onToggle(app.id)} aria-label="انتخاب" />
         </TableCell>
@@ -269,14 +305,14 @@ const appSortAccessors = {
 type AppTableProps = Omit<RowProps, "app"> & { rows: AppRow[]; emptyText: string; onToggleAll: (ids: number[]) => void };
 
 function AppointmentTable({ rows, emptyText, onToggleAll, ...rowProps }: AppTableProps) {
-  const { isAdmin, selected } = rowProps;
+  const { isAdmin, canSelect, selected } = rowProps;
   const sort = useTableSort(rows, appSortAccessors);
   const ids = rows.map(a => a.id);
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          {isAdmin && (
+          {canSelect && (
             <TableHead className="w-10 pr-4">
               <Checkbox
                 checked={ids.length > 0 && ids.every(id => selected.has(id))}
@@ -298,7 +334,7 @@ function AppointmentTable({ rows, emptyText, onToggleAll, ...rowProps }: AppTabl
       <TableBody>
         {sort.sorted.map(app => <AppointmentRow key={app.id} app={app} {...rowProps} />)}
         {!rows.length && (
-          <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">{emptyText}</TableCell></TableRow>
+          <TableRow><TableCell colSpan={7 + (canSelect ? 1 : 0) + (isAdmin ? 1 : 0)} className="text-center py-8 text-muted-foreground">{emptyText}</TableCell></TableRow>
         )}
       </TableBody>
     </Table>
@@ -660,8 +696,11 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
 }
 
 export default function Appointments() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const isAdmin = user?.role === "admin";
+  // انتخاب ردیف‌ها برای تغییر وضعیت گروهی؛ حذف گروهی همچنان فقط مدیر
+  const canSelect = isAdmin || hasPermission("appointments");
+  const [bulkStatusBusy, setBulkStatusBusy] = useState<BulkStatus | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [isOpen, setIsOpen] = useState(false);
@@ -940,13 +979,41 @@ export default function Appointments() {
     }
   }
 
+  async function handleBulkStatus(status: BulkStatus) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkStatusBusy(status);
+    try {
+      const r = await bulkSetAppointmentStatus(ids, status);
+      const label = statuses[status]?.label ?? status;
+      const skippedIds = new Set(r.skipped.map((x) => x.id));
+      // نوبت‌های ردشده انتخاب‌شده می‌مانند تا کاربر ببیند کدام‌ها تغییر نکردند
+      setSelected(new Set(ids.filter((id) => skippedIds.has(id))));
+      invalidate();
+      const reasons = [...new Set(r.skipped.map((x) => x.reason))];
+      const extra = [
+        r.skipped.length > 0 ? `${toPersianDigits(r.skipped.length)} نوبت تغییر نکرد` : "",
+        r.unchanged > 0 ? `${toPersianDigits(r.unchanged)} نوبت از قبل «${label}» بود` : "",
+      ].filter(Boolean).join("؛ ");
+      toast({
+        title: `${toPersianDigits(r.changed)} نوبت «${label}» شد${extra ? `؛ ${extra}` : ""}`,
+        description: reasons.length > 0 ? reasons.join(" — ") : undefined,
+        variant: r.skipped.length > 0 && r.changed === 0 ? "destructive" : undefined,
+      });
+    } catch (err) {
+      toastApiError(err, "تغییر وضعیت گروهی ناموفق بود");
+    } finally {
+      setBulkStatusBusy(null);
+    }
+  }
+
   // نوبت‌های در حال حذف که پرداخت دارند (حذفشان پرداخت‌ها و اعتبار سود را هم برمی‌گرداند)
   const paidToDelete = (confirmDeleteIds ?? [])
     .map((id) => (allAppointments?.data ?? []).find((a) => a.id === id) ?? (rawList?.data ?? []).find((a) => a.id === id))
     .filter((a): a is NonNullable<typeof a> => !!a && (a.paidTotal ?? 0) > 0);
   const paidToDeleteTotal = paidToDelete.reduce((t, a) => t + (a.paidTotal ?? 0), 0);
 
-  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
+  const rowProps = { isAdmin, canSelect, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
 
   return (
     <div className="space-y-6">
@@ -964,15 +1031,30 @@ export default function Appointments() {
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
-      {/* Admin bulk action bar */}
-      {isAdmin && selected.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/60 px-4 py-2.5">
-          <span className="text-sm font-medium">{toPersianDigits(selected.size)} نوبت انتخاب‌شده</span>
-          <Button size="sm" variant="destructive" className="gap-1.5 h-8" disabled={isBulkDeleting}
-            onClick={() => setConfirmDeleteIds([...selected])}>
-            <Trash2 className="h-3.5 w-3.5" />
-            حذف انتخاب‌شده‌ها
-          </Button>
+      {/* نوار عملیات گروهی: تغییر وضعیت (دسترسی نوبت‌ها) + حذف (فقط مدیر) */}
+      {canSelect && selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/60 px-4 py-2.5" data-testid="appointments-bulk-bar">
+          <span className="text-sm font-medium ml-1">{toPersianDigits(selected.size)} نوبت انتخاب‌شده</span>
+          {BULK_STATUS_ACTIONS.map((a) => (
+            <Button
+              key={a.status}
+              size="sm"
+              variant="outline"
+              className={cn("h-8 bg-background", a.className)}
+              disabled={bulkStatusBusy !== null || isBulkDeleting}
+              onClick={() => void handleBulkStatus(a.status)}
+              data-testid={`bulk-status-${a.status}`}
+            >
+              {bulkStatusBusy === a.status ? "در حال ثبت..." : a.label}
+            </Button>
+          ))}
+          {isAdmin && (
+            <Button size="sm" variant="destructive" className="gap-1.5 h-8" disabled={isBulkDeleting || bulkStatusBusy !== null}
+              onClick={() => setConfirmDeleteIds([...selected])}>
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف انتخاب‌شده‌ها
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelected(new Set())}>لغو انتخاب</Button>
         </div>
       )}

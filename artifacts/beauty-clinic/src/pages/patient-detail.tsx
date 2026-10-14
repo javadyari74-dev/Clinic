@@ -2,7 +2,7 @@ import { PageHeader } from "@/components/page-header";
 import { UserRound } from "lucide-react";
 import { useState } from "react";
 import { PersianDatePicker } from "@/components/persian-date-picker";
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import {
   useGetPatient, useListPatients, useListPatientAppointments, useListPatientNotes,
   useCreatePatientNote, useDeletePatientNote, getListPatientNotesQueryKey,
@@ -10,8 +10,10 @@ import {
   useCreateAppointment, getListAppointmentsQueryKey, getListPatientAppointmentsQueryKey,
   useCreateReminder, getListRemindersQueryKey,
   useUpdatePatient, getGetPatientQueryKey, getListPatientsQueryKey,
-  useGetPatientLoyalty,
+  useGetPatientLoyalty, customFetch,
 } from "@workspace/api-client-react";
+import { PatientFinancialSummary } from "@/components/patient-financial-summary";
+import { PatientRemindersCard } from "@/components/patient-reminders-card";
 import { LoyaltyTierBadge, loyaltyTierLabel } from "@/components/loyalty-tier-badge";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +50,8 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   ArrowRight, Plus, Trash2, Phone, FileText, StickyNote,
-  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award, MessageSquare
+  CalendarDays, CalendarPlus, Mail, User, AlertCircle, Clock, Bell, Pencil, Award, MessageSquare,
+  Check, X, Wallet,
 } from "lucide-react";
 import { LoyaltyNotifyDialog } from "@/components/loyalty-notify-dialog";
 import { useAuth } from "@/hooks/use-auth";
@@ -122,6 +125,9 @@ export default function PatientDetail() {
     }
   }
   const [noteText, setNoteText] = useState("");
+  // ویرایش درجای یادداشت (PUT /patient-notes/:id)
+  const [noteEdit, setNoteEdit] = useState<{ id: number; content: string } | null>(null);
+  const [noteSaving, setNoteSaving] = useState(false);
   const [apptOpen, setApptOpen] = useState(false);
   const [apptServiceId, setApptServiceId] = useState("");
   const [apptStaffId, setApptStaffId] = useState("");
@@ -221,6 +227,30 @@ export default function PatientDetail() {
     },
   });
 
+  async function saveNoteEdit() {
+    if (!noteEdit) return;
+    const content = noteEdit.content.trim();
+    if (!content) {
+      toast({ title: "متن یادداشت خالی است", variant: "destructive" });
+      return;
+    }
+    setNoteSaving(true);
+    try {
+      await customFetch(`/api/patient-notes/${noteEdit.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+        headers: { "content-type": "application/json" },
+      });
+      await queryClient.invalidateQueries({ queryKey: getListPatientNotesQueryKey(id) });
+      setNoteEdit(null);
+      toast({ title: "یادداشت ویرایش شد" });
+    } catch (err) {
+      onApiError("ویرایش یادداشت ناموفق بود")(err);
+    } finally {
+      setNoteSaving(false);
+    }
+  }
+
   const createAppt = useCreateAppointment({
     mutation: {
       onSuccess: () => {
@@ -237,6 +267,7 @@ export default function PatientDetail() {
   const createReminder = useCreateReminder({
     mutation: {
       onSuccess: () => {
+        // پیشوند `/api/reminders` ⇒ کارت یادآوری‌های همین پرونده هم تازه می‌شود
         queryClient.invalidateQueries({ queryKey: getListRemindersQueryKey() });
         toast({ title: "یادآوری ثبت شد" });
         setReminderOpen(false);
@@ -328,10 +359,10 @@ export default function PatientDetail() {
     );
   }
 
-  // مجموع پرداخت‌ها از پرداخت‌های واقعی (شامل بیعانه و اقساط)، نه قیمت نوبت‌های تکمیل‌شده
-  const totalSpent = apptList.reduce((s, a) => s + (a.paidTotal ?? 0), 0);
-  // بدهی: جمع ماندهٔ نوبت‌های لغونشده
-  const totalDebt = apptList.filter(a => a.status !== "cancelled").reduce((s, a) => s + Math.max(0, a.remaining ?? 0), 0);
+  // تسویه/دریافت مانده از پرونده → صندوق با همین نوبت (فقط با دسترسی صندوق)
+  const canSettle = hasPermission("payments");
+  // ویرایش/حذف یادداشت (PUT/DELETE /patient-notes) با دسترسی «مراجعان»
+  const canEditNotes = hasPermission("patients");
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
@@ -364,6 +395,13 @@ export default function PatientDetail() {
       >
         {patient.tier && <TierBadge tier={patient.tier} showLabel />}
       </PageHeader>
+
+      {/* خلاصهٔ مالی پرونده: کل پرداختی، بدهی (با دریافت بدهی)، کیف پول، آخرین مراجعه */}
+      <PatientFinancialSummary
+        appointments={apptList}
+        walletBalance={patient.accountBalance}
+        canSettle={canSettle}
+      />
 
       {/* Edit Patient Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
@@ -565,20 +603,6 @@ export default function PatientDetail() {
               <p className="text-sm text-amber-800"><strong>هشدار: </strong>{patient.notes}</p>
             </div>
           )}
-          {(totalSpent > 0 || totalDebt > 0) && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground border-t pt-3">
-              <span>مجموع پرداخت‌ها:</span>
-              <span className="font-bold text-green-700">{formatCurrency(totalSpent)}</span>
-              <span className="mr-2">تعداد نوبت:</span>
-              <span className="font-bold">{toPersianDigits(apptList.length)} نوبت</span>
-              {totalDebt > 0 && (
-                <>
-                  <span className="mr-2">بدهی:</span>
-                  <span className="font-bold text-red-600" data-testid="patient-debt">{formatCurrency(totalDebt)}</span>
-                </>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -691,15 +715,41 @@ export default function PatientDetail() {
             />
           </div>
           <div className="space-y-2 max-h-56 overflow-y-auto">
-            {(notes as any[])?.map((n) => (
+            {(notes as any[])?.map((n) => noteEdit?.id === n.id ? (
+              <div key={n.id} className="flex items-center gap-2 p-2 bg-muted/50 rounded-lg text-sm border border-primary/40">
+                <Input
+                  autoFocus
+                  aria-label="ویرایش یادداشت"
+                  value={noteEdit?.content ?? ""}
+                  onChange={(e) => setNoteEdit({ id: n.id, content: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); void saveNoteEdit(); }
+                    if (e.key === "Escape") setNoteEdit(null);
+                  }}
+                />
+                <Button size="icon" className="h-8 w-8 shrink-0" title="ذخیره" aria-label="ذخیرهٔ یادداشت" disabled={noteSaving || !noteEdit?.content.trim()} onClick={() => void saveNoteEdit()}>
+                  <Check className="h-4 w-4" />
+                </Button>
+                <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" title="انصراف" aria-label="انصراف از ویرایش" onClick={() => setNoteEdit(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
               <div key={n.id} className="flex items-start justify-between gap-2 p-3 bg-muted/50 rounded-lg text-sm border">
                 <div className="flex-1">
-                  <p>{n.content}</p>
+                  <p className="whitespace-pre-wrap">{n.content}</p>
                   <p className="text-xs text-muted-foreground mt-1">{formatShamsiDate(n.createdAt, true)}</p>
                 </div>
-                <Button variant="ghost" size="sm" className="text-destructive shrink-0 h-6 w-6 p-0" onClick={() => setDeleteTarget({ id: n.id, label: 'این یادداشت' })}>
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+                {canEditNotes && (
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-primary" title="ویرایش یادداشت" aria-label="ویرایش یادداشت" onClick={() => setNoteEdit({ id: n.id, content: n.content ?? "" })}>
+                      <Pencil className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-destructive h-6 w-6 p-0" title="حذف یادداشت" aria-label="حذف یادداشت" onClick={() => setDeleteTarget({ id: n.id, label: 'این یادداشت' })}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
             {!notes?.length && (
@@ -708,6 +758,13 @@ export default function PatientDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {/* یادآوری‌های مراجع */}
+      <PatientRemindersCard
+        patientId={id}
+        canEdit={hasPermission("reminders")}
+        onAdd={hasPermission("reminders") || hasPermission("patients") || hasPermission("payments") ? () => openReminderDialog() : undefined}
+      />
 
       {/* Appointments Card */}
       <Card>
@@ -756,6 +813,14 @@ export default function PatientDetail() {
                         <Badge variant={statuses[a.status]?.variant ?? "secondary"} className="text-xs">
                           {statuses[a.status]?.label ?? a.status}
                         </Badge>
+                        {canSettle && a.status !== "cancelled" && (!a.hasCheckoutPayment || (a.remaining ?? 0) > 0) && (
+                          <Button asChild size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs whitespace-nowrap">
+                            <Link href={`/payments?appointmentId=${a.id}`} data-testid={`link-settle-appt-${a.id}`}>
+                              <Wallet className="h-3.5 w-3.5" />
+                              {(a.remaining ?? 0) > 0 ? "دریافت مانده" : "تسویه"}
+                            </Link>
+                          </Button>
+                        )}
                         <Button
                           size="icon"
                           variant="ghost"

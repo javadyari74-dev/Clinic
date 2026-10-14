@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and, gte, lt, sql, inArray, like } from "drizzle-orm";
-import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable, scheduledSmsTable, waitingListTable } from "@workspace/db";
+import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable, scheduledSmsTable, waitingListTable, usersTable } from "@workspace/db";
 import {
   ListAppointmentsQueryParams,
   CreateAppointmentBody,
@@ -239,6 +239,99 @@ router.delete("/appointments/bulk", async (req, res): Promise<void> => {
     deleted: result.deleted,
     skipped: result.skipped,
     ...(result.skipped.length > 0 ? { message: `${result.skipped.length} نوبت به‌دلیل داشتن پرداخت حذف نشد` } : {}),
+  });
+});
+
+// ── تغییر وضعیت گروهی ─────────────────────────────────────────────────────────
+// zod مستقیماً وابستگی این پکیج نیست؛ طرح‌ها از طرح‌های تولیدشدهٔ api-zod ساخته می‌شوند (همان نمونهٔ zod).
+const BULK_STATUSES = ["scheduled", "confirmed", "completed", "cancelled"] as const;
+type BulkStatus = (typeof BULK_STATUSES)[number];
+const BulkStatusBody = CreateAppointmentBody.pick({}).extend({
+  ids: GetAppointmentParams.shape.id.int().positive().array().min(1).max(1000),
+  status: UpdateAppointmentBody.shape.status.unwrap().refine(
+    (s): s is BulkStatus => (BULK_STATUSES as readonly string[]).includes(s ?? ""),
+    { message: "وضعیت نامعتبر است" },
+  ),
+});
+const CANCEL_PAID_MESSAGE = "نوبت پرداخت ثبت‌شده دارد و لغو نمی‌شود؛ ابتدا پرداخت را از صندوق برگردانید";
+const BULK_NOT_FOUND_MESSAGE = "نوبت یافت نشد";
+
+/** تغییر وضعیت فقط برای مدیر یا کاربر دارای دسترسی «نوبت‌ها» (نه صرفاً بیماران/صندوق) */
+async function canChangeAppointments(req: { jwtUser?: { sub: number; role: string; permissions?: string[] } }): Promise<boolean> {
+  const u = req.jwtUser;
+  if (!u) return false;
+  const row = await db.select({ role: usersTable.role, permissions: usersTable.permissions })
+    .from(usersTable).where(eq(usersTable.id, u.sub)).get();
+  let role = u.role;
+  let perms = u.permissions ?? [];
+  if (row) {
+    role = row.role;
+    try {
+      const parsed = JSON.parse(row.permissions ?? "[]");
+      perms = Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      perms = [];
+    }
+  }
+  return role === "admin" || (role !== "laser_operator" && perms.includes("appointments"));
+}
+
+router.post("/appointments/bulk-status", async (req, res): Promise<void> => {
+  const parsed = BulkStatusBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "شناسه‌های نوبت یا وضعیت نامعتبر است" });
+    return;
+  }
+  if (!(await canChangeAppointments(req))) {
+    res.status(403).json({ error: "برای تغییر وضعیت نوبت‌ها دسترسی «نوبت‌ها» لازم است" });
+    return;
+  }
+  const status = parsed.data.status as BulkStatus;
+  const ids = [...new Set(parsed.data.ids)];
+
+  const result = await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: appointmentsTable.id, status: appointmentsTable.status })
+      .from(appointmentsTable).where(inArray(appointmentsTable.id, ids));
+    const found = new Map(existing.map((a) => [a.id, a.status]));
+    const skipped: { id: number; reason: string }[] = ids
+      .filter((id) => !found.has(id))
+      .map((id) => ({ id, reason: BULK_NOT_FOUND_MESSAGE }));
+
+    let candidates = existing.filter((a) => a.status !== status).map((a) => a.id);
+    const unchanged = existing.length - candidates.length;
+
+    if (status === "cancelled" && candidates.length > 0) {
+      const paid = await tx.selectDistinct({ id: paymentsTable.appointmentId }).from(paymentsTable)
+        .where(inArray(paymentsTable.appointmentId, candidates));
+      const paidIds = new Set(paid.map((r) => r.id).filter((x): x is number => x != null));
+      for (const id of paidIds) skipped.push({ id, reason: CANCEL_PAID_MESSAGE });
+      candidates = candidates.filter((id) => !paidIds.has(id));
+    }
+
+    const updated = candidates.length > 0
+      ? await tx.update(appointmentsTable).set({ status })
+        .where(inArray(appointmentsTable.id, candidates)).returning({ id: appointmentsTable.id })
+      : [];
+    return { changed: updated.map((u) => u.id), skipped, unchanged };
+  });
+
+  if (result.changed.length > 0) {
+    await logActivity("update", "appointment", result.changed.length === 1 ? result.changed[0] : 0,
+      `وضعیت ${result.changed.length} نوبت به‌صورت گروهی به «${appointmentStatusLabel(status)}» تغییر کرد`);
+  }
+  const parts: string[] = [`${result.changed.length} نوبت به «${appointmentStatusLabel(status)}» تغییر کرد`];
+  const paidSkipped = result.skipped.filter((s) => s.reason === CANCEL_PAID_MESSAGE).length;
+  const missing = result.skipped.length - paidSkipped;
+  if (paidSkipped > 0) parts.push(`${paidSkipped} نوبت به‌دلیل داشتن پرداخت لغو نشد`);
+  if (missing > 0) parts.push(`${missing} نوبت یافت نشد`);
+  if (result.unchanged > 0) parts.push(`${result.unchanged} نوبت از قبل همین وضعیت را داشت`);
+  res.json({
+    status,
+    changed: result.changed.length,
+    changedIds: result.changed,
+    unchanged: result.unchanged,
+    skipped: result.skipped,
+    message: parts.join("؛ "),
   });
 });
 
