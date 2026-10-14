@@ -366,7 +366,7 @@ describe("birthday gift and bulk SMS", () => {
 
 describe("wallet and checkout stay in step", () => {
   const smallSvc = async (cost: number) => {
-    const [svc] = await dbm.db.insert(dbm.servicesTable).values({ name: "خدمت آزمایشی", price: 1, doctorFee: cost }).returning();
+    const [svc] = await dbm.db.insert(dbm.servicesTable).values({ name: "خدمت آزمایشی", price: 2_000_000, doctorFee: cost }).returning();
     return svc.id;
   };
 

@@ -629,11 +629,11 @@ export async function getWalletBalance(executor: LoyaltyExecutor, patientId: num
  * هزینهٔ خدمتِ یک نوبت (حق‌الزحمهٔ پزشک + مواد + سایر)، با همان قاعدهٔ حسابداری:
  * هزینه‌های «per_unit» × واحد مصرفی (واحد همین پرداخت، یا واحد ثبت‌شده در نوبت، یا تعداد واحد خدمت).
  */
-export async function appointmentServiceCost(tx: LoyaltyExecutor, appointmentId: number, unitsOverride?: number | null): Promise<number> {
+export async function appointmentServiceCost(tx: LoyaltyExecutor, appointmentId: number, unitsOverride?: number | null, billed = true): Promise<number> {
   // همان قاعدهٔ حسابداری: هزینه با نسخهٔ قیمتِ معتبر در روز ارائهٔ خدمت (lib/service-cost.ts)
   const override = unitsOverride && unitsOverride > 0 ? unitsOverride : null;
   const rows = await tx.all<{ cost: number }>(sql`
-    SELECT ${appointmentCostSql(override != null ? sql`${override}` : undefined)} AS cost
+    SELECT ${appointmentCostSql(override != null ? sql`${override}` : undefined, billed)} AS cost
     FROM appointments a INNER JOIN services s ON s.id = a.service_id
     ${PRICE_VERSION_JOIN}
     WHERE a.id = ${appointmentId}
@@ -748,6 +748,55 @@ export async function reconcileAppointmentCashback(
   });
   if ((await getWalletBalance(tx, pid)) < 0) throw new Error(WALLET_NEGATIVE_ERROR);
   return excess;
+}
+
+/**
+ * اصلاح یک‌بارهٔ اعتبار سودهایی که پیش از «هزینه به نسبت مبلغ صورت‌حساب» داده شده‌اند: نوبتی که
+ * مبلغش چند برابر قیمت خدمت بود (پکیج چند جلسه‌ای) هزینهٔ یک جلسه را کم کرده بود و اعتبار زیادی
+ * گرفته بود. با همان نرخی که واقعاً داده شده (اعتبار ÷ سود قبلی)، اعتبار با سود درست دوباره حساب
+ * و مازاد از کیف پول کم می‌شود (هرگز زیر صفر نمی‌رود؛ اعتبار اضافه هم داده نمی‌شود).
+ */
+export async function fixOverstatedCashback(tx: LoyaltyExecutor): Promise<Array<{ patientId: number; appointmentId: number; removed: number }>> {
+  const rows = await tx.all<{ appointment_id: number; patient_id: number; paid: number; rewarded: number; granted: number; last_payment_id: number; units_used: number | null }>(sql`
+    SELECT a.id AS appointment_id, a.patient_id AS patient_id,
+      (SELECT COALESCE(SUM(p.amount), 0) FROM payments p WHERE p.appointment_id = a.id) AS paid,
+      (SELECT COALESCE(SUM(t.amount), 0) FROM patient_account_transactions t INNER JOIN payments p ON p.id = t.payment_id
+        WHERE p.appointment_id = a.id AND t.type = 'loyalty_cashback') AS rewarded,
+      (SELECT COALESCE(SUM(t.amount), 0) FROM patient_account_transactions t INNER JOIN payments p ON p.id = t.payment_id
+        WHERE p.appointment_id = a.id AND t.type = 'loyalty_cashback' AND t.amount > 0) AS granted,
+      (SELECT MAX(p.id) FROM payments p WHERE p.appointment_id = a.id) AS last_payment_id,
+      (SELECT p.units_used FROM payments p WHERE p.appointment_id = a.id ORDER BY p.id DESC LIMIT 1) AS units_used
+    FROM appointments a
+    WHERE EXISTS (SELECT 1 FROM patient_account_transactions t INNER JOIN payments p ON p.id = t.payment_id
+      WHERE p.appointment_id = a.id AND t.type = 'loyalty_cashback')
+  `);
+  const fixed: Array<{ patientId: number; appointmentId: number; removed: number }> = [];
+  for (const r of rows) {
+    const rewarded = Number(r.rewarded);
+    if (!(rewarded > 0) || r.last_payment_id == null) continue;
+    const appointmentId = Number(r.appointment_id);
+    const paid = Number(r.paid);
+    const oldCost = await appointmentServiceCost(tx, appointmentId, r.units_used, false);
+    const newCost = await appointmentServiceCost(tx, appointmentId, r.units_used, true);
+    if (!(newCost > oldCost)) continue;
+    const oldProfit = paid - oldCost;
+    if (!(oldProfit > 0)) continue;
+    const newProfit = paid - newCost;
+    // نرخ از اعتبارِ اصلیِ داده‌شده (بدون اصلاحیه‌ها) تا اجرای دوباره چیزی کم نکند
+    const granted = Number(r.granted);
+    const target = newProfit > 0 ? Math.floor((newProfit * granted) / oldProfit / 1000 + 1e-9) * 1000 : 0;
+    const excess = rewarded - target;
+    if (!(excess > 0)) continue;
+    const patientId = Number(r.patient_id);
+    const removed = Math.min(excess, Math.max(0, await getWalletBalance(tx, patientId)));
+    if (!(removed > 0)) continue;
+    const description = `اصلاح اعتبار سود: هزینهٔ خدمت به نسبت مبلغ صورت‌حساب (${fa(removed)} تومان)`;
+    const paymentId = Number(r.last_payment_id);
+    await creditWallet(tx, patientId, -removed, "loyalty_cashback", description, paymentId);
+    await tx.insert(loyaltyTransactionsTable).values({ patientId, paymentId, delta: 0, amount: -removed, type: "cashback", description });
+    fixed.push({ patientId, appointmentId, removed });
+  }
+  return fixed;
 }
 
 // ── اعتبار سودِ پرداخت‌های قبلی ──────────────────────────────────────────────

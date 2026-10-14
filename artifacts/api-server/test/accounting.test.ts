@@ -47,7 +47,7 @@ beforeAll(async () => {
     // پرداخت نهایی: روز دوم، ساعت ۱ بامداد تهران (در UTC هنوز روز اول است)
     { appointmentId: appt.id, originalAmount: 900_000, amount: 900_000, method: "card", paidAt: T0 + DAY + HOUR },
     // خارج از بازه
-    { appointmentId: appt.id, originalAmount: 5_000_000, amount: 5_000_000, method: "card", paidAt: T0 + 10 * DAY },
+    { appointmentId: appt.id, originalAmount: 1_000_000, amount: 5_000_000, method: "card", paidAt: T0 + 10 * DAY },
   ]);
   // هزینهٔ ثابت با تاریخ «نیمه‌شب محلی» روز اول، همان‌طور که فرم ثبت هزینه ذخیره می‌کند
   await db.insert(dbm.expensesTable).values({ category: "rent", amount: 300_000, description: "اجاره", date: T0 });

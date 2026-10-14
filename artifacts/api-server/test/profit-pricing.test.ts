@@ -74,6 +74,7 @@ beforeAll(async () => {
 
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => { (req as unknown as { jwtUser: unknown }).jwtUser = { sub: 1, role: "admin", username: "admin" }; next(); });
   for (const mod of ["payments", "appointments", "services", "accounting", "loyalty", "purchases"]) {
     const { default: r } = await import(`../src/routes/${mod}.ts`);
     app.use(r);
@@ -269,5 +270,85 @@ describe("profit details per service and visit", () => {
     // با تفکیک خدمات (by-service) همخوان است
     const bs = (await call("GET", `/accounting/by-service?from=${from}&to=${to}`)).json.find((x: { serviceId: number }) => x.serviceId === svc.id);
     expect(bs).toMatchObject({ revenue: row.revenue, totalServiceCost: row.serviceCost, profit: row.profit });
+  });
+});
+
+describe("a package billed on one appointment (cost scales with the billed amount)", () => {
+  it("26.29M billed for a 2.4M service with 29% margin: cost scales ×(26.29/2.4), so the club credit is ~5% of 7.67M, not of 24.6M", async () => {
+    const settings = (await call("GET", "/loyalty/settings")).json;
+    await call("PUT", "/loyalty/settings", { ...settings, enabled: true, profitRewardPercent: 5 });
+    try {
+      const svc = (await call("POST", "/services", { name: "اپرا پکیج", price: 2_400_000, doctorFee: 1_300_000, materialCost: 300_000, otherCost: 100_000 })).json;
+      const p = await patient("خرامان");
+      const a = await appointment(p.id, svc.id);
+      const from = nowSec() - 5;
+      const base0 = await summary(from, nowSec() + 5);
+      const pay = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 26_290_000, amount: 26_290_000, method: "card" });
+      expect(pay.status).toBe(201);
+      // هزینه = ۱.۷ م × ۲۶.۲۹ / ۲.۴ ≈ ۱۸٬۶۲۲٬۰۸۴ → سود ≈ ۷٬۶۶۷٬۹۱۶ → ۵٪ = ۳۸۳ هزار
+      const w = (await dbm.db.select().from(dbm.patientsTable).all()).find((x) => x.id === p.id);
+      expect(w?.accountBalance).toBe(383_000);
+
+      const s = await summary(from, nowSec() + 5);
+      expect(s.serviceCosts - base0.serviceCosts).toBe(18_622_084);
+      const det = (await call("GET", `/accounting/profit-details?from=${from}&to=${nowSec() + 5}`)).json;
+      expect(det.services.find((x: { serviceId: number }) => x.serviceId === svc.id)).toMatchObject({ serviceCost: 18_622_084, profit: 7_667_916 });
+
+      // تخفیف توافقی هزینه را کم نمی‌کند (ضریب حداقل ۱)
+      const b = await appointment(p.id, svc.id);
+      await call("POST", "/payments", { appointmentId: b.id, originalAmount: 2_400_000, amount: 2_000_000, method: "card", settleInFull: true });
+      const det2 = (await call("GET", `/accounting/profit-details?from=${from}&to=${nowSec() + 5}`)).json;
+      const v = det2.services.find((x: { serviceId: number }) => x.serviceId === svc.id).visits.find((x: { appointmentId: number }) => x.appointmentId === b.id);
+      expect(v).toMatchObject({ revenue: 2_000_000, serviceCost: 1_700_000, profit: 300_000 });
+    } finally {
+      await call("PUT", "/loyalty/settings", { ...settings, enabled: false });
+    }
+  });
+
+  it("deleting an appointment together with its payments takes its revenue and the whole profit credit back", async () => {
+    const settings = (await call("GET", "/loyalty/settings")).json;
+    await call("PUT", "/loyalty/settings", { ...settings, enabled: true, profitRewardPercent: 5 });
+    try {
+      const svc = (await call("POST", "/services", { name: "حذف با پرداخت", price: 3_000_000, doctorFee: 1_000_000 })).json;
+      const p = await patient("حذف‌کامل");
+      const a = await appointment(p.id, svc.id);
+      const from = nowSec() - 5;
+      const base0 = await summary(from, nowSec() + 5);
+      await call("POST", "/payments", { appointmentId: a.id, originalAmount: 3_000_000, amount: 500_000, method: "cash", notes: "بیعانه" });
+      await call("POST", "/payments", { appointmentId: a.id, originalAmount: 3_000_000, amount: 2_500_000, method: "card" });
+      const bal = async () => (await dbm.db.select().from(dbm.patientsTable).all()).find((x) => x.id === p.id)?.accountBalance;
+      expect(await bal()).toBe(100_000);
+
+      // بدون اجازهٔ حذف پرداخت‌ها رد می‌شود
+      const refused = await call("DELETE", `/appointments/${a.id}`);
+      expect(refused.status).toBe(400);
+      expect(refused.json.hasPayments).toBe(true);
+
+      expect((await call("DELETE", `/appointments/${a.id}?withPayments=1`)).status).toBe(204);
+      expect(await bal()).toBe(0);
+      const left = (await dbm.db.select().from(dbm.paymentsTable).all()).filter((x) => x.appointmentId === a.id);
+      expect(left).toHaveLength(0);
+      const s = await summary(from, nowSec() + 5);
+      expect(s.revenue - base0.revenue).toBe(0);
+      expect(s.serviceCosts - base0.serviceCosts).toBe(0);
+    } finally {
+      await call("PUT", "/loyalty/settings", { ...settings, enabled: false });
+    }
+  });
+
+  it("corrects credits given earlier with a single-session cost (one-time fix)", async () => {
+    const svc = (await call("POST", "/services", { name: "اصلاح قدیمی", price: 2_000_000, doctorFee: 1_000_000 })).json;
+    const p = await patient("اعتبار زیادی");
+    const a = await appointment(p.id, svc.id);
+    // پرداخت ۱۰ میلیونی (۵ جلسه) با اعتبار قدیمیِ اشتباه: ۵٪ × (۱۰ م − ۱ م) = ۴۵۰ هزار
+    const [pay] = await dbm.db.insert(dbm.paymentsTable).values({ appointmentId: a.id, originalAmount: 10_000_000, amount: 10_000_000, method: "card", paidAt: nowSec() }).returning();
+    const loyalty = await import("../src/lib/loyalty");
+    await loyalty.creditWallet(dbm.db, p.id, 450_000, "loyalty_cashback", "اعتبار سود خدمت", pay.id);
+    const fixed = await loyalty.fixOverstatedCashback(dbm.db);
+    // درست: ۵٪ × (۱۰ م − ۵ م) = ۲۵۰ هزار → ۲۰۰ هزار کسر می‌شود
+    expect(fixed.find((f) => f.appointmentId === a.id)?.removed).toBe(200_000);
+    expect(await loyalty.getWalletBalance(dbm.db, p.id)).toBe(250_000);
+    // اجرای دوباره چیزی کم نمی‌کند
+    expect((await loyalty.fixOverstatedCashback(dbm.db)).find((f) => f.appointmentId === a.id)).toBeUndefined();
   });
 });

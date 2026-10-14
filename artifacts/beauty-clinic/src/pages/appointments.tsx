@@ -151,18 +151,20 @@ function tsToTimeStr(ts: number): string {
 
 const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-async function bulkDeleteAppointments(ids: number[]): Promise<void> {
+async function bulkDeleteAppointments(ids: number[], withPayments = false): Promise<{ deleted: number; skipped: number[] }> {
   const token = localStorage.getItem("clinic_auth_token");
   const res = await fetch(`${API_BASE}/api/appointments/bulk`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ids }),
+    body: JSON.stringify(withPayments ? { ids, withPayments: true } : { ids }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => null);
     // Mirror ApiError's shape so the shared toast helper can read `.data.error`.
     throw Object.assign(new Error("خطا در حذف دسته‌جمعی"), { data });
   }
+  const data = await res.json().catch(() => null) as { deleted?: number; skipped?: number[] } | null;
+  return { deleted: Number(data?.deleted ?? ids.length), skipped: Array.isArray(data?.skipped) ? data!.skipped! : [] };
 }
 
 type AppRow = {
@@ -916,13 +918,20 @@ export default function Appointments() {
     });
   }, []);
 
-  async function handleBulkDelete(ids: number[]) {
+  async function handleBulkDelete(ids: number[], withPayments = false) {
     setIsBulkDeleting(true);
     try {
-      await bulkDeleteAppointments(ids);
-      setSelected(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
+      const result = await bulkDeleteAppointments(ids, withPayments);
+      setSelected(prev => { const s = new Set(prev); ids.filter(id => !result.skipped.includes(id)).forEach(id => s.delete(id)); return s; });
       invalidate();
-      toast({ title: `${toPersianDigits(ids.length)} نوبت حذف شدند` });
+      // فقط تعدادی که واقعاً حذف شد؛ نوبت‌های دارای پرداخت (بدون اجازهٔ حذف پرداخت) جدا گفته می‌شوند
+      toast(result.skipped.length > 0
+        ? {
+            title: `${toPersianDigits(result.deleted)} نوبت حذف شد؛ ${toPersianDigits(result.skipped.length)} نوبت به‌دلیل داشتن پرداخت حذف نشد`,
+            description: isAdmin ? "برای حذف آن‌ها همراه با پرداخت‌ها، دوباره حذف را بزنید و «حذف همراه با پرداخت‌ها» را تأیید کنید." : "حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است.",
+            variant: "destructive",
+          }
+        : { title: `${toPersianDigits(result.deleted)} نوبت حذف شد${withPayments ? " (همراه با پرداخت‌ها)" : ""}` });
     } catch (err) {
       toastApiError(err, "خطا در حذف دسته‌جمعی");
     } finally {
@@ -930,6 +939,12 @@ export default function Appointments() {
       setConfirmDeleteIds(null);
     }
   }
+
+  // نوبت‌های در حال حذف که پرداخت دارند (حذفشان پرداخت‌ها و اعتبار سود را هم برمی‌گرداند)
+  const paidToDelete = (confirmDeleteIds ?? [])
+    .map((id) => (allAppointments?.data ?? []).find((a) => a.id === id) ?? (rawList?.data ?? []).find((a) => a.id === id))
+    .filter((a): a is NonNullable<typeof a> => !!a && (a.paidTotal ?? 0) > 0);
+  const paidToDeleteTotal = paidToDelete.reduce((t, a) => t + (a.paidTotal ?? 0), 0);
 
   const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
 
@@ -1233,6 +1248,18 @@ export default function Appointments() {
                 ? "آیا مطمئن هستید که می‌خواهید این نوبت را حذف کنید؟ این عملیات قابل بازگشت نیست."
                 : `آیا مطمئن هستید که می‌خواهید ${toPersianDigits(confirmDeleteIds?.length ?? 0)} نوبت انتخاب‌شده را حذف کنید؟ این عملیات قابل بازگشت نیست.`}
             </AlertDialogDescription>
+            {paidToDelete.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 space-y-1" data-testid="delete-paid-warning">
+                <p className="font-semibold">
+                  {paidToDelete.length === 1 ? "این نوبت" : `${toPersianDigits(paidToDelete.length)} نوبت`} پرداخت ثبت‌شده دارد ({formatCurrency(paidToDeleteTotal)}).
+                </p>
+                {isAdmin ? (
+                  <p>با حذف، پرداخت‌ها هم حذف و از درآمد کم می‌شوند و اعتبار سود کیف پول، کمیسیون و امتیازِ آن‌ها کامل برگردانده می‌شود.</p>
+                ) : (
+                  <p>حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است.</p>
+                )}
+              </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>انصراف</AlertDialogCancel>
@@ -1241,11 +1268,15 @@ export default function Appointments() {
               disabled={deleteAppointment.isPending || isBulkDeleting}
               onClick={() => {
                 if (!confirmDeleteIds) return;
-                if (confirmDeleteIds.length === 1) deleteAppointment.mutate({ id: confirmDeleteIds[0] });
+                // نوبت دارای پرداخت: مدیر همراه با پرداخت‌ها حذف می‌کند (سرور همهٔ آثار مالی را برمی‌گرداند)
+                if (paidToDelete.length > 0 && isAdmin) handleBulkDelete(confirmDeleteIds, true);
+                else if (confirmDeleteIds.length === 1) deleteAppointment.mutate({ id: confirmDeleteIds[0] });
                 else handleBulkDelete(confirmDeleteIds);
               }}
             >
-              {(deleteAppointment.isPending || isBulkDeleting) ? "در حال حذف..." : "حذف"}
+              {(deleteAppointment.isPending || isBulkDeleting)
+                ? "در حال حذف..."
+                : paidToDelete.length > 0 && isAdmin ? "حذف همراه با پرداخت‌ها" : "حذف"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

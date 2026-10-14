@@ -6,7 +6,9 @@ import {
   patientsTable,
   servicesTable,
   remindersTable,
+  appSettingsTable,
 } from "@workspace/db";
+import { fixOverstatedCashback } from "./loyalty";
 import { generateUniqueAppointmentCode } from "./appointment-code";
 import { gregorianToJalali } from "./shamsi";
 
@@ -90,4 +92,17 @@ export async function repairShamsiReminderDates(): Promise<number> {
     repaired++;
   }
   return repaired;
+}
+
+// یک‌بار پس از ارتقا: اعتبار سودهایی که با هزینهٔ «یک جلسه» برای صورت‌حساب‌های چند برابری
+// حساب شده بودند اصلاح می‌شوند (lib/loyalty.ts → fixOverstatedCashback). جمع مبلغ کسرشده را برمی‌گرداند.
+const BILLED_CASHBACK_FIX_KEY = "data_fix_billed_cost_cashback";
+export async function fixOverstatedCashbackOnce(): Promise<number> {
+  return db.transaction(async (tx) => {
+    const done = await tx.select().from(appSettingsTable).where(eq(appSettingsTable.key, BILLED_CASHBACK_FIX_KEY)).get();
+    if (done) return 0;
+    const fixed = await fixOverstatedCashback(tx);
+    await tx.insert(appSettingsTable).values({ key: BILLED_CASHBACK_FIX_KEY, value: String(Date.now()) });
+    return fixed.reduce((t, f) => t + f.removed, 0);
+  });
 }

@@ -87,7 +87,7 @@ beforeAll(async () => {
   const [svc] = await dbm.db.insert(dbm.servicesTable).values({ name: "بوتاکس", price: 1 }).returning();
   serviceId = svc.id;
   const [costly] = await dbm.db.insert(dbm.servicesTable)
-    .values({ name: "فیلر", price: 1, doctorFee: 1_000_000 }).returning();
+    .values({ name: "فیلر", price: 3_000_000, doctorFee: 1_000_000 }).returning();
   costlyServiceId = costly.id;
 
   const app = express();

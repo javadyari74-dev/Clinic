@@ -30,16 +30,34 @@ export function unitsSql(unitsOverride?: SQL): SQL {
     : sql`coalesce(a.units_used, ${col("unit_count")}, 1)`;
 }
 
+/**
+ * ضریب مقدار فروخته‌شده: اگر مبلغ ناخالصِ صورت‌حساب این نوبت (مبلغ اصلی آخرین پرداخت تسویه، پیش از
+ * تخفیف) از قیمت فهرست خدمت بیشتر باشد ــ مثلاً پکیج چند جلسه‌ای یک‌جا در یک نوبت پرداخت شده ــ
+ * هزینه هم به همان نسبت بیشتر است (۲۶ میلیون از خدمتی ۲.۴ میلیونی ≈ ۱۰.۸ برابر هزینه).
+ * تخفیف و چانه‌زنی هزینه را کم نمی‌کند (حداقل ضریب ۱).
+ */
+export function billedFactorSql(unitsOverride?: SQL): SQL {
+  const units = unitsSql(unitsOverride);
+  const listPrice = sql`(CASE WHEN ${col("price_mode")} = 'per_unit' THEN coalesce(${col("price")}, 0) * ${units} ELSE coalesce(${col("price")}, 0) END)`;
+  return sql`max(1.0, coalesce(
+    (SELECT bp.original_amount FROM payments bp
+      WHERE bp.appointment_id = a.id AND coalesce(bp.notes, '') <> 'بیعانه'
+      ORDER BY bp.id DESC LIMIT 1) * 1.0 / nullif(${listPrice}, 0),
+    1.0))`;
+}
+
 /** یک جزء هزینه (دستمزد پزشک / مواد / سایر) با نسخهٔ معتبر در روز خدمت (خالی = صفر) */
-export function costPartSql(part: "doctor" | "material" | "other", unitsOverride?: SQL): SQL {
+export function costPartSql(part: "doctor" | "material" | "other", unitsOverride?: SQL, billed = true): SQL {
   const [fee, mode] = part === "doctor"
     ? ["doctor_fee", "doctor_fee_mode"]
     : part === "material" ? ["material_cost", "material_cost_mode"] : ["other_cost", "other_cost_mode"];
   const units = unitsSql(unitsOverride);
-  return sql`(CASE WHEN ${col(mode)} = 'per_unit' THEN coalesce(${col(fee)}, 0) * ${units} ELSE coalesce(${col(fee)}, 0) END)`;
+  const base = sql`(CASE WHEN ${col(mode)} = 'per_unit' THEN coalesce(${col(fee)}, 0) * ${units} ELSE coalesce(${col(fee)}, 0) END)`;
+  if (!billed) return base;
+  return sql`CAST(round(${base} * ${billedFactorSql(unitsOverride)}) AS integer)`;
 }
 
 /** هزینهٔ کل خدمتِ نوبت با نسخهٔ معتبر در روز خدمت (ستون‌های خالی = صفر) */
-export function appointmentCostSql(unitsOverride?: SQL): SQL {
-  return sql`(${costPartSql("doctor", unitsOverride)} + ${costPartSql("material", unitsOverride)} + ${costPartSql("other", unitsOverride)})`;
+export function appointmentCostSql(unitsOverride?: SQL, billed = true): SQL {
+  return sql`(${costPartSql("doctor", unitsOverride, billed)} + ${costPartSql("material", unitsOverride, billed)} + ${costPartSql("other", unitsOverride, billed)})`;
 }

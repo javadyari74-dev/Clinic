@@ -20,9 +20,24 @@ import {
   nextSessionNumber,
   appointmentStatusLabel,
 } from "../lib/appointment-details";
-import { recordDepositPayment, fireReferrerCommissionSms, type Tx } from "../lib/payment-effects";
+import { recordDepositPayment, fireReferrerCommissionSms, reversePaymentEffects, PaymentEffectError, type Tx } from "../lib/payment-effects";
 
 const HAS_PAYMENTS_MESSAGE = "این نوبت پرداخت ثبت‌شده دارد؛ ابتدا پرداخت‌ها را از صندوق حذف کنید";
+const ADMIN_ONLY_MESSAGE = "حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است";
+
+/**
+ * حذف پرداخت‌های یک نوبت با برگرداندن کامل همهٔ آثارشان (کیف پول و اعتبار سود، کمیسیون، تخفیف،
+ * امتیاز، یادآوری) ــ همان مسیر حذف پرداخت از صندوق؛ جدیدترین پرداخت اول (تا اعتبار تجمعی درست برگردد).
+ */
+async function deletePaymentsOf(tx: Tx, appointmentId: number): Promise<number> {
+  const pays = await tx.select({ id: paymentsTable.id }).from(paymentsTable)
+    .where(eq(paymentsTable.appointmentId, appointmentId)).orderBy(desc(paymentsTable.id));
+  for (const p of pays) {
+    const [claimed] = await tx.delete(paymentsTable).where(eq(paymentsTable.id, p.id)).returning();
+    if (claimed) await reversePaymentEffects(tx, claimed, { skipAppointmentRecompute: true });
+  }
+  return pays.length;
+}
 
 // پاک‌کردن داده‌های وابسته به نوبتِ در حال حذف (داخل تراکنش حذف):
 // پیامک‌های زمان‌بندی‌شدهٔ همین نوبت و ارجاع لیست انتظار به آن
@@ -186,11 +201,21 @@ router.delete("/appointments/bulk", async (req, res): Promise<void> => {
     res.status(400).json({ error: "آرایه‌ای از شناسه‌های معتبر ارسال کنید" });
     return;
   }
-  // نوبت‌هایی که پرداخت دارند حذف نمی‌شوند (تا پرداخت/کمیسیون/کیف پول یتیم نماند)
-  const result = await db.transaction(async (tx) => {
+  // نوبت‌هایی که پرداخت دارند حذف نمی‌شوند (تا پرداخت/کمیسیون/کیف پول یتیم نماند)، مگر مدیر
+  // «حذف همراه با پرداخت‌ها» را بخواهد: آن‌وقت پرداخت‌ها با همهٔ آثارشان برگردانده می‌شوند.
+  const withPaymentsAllowed = (req.body as { withPayments?: unknown })?.withPayments === true;
+  if (withPaymentsAllowed && req.jwtUser?.role !== "admin") {
+    res.status(403).json({ error: ADMIN_ONLY_MESSAGE });
+    return;
+  }
+  let result: { deleted: number; skipped: number[] };
+  try {
+  result = await db.transaction(async (tx) => {
     const withPayments = await tx.selectDistinct({ id: paymentsTable.appointmentId }).from(paymentsTable)
       .where(inArray(paymentsTable.appointmentId, ids));
-    const skipped = withPayments.map((r) => r.id);
+    const paidIds = withPayments.map((r) => r.id).filter((x): x is number => x != null);
+    if (withPaymentsAllowed) for (const id of paidIds) await deletePaymentsOf(tx, id);
+    const skipped = withPaymentsAllowed ? [] : paidIds;
     const deletable = ids.filter((id) => !skipped.includes(id));
     const deleted = deletable.length > 0
       ? await tx.delete(appointmentsTable).where(inArray(appointmentsTable.id, deletable)).returning({ id: appointmentsTable.id })
@@ -198,6 +223,13 @@ router.delete("/appointments/bulk", async (req, res): Promise<void> => {
     await cleanupAppointmentLinks(tx, deleted.map((d) => d.id));
     return { deleted: deleted.length, skipped };
   });
+  } catch (err) {
+    if (err instanceof PaymentEffectError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   if (result.deleted === 0 && result.skipped.length > 0) {
     res.status(400).json({ error: `${HAS_PAYMENTS_MESSAGE} (${result.skipped.length} نوبت)`, deleted: 0, skipped: result.skipped });
     return;
@@ -263,14 +295,22 @@ router.delete("/appointments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  // نوبتی که پرداخت (بیعانه/تسویه) دارد حذف نمی‌شود تا پرداخت، کمیسیون و کیف پول یتیم نماند
+  // نوبتی که پرداخت (بیعانه/تسویه) دارد حذف نمی‌شود تا پرداخت، کمیسیون و کیف پول یتیم نماند؛
+  // مگر مدیر با ?withPayments=1 بخواهد: پرداخت‌ها هم با برگرداندن کامل آثارشان حذف می‌شوند.
   const NOT_FOUND = "NOT_FOUND";
   const HAS_PAYMENTS = "HAS_PAYMENTS";
+  const withPayments = req.query.withPayments === "1" || req.query.withPayments === "true";
+  if (withPayments && req.jwtUser?.role !== "admin") {
+    res.status(403).json({ error: ADMIN_ONLY_MESSAGE });
+    return;
+  }
+  let removedPayments = 0;
   try {
     await db.transaction(async (tx) => {
       const pays = await tx.select({ id: paymentsTable.id }).from(paymentsTable)
         .where(eq(paymentsTable.appointmentId, params.data.id)).limit(1);
-      if (pays.length > 0) throw new Error(HAS_PAYMENTS);
+      if (pays.length > 0 && !withPayments) throw new Error(HAS_PAYMENTS);
+      if (pays.length > 0) removedPayments = await deletePaymentsOf(tx, params.data.id);
       const [deleted] = await tx.delete(appointmentsTable).where(eq(appointmentsTable.id, params.data.id)).returning();
       if (!deleted) throw new Error(NOT_FOUND);
       await cleanupAppointmentLinks(tx, [deleted.id]);
@@ -281,12 +321,17 @@ router.delete("/appointments/:id", async (req, res): Promise<void> => {
       return;
     }
     if (err instanceof Error && err.message === HAS_PAYMENTS) {
-      res.status(400).json({ error: HAS_PAYMENTS_MESSAGE });
+      res.status(400).json({ error: HAS_PAYMENTS_MESSAGE, hasPayments: true });
+      return;
+    }
+    if (err instanceof PaymentEffectError) {
+      res.status(err.status).json({ error: err.message });
       return;
     }
     throw err;
   }
-  await logActivity("delete", "appointment", params.data.id, `نوبت حذف شد`);
+  await logActivity("delete", "appointment", params.data.id,
+    removedPayments > 0 ? `نوبت همراه با ${removedPayments} پرداخت حذف شد` : `نوبت حذف شد`);
   res.sendStatus(204);
 });
 
