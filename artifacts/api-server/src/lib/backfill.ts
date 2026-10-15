@@ -9,6 +9,7 @@ import {
   appSettingsTable,
 } from "@workspace/db";
 import { fixOverstatedCashback } from "./loyalty";
+import { sql } from "drizzle-orm";
 import { generateUniqueAppointmentCode } from "./appointment-code";
 import { gregorianToJalali } from "./shamsi";
 
@@ -105,5 +106,43 @@ export async function fixOverstatedCashbackOnce(): Promise<number> {
     const fixed = await fixOverstatedCashback(tx);
     await tx.insert(appSettingsTable).values({ key: BILLED_CASHBACK_FIX_KEY, value: String(Date.now()) });
     return fixed.reduce((t, f) => t + f.removed, 0);
+  });
+}
+
+// یک‌بار پس از ارتقا: پرداخت‌هایی که بعد از ماهِ خدمت در صندوق ثبت شده‌اند (مثلاً خدمت مرداد که مهر
+// ثبت شده) به روز خدمت منتقل می‌شوند تا درآمد، هزینه و سودشان در ماه خودش حساب شود.
+// فقط پرداخت‌هایی که دست‌کم یک روز بعد از خدمت و در ماه شمسیِ دیگری ثبت شده‌اند؛ بیعانهٔ پیش از
+// خدمت و پرداختِ همان ماه دست نمی‌خورند. کمیسیون‌های همان پرداخت هم با آن جابه‌جا می‌شوند.
+const MOVE_TO_SERVICE_MONTH_KEY = "data_fix_payments_to_service_month";
+const TEHRAN_OFFSET_SEC = 12_600;
+function shamsiMonthKey(sec: number): string {
+  const d = new Date((sec + TEHRAN_OFFSET_SEC) * 1000);
+  const [jy, jm] = gregorianToJalali(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  return `${jy}-${jm}`;
+}
+export async function movePaymentsToServiceMonth(executor: Pick<typeof db, "all" | "run"> = db): Promise<number> {
+  const rows = await executor.all<{ id: number; paid_at: number; svc: number }>(sql`
+    SELECT p.id AS id, p.paid_at AS paid_at,
+      (CASE WHEN a.scheduled_at < 100000000000 THEN a.scheduled_at ELSE a.scheduled_at / 1000 END) AS svc
+    FROM payments p INNER JOIN appointments a ON a.id = p.appointment_id
+    WHERE p.paid_at - (CASE WHEN a.scheduled_at < 100000000000 THEN a.scheduled_at ELSE a.scheduled_at / 1000 END) >= 86400
+  `);
+  let moved = 0;
+  for (const r of rows) {
+    const svc = Math.floor(Number(r.svc));
+    if (shamsiMonthKey(Number(r.paid_at)) === shamsiMonthKey(svc)) continue;
+    await executor.run(sql`UPDATE payments SET paid_at = ${svc} WHERE id = ${r.id}`);
+    await executor.run(sql`UPDATE commissions SET created_at = ${svc} WHERE payment_id = ${r.id}`);
+    moved++;
+  }
+  return moved;
+}
+export async function movePaymentsToServiceMonthOnce(): Promise<number> {
+  return db.transaction(async (tx) => {
+    const done = await tx.select().from(appSettingsTable).where(eq(appSettingsTable.key, MOVE_TO_SERVICE_MONTH_KEY)).get();
+    if (done) return 0;
+    const moved = await movePaymentsToServiceMonth(tx as unknown as Pick<typeof db, "all" | "run">);
+    await tx.insert(appSettingsTable).values({ key: MOVE_TO_SERVICE_MONTH_KEY, value: String(Date.now()) });
+    return moved;
   });
 }

@@ -407,3 +407,40 @@ describe("a past service paid now can be recorded on the service date", () => {
     expect(list.find((x: { id: number }) => x.id === pay.json.id).serviceScheduledAt).toBe(serviceMs);
   });
 });
+
+describe("one-time fix: old payments recorded after the service month move to the service date", () => {
+  it("moves a later-month checkout payment and its commission; leaves deposits and same-month payments alone", async () => {
+    const backfill = await import("../src/lib/backfill");
+    const svc = (await call("POST", "/services", { name: "اینووسنس مرداد", price: 2_000_000, doctorFee: 500_000 })).json;
+    const p = await patient("مرداد");
+    const serviceMs = Date.now() - 70 * DAY * 1000;
+    const svcSec = Math.floor(serviceMs / 1000);
+    const a = await appointment(p.id, svc.id, serviceMs);
+    // بیعانه قبل از خدمت، و تسویه‌ای که دو ماه بعد (امروز) ثبت شده
+    const [dep] = await dbm.db.insert(dbm.paymentsTable).values({ appointmentId: a.id, originalAmount: 300_000, amount: 300_000, method: "cash", notes: "بیعانه", paidAt: svcSec - 2 * DAY }).returning();
+    const [late] = await dbm.db.insert(dbm.paymentsTable).values({ appointmentId: a.id, originalAmount: 2_000_000, amount: 1_700_000, method: "card", paidAt: nowSec() }).returning();
+    const [comm] = await dbm.db.insert(dbm.commissionsTable).values({ recipientType: "staff", recipientId: 1, appointmentId: a.id, paymentId: late.id, amount: 100_000, createdAt: nowSec() }).returning();
+    // پرداختی که همان ماهِ خدمت ثبت شده (دو روز بعد از خدمتِ امروز) دست نمی‌خورد
+    const b = await appointment(p.id, svc.id, Date.now() - 2 * DAY * 1000);
+    const [same] = await dbm.db.insert(dbm.paymentsTable).values({ appointmentId: b.id, originalAmount: 2_000_000, amount: 2_000_000, method: "cash", paidAt: nowSec() }).returning();
+
+    await backfill.movePaymentsToServiceMonth();
+
+    const pays = await dbm.db.select().from(dbm.paymentsTable).all();
+    expect(pays.find((x) => x.id === late.id)?.paidAt).toBe(svcSec);
+    expect(pays.find((x) => x.id === dep.id)?.paidAt).toBe(svcSec - 2 * DAY);
+    const sameAfter = pays.find((x) => x.id === same.id)?.paidAt;
+    const sameMonth = new Intl.DateTimeFormat("en-u-ca-persian", { month: "numeric", timeZone: "Asia/Tehran" });
+    if (sameMonth.format(new Date(same.paidAt * 1000)) === sameMonth.format(new Date(Date.now() - 2 * DAY * 1000))) {
+      expect(sameAfter).toBe(same.paidAt);
+    }
+    const c = (await dbm.db.select().from(dbm.commissionsTable).all()).find((x) => x.id === comm.id);
+    expect(c?.createdAt).toBe(svcSec);
+
+    // درآمد و هزینهٔ آن در ماهِ خدمت است
+    const then = await summary(svcSec - 3 * DAY, svcSec + DAY);
+    expect(then.revenue).toBeGreaterThanOrEqual(2_000_000);
+    // اجرای دوباره چیزی را جابه‌جا نمی‌کند
+    expect(await backfill.movePaymentsToServiceMonth()).toBe(0);
+  });
+});

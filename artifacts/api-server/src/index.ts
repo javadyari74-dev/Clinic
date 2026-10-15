@@ -5,7 +5,7 @@ import { logger } from "./lib/logger";
 import { runMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
 import { startSchedulers } from "./lib/scheduler";
-import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates, fixOverstatedCashbackOnce } from "./lib/backfill";
+import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates, fixOverstatedCashbackOnce, movePaymentsToServiceMonthOnce } from "./lib/backfill";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -31,6 +31,8 @@ runMigrations(migrationsFolder)
     await seedAdminUser();
     await backfillAppointmentCodes();
     await backfillPaymentSnapshots();
+    const movedPayments = await movePaymentsToServiceMonthOnce();
+    if (movedPayments > 0) logger.info({ movedPayments }, "Moved payments recorded after the service month to the service date");
     const fixedCashback = await fixOverstatedCashbackOnce();
     if (fixedCashback > 0) logger.info({ fixedCashback }, "Corrected profit credits given before billed-quantity costs");
     const repairedReminders = await repairShamsiReminderDates();
