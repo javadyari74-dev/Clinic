@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { UserCog } from "lucide-react";
 import { useState } from "react";
 import { useAuth, Permission } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,7 @@ const ALL_PERMISSIONS: { key: Permission; label: string }[] = [
   { key: "commissions", label: "کمیسیون" },
   { key: "discounts", label: "تخفیفات" },
   { key: "inventory", label: "انبار" },
+  { key: "purchases", label: "خریدها" },
   { key: "accounting", label: "حسابداری" },
   { key: "reports", label: "گزارشات" },
   { key: "reminders", label: "یادآوری‌ها" },
@@ -53,12 +56,21 @@ interface UserFormData {
   isActive: boolean;
 }
 
+/** Throw an Error carrying the server's Persian message (or a fallback). */
+async function throwServerError(res: Response, fallback: string): Promise<never> {
+  const body = await res.json().catch(() => null);
+  const msg = body?.message || body?.error;
+  throw new Error(typeof msg === "string" && msg.trim() ? msg : fallback);
+}
+
 function getToken() {
   return localStorage.getItem("clinic_auth_token");
 }
 
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 function authFetch(url: string, options?: RequestInit) {
-  return fetch(url, {
+  return fetch(`${API_BASE}${url}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -204,7 +216,7 @@ function LaserCommissionCard() {
         method: "PUT",
         body: JSON.stringify({ commissionRate: rate }),
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ذخیره نرخ کمیسیون ناموفق بود");
       return res.json();
     },
     onSuccess: () => {
@@ -301,7 +313,7 @@ export default function Users() {
   const createMutation = useMutation({
     mutationFn: async (data: UserFormData) => {
       const res = await authFetch("/api/users", { method: "POST", body: JSON.stringify(data) });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ایجاد کاربر ناموفق بود");
       return res.json();
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setFormOpen(false); toast({ title: "کاربر ایجاد شد" }); },
@@ -311,7 +323,7 @@ export default function Users() {
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: number; data: UserFormData }) => {
       const res = await authFetch(`/api/users/${id}`, { method: "PUT", body: JSON.stringify(data) });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok) await throwServerError(res, "ویرایش کاربر ناموفق بود");
       return res.json();
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setFormOpen(false); setEditUser(undefined); toast({ title: "کاربر ویرایش شد" }); },
@@ -321,7 +333,7 @@ export default function Users() {
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await authFetch(`/api/users/${id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) { const e = await res.json(); throw new Error(e.message); }
+      if (!res.ok && res.status !== 204) await throwServerError(res, "حذف کاربر ناموفق بود");
     },
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["users"] }); setDeleteId(null); toast({ title: "کاربر حذف شد" }); },
     onError: (e: Error) => toast({ title: e.message, variant: "destructive" }),
@@ -341,16 +353,17 @@ export default function Users() {
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">مدیریت کاربران</h1>
-          <p className="text-muted-foreground text-sm mt-1">ساخت و مدیریت حساب‌های کاربری سیستم</p>
-        </div>
-        <Button onClick={() => { setEditUser(undefined); setFormOpen(true); }}>
+      <PageHeader
+        icon={<UserCog />}
+        title="مدیریت کاربران"
+        description="ساخت و مدیریت حساب‌های کاربری سیستم"
+        actions={<>
+          <Button onClick={() => { setEditUser(undefined); setFormOpen(true); }}>
           <Plus className="h-4 w-4 ml-2" />
           کاربر جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { PageHeader } from "@/components/page-header";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +9,8 @@ import {
   GitMerge, FolderCog, Save, History, CheckCircle2, XCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -47,12 +50,28 @@ const SECTION_LABELS: Record<string, string> = {
   waitingList: "لیست انتظار",
   surveys: "نظرسنجی‌ها",
   loyaltyTransactions: "تراکنش‌های باشگاه مشتریان",
+  laserClients: "مراجعین لیزر",
+  laserServices: "خدمات لیزر",
+  laserAppointments: "نوبت‌های لیزر",
+  laserPayments: "پرداخت‌های لیزر",
+  smsSavedPatterns: "کدهای پترن پیامک",
+  appSettings: "تنظیمات برنامه",
+};
+
+// دلیل هر بکاپ خودکار (در فیلد message گزارش ذخیره می‌شود)
+const BACKUP_REASON_LABELS: Record<string, string> = {
+  startup: "هنگام باز شدن",
+  shutdown: "هنگام بسته شدن",
+  daily: "روزانه",
+  manual: "دستی",
+  auto: "خودکار",
 };
 
 export default function Backup() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [resetStep, setResetStep] = useState<ResetStep>("idle");
   const [confirmInput, setConfirmInput] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -68,6 +87,9 @@ export default function Backup() {
   const [isDefaultDir, setIsDefaultDir] = useState(true);
   const [backupDir, setBackupDir] = useState("");
   const [savingDir, setSavingDir] = useState(false);
+  const [mirrorDir, setMirrorDir] = useState("");
+  const [savingMirror, setSavingMirror] = useState(false);
+  const [runningBackup, setRunningBackup] = useState(false);
 
   // بازیابی ادغامی
   const mergeInputRef = useRef<HTMLInputElement>(null);
@@ -75,7 +97,17 @@ export default function Backup() {
   const [mergeOpen, setMergeOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeReport, setMergeReport] = useState<MergeReport | null>(null);
+  const [mergeNotes, setMergeNotes] = useState<string[]>([]);
   const [reportOpen, setReportOpen] = useState(false);
+  const mergeRows = useMemo(
+    () => Object.entries(mergeReport ?? {}).filter(([key]) => key !== "totals"),
+    [mergeReport],
+  );
+  const mergeSort = useTableSort(mergeRows, {
+    section: ([key]) => SECTION_LABELS[key] ?? key,
+    added: ([, entry]) => entry.added,
+    skipped: ([, entry]) => entry.skipped,
+  });
 
   // گزارش بکاپ خودکار
   const [logs, setLogs] = useState<BackupLog[]>([]);
@@ -90,6 +122,7 @@ export default function Backup() {
       setDefaultDir(data.defaultDir ?? "");
       setIsDefaultDir(!!data.isDefault);
       setBackupDir(data.isDefault ? "" : (data.backupDir ?? ""));
+      setMirrorDir(data.mirrorDir ?? "");
     } catch {
       // نادیده گرفتن
     }
@@ -131,6 +164,43 @@ export default function Backup() {
       toast({ title: (err as Error)?.message || "خطا در ذخیره مسیر", variant: "destructive" });
     } finally {
       setSavingDir(false);
+    }
+  }
+
+  async function saveMirrorDir() {
+    setSavingMirror(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/backup/mirror`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ mirrorDir }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "خطا در ذخیره مسیر");
+      setMirrorDir(data.mirrorDir ?? "");
+      toast({ title: data.message || "پوشهٔ نسخهٔ دوم ذخیره شد" });
+    } catch (err) {
+      toast({ title: (err as Error)?.message || "خطا در ذخیره مسیر", variant: "destructive" });
+    } finally {
+      setSavingMirror(false);
+    }
+  }
+
+  async function runBackupNow() {
+    setRunningBackup(true);
+    try {
+      const res = await fetch(`${BASE_URL}/api/backup/run`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "بکاپ ناموفق بود");
+      toast({ title: "بکاپ گرفته شد", description: data.filename });
+    } catch (err) {
+      toast({ title: (err as Error)?.message || "بکاپ ناموفق بود", variant: "destructive" });
+    } finally {
+      setRunningBackup(false);
+      loadLogs();
     }
   }
 
@@ -209,6 +279,7 @@ export default function Backup() {
       if (!res.ok) throw new Error(data?.error || "failed");
       queryClient.clear();
       setMergeReport(data.report ?? null);
+      setMergeNotes(Array.isArray(data.notes) ? data.notes : []);
       closeMerge();
       setReportOpen(true);
       loadLogs();
@@ -250,12 +321,24 @@ export default function Backup() {
     }
   }
 
-  function downloadPatientsCsv() {
-    const link = document.createElement("a");
-    link.href = `${BASE_URL}/api/patients/export/excel`;
-    link.download = "patients.csv";
-    link.click();
-    toast({ title: "فایل CSV مراجعین در حال دانلود است" });
+  // لینک ساده هدر Authorization نمی‌فرستد (و سرور ۴۰۱ می‌داد)؛ پس با fetch دریافت می‌شود
+  async function downloadPatientsCsv() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/patients/export/excel`, {
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error();
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "patients.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "فایل CSV مراجعین در حال دانلود است" });
+    } catch {
+      toast({ title: "خطا در دانلود فایل مراجعین", variant: "destructive" });
+    }
   }
 
   function openReset() {
@@ -293,12 +376,18 @@ export default function Backup() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">پشتیبان‌گیری</h1>
-        <p className="text-muted-foreground mt-1">صادرات و پشتیبان‌گیری از داده‌های مطب</p>
-      </div>
+      <PageHeader
+        icon={<Database />}
+        title="پشتیبان‌گیری"
+        description="صادرات و پشتیبان‌گیری از داده‌های مطب"
+      />
 
       <div className="grid gap-6 md:grid-cols-2">
+        {/* دانلود پشتیبان (شامل هش رمز کاربران)، خروجی مراجعین و تغییر مسیرها فقط برای مدیر؛
+            سرور هم برای سایر کاربران رد می‌کند. کاربر با دسترسی «پشتیبان‌گیری» بکاپ خودکار
+            را اجرا و گزارش آن را می‌بیند. */}
+        {isAdmin && (
+        <>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -349,7 +438,12 @@ export default function Backup() {
             </Button>
           </CardContent>
         </Card>
+        </>
+        )}
 
+        {/* بازیابی کامل و ادغامی فقط برای مدیر؛ سرور هم برای سایر کاربران رد می‌کند */}
+        {isAdmin && (
+        <>
         <Card className="border-primary/30">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -411,7 +505,10 @@ export default function Backup() {
             </Button>
           </CardContent>
         </Card>
+        </>
+        )}
 
+        {isAdmin && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -442,8 +539,28 @@ export default function Backup() {
               <Save className="h-4 w-4" />
               {savingDir ? "در حال ذخیره..." : "ذخیره مسیر"}
             </Button>
+
+            <div className="space-y-1.5 border-t pt-4">
+              <label className="text-sm font-medium">پوشهٔ نسخهٔ دوم (اختیاری)</label>
+              <p className="text-xs text-muted-foreground">
+                هر بکاپ خودکار یک نسخهٔ دوم هم در این پوشه کپی می‌شود؛ مثلاً یک فلش یا پوشه‌ای که با Google Drive همگام است.
+                اگر این کامپیوتر خراب شود، اطلاعات از آن‌جا قابل بازیابی است. برای غیرفعال کردن، کادر را خالی کرده و ذخیره کنید.
+              </p>
+              <Input
+                value={mirrorDir}
+                onChange={e => setMirrorDir(e.target.value)}
+                placeholder={"مثلاً E:\\بکاپ مطب"}
+                dir="ltr"
+                className="text-left"
+              />
+            </div>
+            <Button variant="outline" className="w-full gap-2" onClick={saveMirrorDir} disabled={savingMirror}>
+              <Save className="h-4 w-4" />
+              {savingMirror ? "در حال ذخیره..." : "ذخیره پوشهٔ نسخهٔ دوم"}
+            </Button>
           </CardContent>
         </Card>
+        )}
       </div>
 
       <Card className="border-yellow-200 bg-yellow-50">
@@ -464,9 +581,16 @@ export default function Backup() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-sm mb-3">
-            برنامه به‌صورت خودکار هنگام باز و بسته شدن، از اطلاعات مطب بکاپ می‌گیرد (حداکثر یک‌بار در هر ۱۵ دقیقه) و ۵۰ بکاپ آخر را نگه می‌دارد.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+            <p className="text-muted-foreground text-sm flex-1 min-w-[16rem]">
+              برنامه به‌صورت خودکار هنگام باز شدن، هنگام بسته شدن و اگر باز بماند روزی یک‌بار از اطلاعات مطب بکاپ می‌گیرد.
+              ۵۰ بکاپ نگه داشته می‌شود: ۲۰ بکاپ آخر، و برای قبل از آن یک بکاپ از هر روز (حدود یک ماه سابقه).
+            </p>
+            <Button size="sm" className="gap-2" onClick={runBackupNow} disabled={runningBackup}>
+              <Save className="h-4 w-4" />
+              {runningBackup ? "در حال بکاپ..." : "پشتیبان‌گیری الان"}
+            </Button>
+          </div>
           {logs.length === 0 ? (
             <p className="text-sm text-muted-foreground">هنوز بکاپ خودکاری ثبت نشده است.</p>
           ) : (
@@ -483,6 +607,8 @@ export default function Backup() {
                     <div className="text-xs text-muted-foreground">
                       {formatLogDate(log.createdAt)}
                       {log.kind === "pre-merge" ? " • بکاپ ایمنی پیش از ادغام" : ""}
+                      {log.kind === "mirror" ? " • نسخهٔ دوم" : ""}
+                      {log.kind === "auto" && log.message ? ` • ${BACKUP_REASON_LABELS[log.message] ?? ""}` : ""}
                       {log.status === "error" && log.message ? ` • ${log.message}` : ""}
                     </div>
                   </div>
@@ -493,7 +619,8 @@ export default function Backup() {
         </CardContent>
       </Card>
 
-      {/* Danger Zone */}
+      {/* Danger Zone — فقط مدیر؛ سرور هم برای سایر کاربران رد می‌کند */}
+      {isAdmin && (
       <Card className="border-destructive/40">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-destructive">
@@ -516,6 +643,7 @@ export default function Backup() {
           </Button>
         </CardContent>
       </Card>
+      )}
 
       {/* مرحله اول — هشدار پشتیبان */}
       <Dialog open={resetStep === "warn"} onOpenChange={(o) => !o && closeReset()}>
@@ -675,15 +803,13 @@ export default function Backup() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-muted-foreground">
                     <tr>
-                      <th className="text-right p-2 font-medium">بخش</th>
-                      <th className="text-center p-2 font-medium">اضافه‌شده</th>
-                      <th className="text-center p-2 font-medium">تکراری</th>
+                      <SortableHead {...mergeSort.head("section")} className="text-right">بخش</SortableHead>
+                      <SortableHead {...mergeSort.head("added")} className="text-center">اضافه‌شده</SortableHead>
+                      <SortableHead {...mergeSort.head("skipped")} className="text-center">تکراری</SortableHead>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {Object.entries(mergeReport)
-                      .filter(([key]) => key !== "totals")
-                      .map(([key, entry]) => (
+                    {mergeSort.sorted.map(([key, entry]) => (
                         <tr key={key}>
                           <td className="p-2">{SECTION_LABELS[key] ?? key}</td>
                           <td className="p-2 text-center font-medium text-emerald-600">{entry.added}</td>
@@ -702,6 +828,11 @@ export default function Backup() {
                   )}
                 </table>
               </div>
+              {mergeNotes.length > 0 && (
+                <div className="text-xs text-amber-800 bg-amber-50 border border-amber-200 p-3 rounded-lg space-y-1">
+                  {mergeNotes.map((n, i) => <p key={i}>{n}</p>)}
+                </div>
+              )}
             </div>
           )}
           <DialogFooter>

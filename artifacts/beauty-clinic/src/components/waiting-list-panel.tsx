@@ -17,10 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ErrorNotice } from "@/components/error-notice";
 import { TierBadge } from "@/components/tier-badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
@@ -93,7 +96,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setIsOpen(false);
         toast({ title: "به لیست انتظار اضافه شد" });
       },
-      onError: () => toast({ title: "افزودن به لیست انتظار ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "افزودن به لیست انتظار ناموفق بود"),
     },
   });
 
@@ -105,7 +108,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setIsOpen(false);
         toast({ title: "لیست انتظار به‌روزرسانی شد" });
       },
-      onError: () => toast({ title: "به‌روزرسانی ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "به‌روزرسانی ناموفق بود"),
     },
   });
 
@@ -116,7 +119,7 @@ export function WaitingListPanel({ onConvert }: Props) {
         setConfirmDeleteId(null);
         toast({ title: "از لیست انتظار حذف شد" });
       },
-      onError: () => toast({ title: "حذف ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "حذف ناموفق بود"),
     },
   });
 
@@ -129,7 +132,7 @@ export function WaitingListPanel({ onConvert }: Props) {
           toast({ title: "ارسال پیامک ناموفق بود", description: result.error ?? undefined, variant: "destructive" });
         }
       },
-      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "ارسال پیامک ناموفق بود"),
       onSettled: () => setNotifyingId(null),
     },
   });
@@ -186,6 +189,14 @@ export function WaitingListPanel({ onConvert }: Props) {
   }
 
   const rows = list?.data ?? [];
+  const sort = useTableSort(rows, {
+    patient: (e: WaitingEntry) => e.patientName,
+    service: (e: WaitingEntry) => e.serviceName,
+    range: (e: WaitingEntry) => e.preferredFrom || e.preferredTo || null,
+    note: (e: WaitingEntry) => e.note,
+    createdAt: (e: WaitingEntry) => e.createdAt,
+    status: (e: WaitingEntry) => waitingStatuses[e.status]?.label ?? e.status,
+  });
 
   return (
     <Card>
@@ -211,17 +222,17 @@ export function WaitingListPanel({ onConvert }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>مراجع</TableHead>
-              <TableHead>خدمت</TableHead>
-              <TableHead>بازه تاریخ دلخواه</TableHead>
-              <TableHead>یادداشت</TableHead>
-              <TableHead>تاریخ ثبت</TableHead>
-              <TableHead>وضعیت</TableHead>
+              <SortableHead {...sort.head("patient")}>مراجع</SortableHead>
+              <SortableHead {...sort.head("service")}>خدمت</SortableHead>
+              <SortableHead {...sort.head("range")}>بازه تاریخ دلخواه</SortableHead>
+              <SortableHead {...sort.head("note")}>یادداشت</SortableHead>
+              <SortableHead {...sort.head("createdAt")}>تاریخ ثبت</SortableHead>
+              <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((entry) => (
+            {sort.sorted.map((entry) => (
               <TableRow key={entry.id}>
                 <TableCell className="font-medium">
                   <span className="flex items-center gap-1.5">

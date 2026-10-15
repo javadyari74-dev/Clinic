@@ -8,6 +8,11 @@ import {
   DeletePatientNoteParams,
 } from "@workspace/api-zod";
 
+// ویرایش یادداشت: متن (غیرخالی) و/یا نوع؛ طرح از طرح تولیدشدهٔ ساخت یادداشت مشتق می‌شود
+const UpdatePatientNoteBody = CreatePatientNoteBody.extend({
+  content: CreatePatientNoteBody.shape.content.trim().min(1, "متن یادداشت خالی است").max(5000).optional(),
+}).refine((b) => b.content !== undefined || b.kind !== undefined, { message: "چیزی برای ویرایش ارسال نشده است" });
+
 const router: IRouter = Router();
 
 router.get("/patients/:id/notes", async (req, res): Promise<void> => {
@@ -39,6 +44,29 @@ router.post("/patients/:id/notes", async (req, res): Promise<void> => {
     kind: parsed.data.kind ?? "general",
   }).returning();
   res.status(201).json(note);
+});
+
+router.put("/patient-notes/:id", async (req, res): Promise<void> => {
+  const params = DeletePatientNoteParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdatePatientNoteBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.issues[0]?.message ?? "دادهٔ نامعتبر" });
+    return;
+  }
+  const changes: { content?: string; kind?: string } = {};
+  if (parsed.data.content !== undefined) changes.content = parsed.data.content;
+  if (parsed.data.kind !== undefined) changes.kind = parsed.data.kind;
+  const [note] = await db.update(patientNotesTable).set(changes)
+    .where(eq(patientNotesTable.id, params.data.id)).returning();
+  if (!note) {
+    res.status(404).json({ error: "یادداشت یافت نشد" });
+    return;
+  }
+  res.json(note);
 });
 
 router.delete("/patient-notes/:id", async (req, res): Promise<void> => {

@@ -28,6 +28,10 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  // زمان ساخت نسخه؛ در پایین منو نمایش داده می‌شود تا معلوم باشد کدام نسخه اجرا شده
+  define: {
+    __BUILD_TIME__: JSON.stringify(Date.now()),
+  },
   plugins: [
     react(),
     tailwindcss(),

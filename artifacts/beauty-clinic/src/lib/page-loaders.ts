@@ -12,6 +12,7 @@ export const pageLoaders = {
   commissionRecipients: () => import("@/pages/commission-recipients"),
   discounts: () => import("@/pages/discounts"),
   inventory: () => import("@/pages/inventory"),
+  purchases: () => import("@/pages/purchases"),
   reports: () => import("@/pages/reports"),
   reminders: () => import("@/pages/reminders"),
   sms: () => import("@/pages/sms"),
@@ -22,6 +23,7 @@ export const pageLoaders = {
   users: () => import("@/pages/users"),
   laser: () => import("@/pages/laser"),
   clientErrors: () => import("@/pages/client-errors"),
+  activityLog: () => import("@/pages/activity-log"),
 };
 
 const routeLoaders: Record<string, () => Promise<unknown>> = {
@@ -36,6 +38,7 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   "/commission-recipients": pageLoaders.commissionRecipients,
   "/discounts": pageLoaders.discounts,
   "/inventory": pageLoaders.inventory,
+  "/purchases": pageLoaders.purchases,
   "/accounting": pageLoaders.accounting,
   "/reports": pageLoaders.reports,
   "/reminders": pageLoaders.reminders,
@@ -45,6 +48,7 @@ const routeLoaders: Record<string, () => Promise<unknown>> = {
   "/backup": pageLoaders.backup,
   "/users": pageLoaders.users,
   "/client-errors": pageLoaders.clientErrors,
+  "/activity-log": pageLoaders.activityLog,
 };
 
 const prefetched = new Set<string>();

@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { Percent } from "lucide-react";
 import { useState } from "react";
 import { useListDiscounts, useCreateDiscount, useUpdateDiscount, useDeleteDiscount, getListDiscountsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -5,6 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,6 +17,7 @@ import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -37,6 +42,14 @@ export default function Discounts() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof discounts>[0] | null>(null);
+  const discountSort = useTableSort(discounts, {
+    name: (d) => d.name,
+    code: (d) => d.code,
+    type: (d) => (d.type === "percentage" ? "درصدی" : "ثابت"),
+    value: (d) => d.value,
+    usage: (d) => d.usageCount ?? 0,
+    status: (d) => (d.isActive ? "فعال" : "غیرفعال"),
+  });
 
   const createDiscount = useCreateDiscount({
     mutation: {
@@ -46,6 +59,7 @@ export default function Discounts() {
         toast({ title: "تخفیف با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت تخفیف ناموفق بود"),
     },
   });
 
@@ -57,6 +71,7 @@ export default function Discounts() {
         setIsOpen(false);
         toast({ title: "تخفیف ویرایش شد" });
       },
+      onError: onApiError("ویرایش تخفیف ناموفق بود"),
     },
   });
 
@@ -66,6 +81,7 @@ export default function Discounts() {
         queryClient.invalidateQueries({ queryKey: getListDiscountsQueryKey() });
         toast({ title: "تخفیف حذف شد" });
       },
+      onError: onApiError("حذف تخفیف ناموفق بود"),
     },
   });
 
@@ -103,16 +119,17 @@ export default function Discounts() {
         onConfirm={() => { deleteDiscount.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">تخفیفات</h1>
-          <p className="text-muted-foreground mt-1">مدیریت کدهای تخفیف</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Percent />}
+        title="تخفیفات"
+        description="مدیریت کدهای تخفیف"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           تخفیف جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
@@ -185,17 +202,17 @@ export default function Discounts() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>کد</TableHead>
-                <TableHead>نوع</TableHead>
-                <TableHead>مقدار</TableHead>
-                <TableHead>استفاده</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...discountSort.head("name")}>نام</SortableHead>
+                <SortableHead {...discountSort.head("code")}>کد</SortableHead>
+                <SortableHead {...discountSort.head("type")}>نوع</SortableHead>
+                <SortableHead {...discountSort.head("value")}>مقدار</SortableHead>
+                <SortableHead {...discountSort.head("usage")}>استفاده</SortableHead>
+                <SortableHead {...discountSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {discounts?.map((d) => (
+              {discountSort.sorted.map((d) => (
                 <TableRow key={d.id}>
                   <TableCell className="font-medium">{d.name}</TableCell>
                   <TableCell><code className="bg-muted px-2 py-0.5 rounded text-sm">{d.code}</code></TableCell>

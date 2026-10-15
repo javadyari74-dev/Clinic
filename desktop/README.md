@@ -51,7 +51,7 @@ npm run dist
 پس از پایان، فایل نصب‌کننده در این مسیر ساخته می‌شود:
 
 ```
-desktop/release/DoctorYariClinic-Setup-1.0.0.exe
+desktop/release/DoctorYariClinic-Setup-1.1.0.exe
 ```
 
 این فایل را اجرا کنید تا نرم‌افزار نصب شود و آیکون روی دسکتاپ ساخته شود.

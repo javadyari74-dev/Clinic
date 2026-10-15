@@ -28,6 +28,7 @@ const Commissions = lazy(pageLoaders.commissions);
 const CommissionRecipients = lazy(pageLoaders.commissionRecipients);
 const Discounts = lazy(pageLoaders.discounts);
 const Inventory = lazy(pageLoaders.inventory);
+const Purchases = lazy(pageLoaders.purchases);
 const Reports = lazy(pageLoaders.reports);
 const Reminders = lazy(pageLoaders.reminders);
 const Sms = lazy(pageLoaders.sms);
@@ -38,6 +39,7 @@ const Accounting = lazy(pageLoaders.accounting);
 const Users = lazy(pageLoaders.users);
 const Laser = lazy(pageLoaders.laser);
 const ClientErrors = lazy(pageLoaders.clientErrors);
+const ActivityLog = lazy(pageLoaders.activityLog);
 
 function PageFallback() {
   return (
@@ -204,6 +206,11 @@ function Router() {
                 <Inventory />
               </Protected>
             </Route>
+            <Route path="/purchases">
+              <Protected permission="purchases">
+                <Purchases />
+              </Protected>
+            </Route>
             <Route path="/reports">
               <Protected permission="reports">
                 <Reports />
@@ -247,6 +254,11 @@ function Router() {
             <Route path="/client-errors">
               <Protected adminOnly>
                 <ClientErrors />
+              </Protected>
+            </Route>
+            <Route path="/activity-log">
+              <Protected adminOnly>
+                <ActivityLog />
               </Protected>
             </Route>
             <Route component={NotFound} />

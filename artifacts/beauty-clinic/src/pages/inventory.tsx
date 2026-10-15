@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { Box } from "lucide-react";
 import { useState } from "react";
 import { useListInventory, useCreateInventoryItem, useUpdateInventoryItem, useDeleteInventoryItem, getListInventoryQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,11 +13,14 @@ import { formatCurrency, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, AlertTriangle } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableHead } from "@/components/sortable-head";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -45,6 +50,7 @@ export default function Inventory() {
         toast({ title: "آیتم به انبار اضافه شد" });
         form.reset();
       },
+      onError: onApiError("ثبت کالا ناموفق بود"),
     },
   });
 
@@ -56,6 +62,7 @@ export default function Inventory() {
         setIsOpen(false);
         toast({ title: "آیتم انبار ویرایش شد" });
       },
+      onError: onApiError("ویرایش کالا ناموفق بود"),
     },
   });
 
@@ -65,6 +72,7 @@ export default function Inventory() {
         queryClient.invalidateQueries({ queryKey: getListInventoryQueryKey() });
         toast({ title: "آیتم حذف شد" });
       },
+      onError: onApiError("حذف کالا ناموفق بود"),
     },
   });
 
@@ -94,6 +102,14 @@ export default function Inventory() {
   }
 
   const lowStock = items?.filter(i => i.quantity <= (i.minQuantity ?? 0)) ?? [];
+  const sort = useTableSort(items, {
+    name: (i) => i.name,
+    category: (i) => i.category,
+    quantity: (i) => i.quantity,
+    unit: (i) => i.unit,
+    salePrice: (i) => i.salePrice || null,
+    status: (i) => (i.quantity <= (i.minQuantity ?? 0) ? "کمبود" : "موجود"),
+  });
 
   return (
     <div className="space-y-6">
@@ -104,16 +120,17 @@ export default function Inventory() {
         onConfirm={() => { deleteItem.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">انبار</h1>
-          <p className="text-muted-foreground mt-1">مدیریت موجودی و ملزومات</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Box />}
+        title="انبار"
+        description="مدیریت موجودی و ملزومات"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           آیتم جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
@@ -214,17 +231,17 @@ export default function Inventory() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>دسته</TableHead>
-                <TableHead>موجودی</TableHead>
-                <TableHead>واحد</TableHead>
-                <TableHead>قیمت فروش</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...sort.head("name")}>نام</SortableHead>
+                <SortableHead {...sort.head("category")}>دسته</SortableHead>
+                <SortableHead {...sort.head("quantity")}>موجودی</SortableHead>
+                <SortableHead {...sort.head("unit")}>واحد</SortableHead>
+                <SortableHead {...sort.head("salePrice")}>قیمت فروش</SortableHead>
+                <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items?.map((item) => {
+              {sort.sorted.map((item) => {
                 const isLow = item.quantity <= (item.minQuantity ?? 0);
                 return (
                   <TableRow key={item.id} className={isLow ? "bg-orange-50" : undefined}>

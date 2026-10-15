@@ -3,8 +3,10 @@ import { PersianDatePicker } from "@/components/persian-date-picker";
 import {
   useListPatients, useListPatientAppointments, useListPatientNotes,
   useCreateAppointment, getListAppointmentsQueryKey, getListPatientsQueryKey,
+  getListPatientAppointmentsQueryKey,
   useListServices, useListStaff, useListPayments,
 } from "@workspace/api-client-react";
+import { onApiError } from "@/lib/api-error";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -62,10 +64,13 @@ function PatientProfile({ patientId, onClose }: { patientId: number; onClose: ()
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListAppointmentsQueryKey() });
+        // همین پنل نوبت‌های مراجع را از این کلید می‌خواند
+        queryClient.invalidateQueries({ queryKey: getListPatientAppointmentsQueryKey(patientId) });
         toast({ title: "نوبت با موفقیت ثبت شد" });
         setShowNewAppt(false);
         setApptServiceId(""); setApptStaffId(""); setApptDate(""); setApptTime("10:00"); setApptNotes("");
       },
+      onError: onApiError("ثبت نوبت ناموفق بود"),
     },
   });
 
@@ -82,7 +87,8 @@ function PatientProfile({ patientId, onClose }: { patientId: number; onClose: ()
         patientId,
         serviceId: Number(apptServiceId),
         staffId: apptStaffId ? Number(apptStaffId) : undefined,
-        scheduledAt: Math.floor(dt.getTime() / 1000),
+        // زمان نوبت به میلی‌ثانیه (قرارداد سرور)
+        scheduledAt: dt.getTime(),
         status: "scheduled",
         notes: apptNotes || undefined,
       },
@@ -90,8 +96,11 @@ function PatientProfile({ patientId, onClose }: { patientId: number; onClose: ()
   }
 
   const apptList = appts?.data ?? [];
-  const upcoming = apptList.filter(a => a.scheduledAt > Math.floor(Date.now() / 1000));
-  const past = apptList.filter(a => a.scheduledAt <= Math.floor(Date.now() / 1000));
+  // scheduledAt میلی‌ثانیه است (ردیف‌های قدیمیِ ثانیه‌ای هم تبدیل می‌شوند)
+  const nowMs = Date.now();
+  const toMs = (ts: number) => (ts > 1e11 ? ts : ts * 1000);
+  const upcoming = apptList.filter(a => toMs(a.scheduledAt) > nowMs);
+  const past = apptList.filter(a => toMs(a.scheduledAt) <= nowMs);
 
   return (
     <div className="space-y-4">

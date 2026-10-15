@@ -13,4 +13,9 @@ export const LoyaltyTransactionType = {
   earn: 'earn',
   redeem: 'redeem',
   reverse: 'reverse',
+  expire: 'expire',
+  birthday: 'birthday',
+  referral: 'referral',
+  adjust: 'adjust',
+  cashback: 'cashback',
 } as const;

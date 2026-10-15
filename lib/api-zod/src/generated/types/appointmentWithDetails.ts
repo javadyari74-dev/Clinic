@@ -24,6 +24,16 @@ export interface AppointmentWithDetails {
   originalPrice?: number | null;
   /** @nullable */
   deposit?: number | null;
+  /** @nullable */
+  appointmentCode?: string | null;
+  /** @nullable */
+  sessionNumber?: number | null;
+  /** @nullable */
+  paidTotal?: number | null;
+  /** @nullable */
+  remaining?: number | null;
+  /** @nullable */
+  hasCheckoutPayment?: boolean | null;
   createdAt: number;
   /** @nullable */
   patientName?: string | null;

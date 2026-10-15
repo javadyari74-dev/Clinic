@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { UserCircle } from "lucide-react";
 import { useState, useMemo } from "react";
 import { useListStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, getListStaffQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -5,11 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Plus, Pencil, Trash2, Calculator } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,6 +39,13 @@ export default function Staff() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; label: string } | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState<NonNullable<typeof staff>[0] | null>(null);
+  const staffSort = useTableSort(staff, {
+    name: (s) => s.name,
+    role: (s) => s.role,
+    phone: (s) => s.phone,
+    email: (s) => s.email,
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+  });
 
   // ── ماشین حساب کمیسیون ──
   const [calcFrom, setCalcFrom] = useState("");
@@ -64,6 +76,7 @@ export default function Staff() {
         toast({ title: "کارمند با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت پرسنل ناموفق بود"),
     },
   });
 
@@ -75,6 +88,7 @@ export default function Staff() {
         setIsOpen(false);
         toast({ title: "اطلاعات کارمند ویرایش شد" });
       },
+      onError: onApiError("ویرایش پرسنل ناموفق بود"),
     },
   });
 
@@ -84,6 +98,7 @@ export default function Staff() {
         queryClient.invalidateQueries({ queryKey: getListStaffQueryKey() });
         toast({ title: "کارمند حذف شد" });
       },
+      onError: onApiError("حذف پرسنل ناموفق بود"),
     },
   });
 
@@ -121,16 +136,17 @@ export default function Staff() {
         onConfirm={() => { deleteStaff.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">کارمندان</h1>
-          <p className="text-muted-foreground mt-1">مدیریت پرسنل مطب</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<UserCircle />}
+        title="کارمندان"
+        description="مدیریت پرسنل مطب"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           کارمند جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
@@ -253,16 +269,16 @@ export default function Staff() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>نام</TableHead>
-                <TableHead>سمت</TableHead>
-                <TableHead>شماره تماس</TableHead>
-                <TableHead>ایمیل</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...staffSort.head("name")}>نام</SortableHead>
+                <SortableHead {...staffSort.head("role")}>سمت</SortableHead>
+                <SortableHead {...staffSort.head("phone")}>شماره تماس</SortableHead>
+                <SortableHead {...staffSort.head("email")}>ایمیل</SortableHead>
+                <SortableHead {...staffSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {staff?.map((s) => (
+              {staffSort.sorted.map((s) => (
                 <TableRow key={s.id}>
                   <TableCell className="font-medium">{s.name}</TableCell>
                   <TableCell>{s.role}</TableCell>

@@ -4,7 +4,8 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { runMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
-import { backfillAppointmentCodes, backfillPaymentSnapshots } from "./lib/backfill";
+import { startSchedulers } from "./lib/scheduler";
+import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates, fixOverstatedCashbackOnce, movePaymentsToServiceMonthOnce } from "./lib/backfill";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -30,12 +31,21 @@ runMigrations(migrationsFolder)
     await seedAdminUser();
     await backfillAppointmentCodes();
     await backfillPaymentSnapshots();
+    const movedPayments = await movePaymentsToServiceMonthOnce();
+    if (movedPayments > 0) logger.info({ movedPayments }, "Moved payments recorded after the service month to the service date");
+    const fixedCashback = await fixOverstatedCashbackOnce();
+    if (fixedCashback > 0) logger.info({ fixedCashback }, "Corrected profit credits given before billed-quantity costs");
+    const repairedReminders = await repairShamsiReminderDates();
+    if (repairedReminders > 0) {
+      logger.info({ repairedReminders }, "Repaired reminder due dates saved with the Shamsi/Gregorian mix-up");
+    }
     app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
         process.exit(1);
       }
       logger.info({ port }, "Server listening");
+      startSchedulers();
     });
   })
   .catch((err) => {

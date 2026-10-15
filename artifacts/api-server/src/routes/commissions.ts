@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, sql } from "drizzle-orm";
-import { db, commissionsTable, staffTable, commissionRecipientsTable } from "@workspace/db";
+import { db, commissionsTable, staffTable, commissionRecipientsTable, paymentsTable } from "@workspace/db";
 import {
   ListCommissionsQueryParams,
   CreateCommissionBody,
@@ -93,11 +93,20 @@ router.post("/commissions", async (req, res): Promise<void> => {
           ? await db.select({ name: staffTable.name, phone: staffTable.phone }).from(staffTable).where(eq(staffTable.id, commission.recipientId))
           : await db.select({ name: commissionRecipientsTable.name, phone: commissionRecipientsTable.phone }).from(commissionRecipientsTable).where(eq(commissionRecipientsTable.id, commission.recipientId));
       if (recipient) {
+        // مبلغ پایه (پرداخت مرتبط) تا متغیر «مبلغ» در پیامک خالی نماند
+        const base = commission.paymentId
+          ? await db.select({ amount: paymentsTable.amount }).from(paymentsTable).where(eq(paymentsTable.id, commission.paymentId)).get()
+          : undefined;
+        const baseAmount = base?.amount ?? null;
+        const rate = commission.rate ?? (baseAmount && baseAmount > 0 && Number.isInteger((commission.amount * 100) / baseAmount)
+          ? (commission.amount * 100) / baseAmount
+          : null);
         fireCommissionSms({
           referrerName: recipient.name,
           phone: recipient.phone,
           commissionAmount: commission.amount,
-          rate: commission.rate,
+          baseAmount,
+          rate,
         });
       }
     } catch (err) {
@@ -121,8 +130,19 @@ router.put("/commissions/:id", async (req, res): Promise<void> => {
   }
 
   const updateData: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.isPaid && !parsed.data.paidAt) {
-    updateData.paidAt = Math.floor(Date.now() / 1000);
+  // وضعیت و isPaid همیشه با هم تنظیم می‌شوند (تسویه ↔ paid، برگشت تسویه ↔ pending)
+  if (parsed.data.isPaid === true) {
+    updateData.status = "paid";
+    if (!parsed.data.paidAt) updateData.paidAt = Math.floor(Date.now() / 1000);
+  } else if (parsed.data.isPaid === false) {
+    updateData.status = "pending";
+    updateData.paidAt = null;
+  } else if (parsed.data.status === "paid") {
+    updateData.isPaid = true;
+    if (!parsed.data.paidAt) updateData.paidAt = Math.floor(Date.now() / 1000);
+  } else if (parsed.data.status === "pending") {
+    updateData.isPaid = false;
+    updateData.paidAt = null;
   }
 
   const [commission] = await db.update(commissionsTable).set(updateData).where(eq(commissionsTable.id, params.data.id)).returning();

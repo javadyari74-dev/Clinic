@@ -28,3 +28,19 @@ export const loyaltyTransactionsTable = sqliteTable("loyalty_transactions", {
 
 export type LoyaltyTransaction = typeof loyaltyTransactionsTable.$inferSelect;
 export type InsertLoyaltyTransaction = typeof loyaltyTransactionsTable.$inferInsert;
+
+// اعضای باشگاه: هر مراجع با اولین پرداخت (یا یک‌جا برای مراجعینِ دارای پرداخت قبلی)
+// خودکار عضو می‌شود. سطح (برنزی/نقره‌ای/طلایی/الماسی) بر اساس مجموع پرداخت ۱۲ ماه
+// اخیر تعیین و این‌جا نگه داشته می‌شود تا ارتقا (برای پیامک) قابل تشخیص باشد.
+// چون عضویت از روی پرداخت‌ها قابل بازسازی است، جزو فایل پشتیبان نیست.
+export const loyaltyMembersTable = sqliteTable("loyalty_members", {
+  patientId: integer("patient_id").primaryKey(),
+  // bronze | silver | gold | diamond
+  tier: text("tier").notNull().default("bronze"),
+  joinedAt: integer("joined_at").notNull().default(0),
+  tierUpdatedAt: integer("tier_updated_at").notNull().default(0),
+  // پیامک خوش‌آمد فرستاده شده (یا عضوِ یک‌جا که پیامک نمی‌گیرد)
+  welcomed: integer("welcomed", { mode: "boolean" }).notNull().default(false),
+});
+
+export type LoyaltyMember = typeof loyaltyMembersTable.$inferSelect;

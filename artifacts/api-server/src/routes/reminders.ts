@@ -9,19 +9,25 @@ import {
   DeleteReminderParams,
 } from "@workspace/api-zod";
 
+// فیلتر اختیاری ?patientId= برای پروندهٔ بیمار
+const ListRemindersQuery = ListRemindersQueryParams.extend({
+  patientId: DeleteReminderParams.shape.id.int().positive().optional(),
+});
+
 const router: IRouter = Router();
 
 router.get("/reminders", async (req, res): Promise<void> => {
-  const query = ListRemindersQueryParams.safeParse(req.query);
+  const query = ListRemindersQuery.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({ error: query.error.message });
     return;
   }
-  const { status, type } = query.data;
+  const { status, type, patientId } = query.data;
 
   const conditions = [];
   if (status) conditions.push(eq(remindersTable.status, status));
   if (type) conditions.push(eq(remindersTable.type, type));
+  if (patientId) conditions.push(eq(remindersTable.patientId, patientId));
 
   const rows = await db
     .select({
@@ -30,6 +36,7 @@ router.get("/reminders", async (req, res): Promise<void> => {
       description: remindersTable.description,
       type: remindersTable.type,
       patientId: remindersTable.patientId,
+      paymentId: remindersTable.paymentId,
       dueAt: remindersTable.dueAt,
       status: remindersTable.status,
       createdAt: remindersTable.createdAt,

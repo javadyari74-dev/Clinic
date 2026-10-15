@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   useListCommissionRecipients, useCreateCommissionRecipient, useUpdateCommissionRecipient,
@@ -15,11 +16,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { ErrorNotice } from "@/components/error-notice";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { Plus, Pencil, Trash2, TrendingUp, CheckCircle, Clock, Users, UserCheck, FolderOpen, MessageSquare, Copy } from "lucide-react";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -32,6 +36,13 @@ function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: n
       enabled: open && !!recipientId,
       queryKey: getGetCommissionRecipientReferralsQueryKey(recipientId ?? 0),
     },
+  });
+  const referralSort = useTableSort(data?.referrals, {
+    name: r => r.name,
+    fileNumber: r => r.fileNumber,
+    totalSpent: r => r.totalSpent,
+    rate: r => r.referrerRate,
+    commission: r => r.commission,
   });
 
   function generateMessage() {
@@ -83,16 +94,16 @@ function RecipientProfileDialog({ recipientId, open, onClose }: { recipientId: n
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>نام مراجع</TableHead>
-                  <TableHead>شماره پرونده</TableHead>
-                  <TableHead>مجموع خرید</TableHead>
-                  <TableHead>درصد</TableHead>
-                  <TableHead>پورسانت</TableHead>
+                  <SortableHead {...referralSort.head("name")}>نام مراجع</SortableHead>
+                  <SortableHead {...referralSort.head("fileNumber")}>شماره پرونده</SortableHead>
+                  <SortableHead {...referralSort.head("totalSpent")}>مجموع خرید</SortableHead>
+                  <SortableHead {...referralSort.head("rate")}>درصد</SortableHead>
+                  <SortableHead {...referralSort.head("commission")}>پورسانت</SortableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.referrals.map((r) => (
+                {referralSort.sorted.map((r) => (
                   <TableRow key={r.patientId}>
                     <TableCell className="font-medium">{r.name}</TableCell>
                     <TableCell className="font-mono text-sm">{r.fileNumber ?? "—"}</TableCell>
@@ -208,6 +219,7 @@ export default function CommissionRecipients() {
         toast({ title: "گیرنده خارجی ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت گیرنده ناموفق بود"),
     },
   });
 
@@ -219,6 +231,7 @@ export default function CommissionRecipients() {
         setIsOpen(false);
         toast({ title: "اطلاعات ویرایش شد" });
       },
+      onError: onApiError("ویرایش گیرنده ناموفق بود"),
     },
   });
 
@@ -228,6 +241,7 @@ export default function CommissionRecipients() {
         queryClient.invalidateQueries({ queryKey: getListCommissionRecipientsQueryKey() });
         toast({ title: "گیرنده حذف شد" });
       },
+      onError: onApiError("حذف گیرنده ناموفق بود"),
     },
   });
 
@@ -301,6 +315,29 @@ export default function CommissionRecipients() {
   const selectedRow = allRows.find(r => getKey(r) === selectedKey);
   const selectedStats = selectedKey ? recipientStats[selectedKey] : null;
 
+  const recipientSort = useTableSort(allRows, {
+    type: row => (row.type === "staff" ? "کارمند" : "خارجی"),
+    name: row => row.name,
+    role: row => (row.type === "staff" ? row.role : row.description),
+    phone: row => row.phone,
+    total: row => recipientStats[getKey(row)]?.total,
+    unpaid: row => recipientStats[getKey(row)]?.unpaid,
+    paid: row => recipientStats[getKey(row)]?.paid,
+  });
+
+  const monthRows = useMemo(
+    () => Object.entries(selectedStats?.byMonth ?? {})
+      .sort(([a], [b]) => b.localeCompare(a))
+      .map(([key, m]) => ({ key, ...m })),
+    [selectedStats],
+  );
+  const monthSort = useTableSort(monthRows, {
+    month: m => Number(m.key.replace(/[۰-۹]/g, d => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d))).replace(/\D/g, "")),
+    total: m => m.total,
+    unpaid: m => m.unpaid,
+    paid: m => m.paid,
+  });
+
   const totalUnpaid = useMemo(() => Object.values(recipientStats).reduce((s, v) => s + v.unpaid, 0), [recipientStats]);
 
   return (
@@ -312,16 +349,17 @@ export default function CommissionRecipients() {
         onConfirm={() => { del.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">گیرندگان کمیسیون</h1>
-          <p className="text-muted-foreground mt-1">مدیریت کارمندان و گیرندگان خارجی کمیسیون</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Users />}
+        title="گیرندگان کمیسیون"
+        description="مدیریت کارمندان و گیرندگان خارجی کمیسیون"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           گیرنده خارجی جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
@@ -393,18 +431,18 @@ export default function CommissionRecipients() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>نوع</TableHead>
-                    <TableHead>نام</TableHead>
-                    <TableHead>سمت / توضیحات</TableHead>
-                    <TableHead>شماره تماس</TableHead>
-                    <TableHead>مجموع کمیسیون</TableHead>
-                    <TableHead>پرداخت‌نشده</TableHead>
-                    <TableHead>تسویه‌شده</TableHead>
+                    <SortableHead {...recipientSort.head("type")}>نوع</SortableHead>
+                    <SortableHead {...recipientSort.head("name")}>نام</SortableHead>
+                    <SortableHead {...recipientSort.head("role")}>سمت / توضیحات</SortableHead>
+                    <SortableHead {...recipientSort.head("phone")}>شماره تماس</SortableHead>
+                    <SortableHead {...recipientSort.head("total")}>مجموع کمیسیون</SortableHead>
+                    <SortableHead {...recipientSort.head("unpaid")}>پرداخت‌نشده</SortableHead>
+                    <SortableHead {...recipientSort.head("paid")}>تسویه‌شده</SortableHead>
                     <TableHead className="text-left">عملیات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {allRows.map((row) => {
+                  {recipientSort.sorted.map((row) => {
                     const key = getKey(row);
                     const stats = recipientStats[key];
                     const isSelected = selectedKey === key;
@@ -508,17 +546,15 @@ export default function CommissionRecipients() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>ماه</TableHead>
-                        <TableHead>مجموع</TableHead>
-                        <TableHead>پرداخت‌نشده</TableHead>
-                        <TableHead>تسویه‌شده</TableHead>
+                        <SortableHead {...monthSort.head("month")}>ماه</SortableHead>
+                        <SortableHead {...monthSort.head("total")}>مجموع</SortableHead>
+                        <SortableHead {...monthSort.head("unpaid")}>پرداخت‌نشده</SortableHead>
+                        <SortableHead {...monthSort.head("paid")}>تسویه‌شده</SortableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {Object.entries(selectedStats.byMonth)
-                        .sort(([a], [b]) => b.localeCompare(a))
-                        .map(([key, m]) => (
-                          <TableRow key={key}>
+                      {monthSort.sorted.map((m) => (
+                          <TableRow key={m.key}>
                             <TableCell className="font-medium">{m.label}</TableCell>
                             <TableCell className="font-bold">{formatCurrency(m.total)}</TableCell>
                             <TableCell>

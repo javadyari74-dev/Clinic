@@ -104,23 +104,23 @@
   --elevate-2: rgba(0,0,0, .08);
 
   /* Clean, light neutral background */
-  --background: 0 0% 98%;
+  --background: 340 33% 98%; /* #fbf7f8 */
   --foreground: 0 0% 10%;
 
-  --border: 0 0% 90%;
-  --input: 0 0% 88%;
+  --border: 340 30% 92%;
+  --input: 340 22% 88%;
   --ring: 335 77% 42%; /* rose-700 / #be185d */
 
   --card: 0 0% 100%;
   --card-foreground: 0 0% 10%;
-  --card-border: 0 0% 92%;
+  --card-border: 340 40% 94%;
 
   --sidebar: 0 63% 30%; /* dark wine #7f1d1d */
   --sidebar-foreground: 0 0% 100%;
   --sidebar-border: 0 63% 25%;
   --sidebar-primary: 335 77% 42%; /* #be185d */
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 63% 38%;
+  --sidebar-accent: 0 55% 36%;
   --sidebar-accent-foreground: 0 0% 100%;
   --sidebar-ring: 335 77% 42%;
 
@@ -131,14 +131,14 @@
   --primary: 335 77% 42%; /* #be185d */
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 0 0% 93%;
-  --secondary-foreground: 0 0% 20%;
+  --secondary: 330 60% 96%;
+  --secondary-foreground: 0 63% 30%;
 
-  --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted: 330 45% 97%;
+  --muted-foreground: 345 12% 45%;
 
-  --accent: 0 0% 93%;
-  --accent-foreground: 0 0% 10%;
+  --accent: 330 60% 96%;
+  --accent-foreground: 0 63% 30%;
 
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 100%;
@@ -152,14 +152,14 @@
   --app-font-sans: 'Vazirmatn', sans-serif;
   --app-font-serif: 'Vazirmatn', serif;
   --app-font-mono: Menlo, monospace;
-  --radius: .5rem; 
+  --radius: 1rem; 
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.02);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.04);
-  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.02), 0px 1px 2px -1px hsl(0 0% 0% / 0.04);
-  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.02), 0px 1px 2px -1px hsl(0 0% 0% / 0.04);
-  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.02), 0px 2px 4px -1px hsl(0 0% 0% / 0.04);
-  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.02), 0px 4px 6px -1px hsl(0 0% 0% / 0.04);
-  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.02), 0px 8px 10px -1px hsl(0 0% 0% / 0.04);
+  --shadow-sm: 0 2px 10px -4px hsl(0 63% 30% / 0.10);
+  --shadow: 0 6px 24px -10px hsl(0 63% 30% / 0.18);
+  --shadow-md: 0 8px 28px -10px hsl(0 63% 30% / 0.22);
+  --shadow-lg: 0 14px 40px -14px hsl(0 63% 30% / 0.28);
+  --shadow-xl: 0 20px 50px -16px hsl(0 63% 30% / 0.32);
   --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.04);
   --tracking-normal: 0em;
   --spacing: 0.25rem;
@@ -372,4 +372,12 @@
 }
 .rmdp-panel-body li {
   font-family: "Vazirmatn", sans-serif !important;
+}
+.rmdp-range {
+  background-color: #be185d !important;
+  box-shadow: none !important;
+}
+.rmdp-range-hover {
+  background-color: #fce7f3 !important;
+  color: #9d174d !important;
 }

@@ -1,3 +1,4 @@
+import { PageHeader } from "@/components/page-header";
 import { useState } from "react";
 import {
   useListClientErrors,
@@ -109,12 +110,11 @@ export default function ClientErrors() {
 
   return (
     <div className="space-y-6" dir="rtl">
-      <div>
-        <h1 className="text-2xl font-bold">گزارش‌های خطا</h1>
-        <p className="text-muted-foreground text-sm mt-1">
-          خطاهای رخ‌داده در نمایش صفحات سمت کاربر، جدیدترین در بالا
-        </p>
-      </div>
+      <PageHeader
+        icon={<Bug />}
+        title="گزارش‌های خطا"
+        description="خطاهای رخ‌داده در نمایش صفحات سمت کاربر، جدیدترین در بالا"
+      />
 
       {isLoading ? (
         <div className="text-center py-10 text-muted-foreground">در حال بارگذاری...</div>

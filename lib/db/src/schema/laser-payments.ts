@@ -1,7 +1,10 @@
 import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { randomUUID } from "node:crypto";
 
 export const laserPaymentsTable = sqliteTable("laser_payments", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  // شناسهٔ یکتای سراسری برای ادغام پشتیبان (migration 0024)
+  uuid: text("uuid").notNull().unique().$defaultFn(() => randomUUID()),
   appointmentId: integer("appointment_id").notNull(),
   amount: integer("amount").notNull(),
   method: text("method").notNull().default("cash"),
