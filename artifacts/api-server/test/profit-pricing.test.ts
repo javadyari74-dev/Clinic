@@ -378,3 +378,32 @@ describe("per-unit price with fixed («کل») costs — Opera, 11 cc", () => {
     expect(await loyalty.getWalletBalance(dbm.db, p.id)).toBe(341_000);
   });
 });
+
+describe("a past service paid now can be recorded on the service date", () => {
+  it("revenue and cost land in the service's month when paidAt is sent; a future date is refused", async () => {
+    const svc = (await call("POST", "/services", { name: "خدمت ماه قبل", price: 2_000_000, doctorFee: 500_000 })).json;
+    const p = await patient("ثبت دیرهنگام");
+    const serviceMs = Date.now() - 40 * DAY * 1000;
+    const a = await appointment(p.id, svc.id, serviceMs);
+    const serviceSec = Math.floor(serviceMs / 1000);
+    const then0 = await summary(serviceSec - 3600, serviceSec + 3600);
+    const now0 = await summary(nowSec() - 60, nowSec() + 60);
+
+    const future = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 2_000_000, amount: 2_000_000, method: "cash", paidAt: nowSec() + 86400 });
+    expect(future.status).toBe(400);
+
+    const pay = await call("POST", "/payments", { appointmentId: a.id, originalAmount: 2_000_000, amount: 2_000_000, method: "cash", paidAt: serviceSec });
+    expect(pay.status).toBe(201);
+    expect(pay.json.paidAt).toBe(serviceSec);
+
+    const then1 = await summary(serviceSec - 3600, serviceSec + 3600);
+    const now1 = await summary(nowSec() - 60, nowSec() + 60);
+    expect(then1.revenue - then0.revenue).toBe(2_000_000);
+    expect(then1.serviceCosts - then0.serviceCosts).toBe(500_000);
+    expect(now1.revenue - now0.revenue).toBe(0);
+
+    // فهرست صندوق تاریخ خدمت را کنار پرداخت دارد
+    const list = (await call("GET", "/payments")).json;
+    expect(list.find((x: { id: number }) => x.id === pay.json.id).serviceScheduledAt).toBe(serviceMs);
+  });
+});

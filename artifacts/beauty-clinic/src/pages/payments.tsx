@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, formatShamsiDate, toPersianDigits, gregorianDateToUnix } from "@/lib/format";
 import { Plus, Banknote, CreditCard, Trash2, Tag, Users, Receipt, Bell, Award, Pencil, Printer, MessageSquare, Search, FileSpreadsheet } from "lucide-react";
@@ -78,6 +79,17 @@ const TEHRAN_OFFSET_SEC = 3.5 * 3600;
 function tehranDayStartSec(nowMs = Date.now()): number {
   const now = Math.floor(nowMs / 1000);
   return Math.floor((now + TEHRAN_OFFSET_SEC) / 86400) * 86400 - TEHRAN_OFFSET_SEC;
+}
+
+/** تاریخ (YYYY-MM-DD) و ساعت (ثانیه از نیمه‌شب) یک لحظه به وقت تهران */
+function tehranDateParts(ms: number): { iso: string; secOfDay: number } {
+  const t = new Date(ms + TEHRAN_OFFSET_SEC * 1000);
+  return { iso: t.toISOString().slice(0, 10), secOfDay: t.getUTCHours() * 3600 + t.getUTCMinutes() * 60 };
+}
+/** لحظهٔ «روزِ iso در تهران + ثانیه از نیمه‌شب» به ثانیهٔ یونیکس */
+function tehranSec(iso: string, secOfDay: number): number {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Date.UTC(y, m - 1, d) / 1000 - TEHRAN_OFFSET_SEC + secOfDay;
 }
 
 const SERVICE_REMINDER_TYPES: Record<string, string> = {
@@ -400,6 +412,23 @@ export default function Payments() {
 
   // وقتی نوبت انتخاب می‌شه: واحد مصرفی پیش‌فرض و مبلغ اصلی را تنظیم کن و پرداخت‌های قبلی را ذخیره کن
   // (پرداخت‌های واقعیِ ثبت‌شده، نه appointments.deposit — اگر بیعانه حذف شده باشد دیگر کسر نمی‌شود)
+  // تاریخ پرداخت: برای خدمتی که روزهای قبل انجام شده، پیش‌فرض روز خدمت است تا درآمد و سود
+  // در ماه خودش حساب شود (نه ماهی که در صندوق ثبت می‌شود)
+  const todayIso = tehranDateParts(Date.now()).iso;
+  const [payDate, setPayDate] = useState<string>(todayIso);
+  const apptDay = selectedAppt ? tehranDateParts(selectedAppt.scheduledAt) : null;
+  useEffect(() => {
+    if (!selectedAppt) { setPayDate(tehranDateParts(Date.now()).iso); return; }
+    const today = tehranDateParts(Date.now()).iso;
+    const day = tehranDateParts(selectedAppt.scheduledAt).iso;
+    setPayDate(day < today ? day : today);
+  }, [selectedAppt]);
+  function paidAtForSubmit(): number | undefined {
+    if (!payDate || payDate >= todayIso) return undefined; // امروز ← زمان ثبت
+    const secOfDay = apptDay && apptDay.iso === payDate ? apptDay.secOfDay : 12 * 3600;
+    return tehranSec(payDate, secOfDay);
+  }
+
   useEffect(() => {
     if (!selectedAppt) {
       setCurrentDeposit(0);
@@ -662,6 +691,7 @@ export default function Payments() {
     createPayment.mutate({
       data: {
         ...values,
+        ...(paidAtForSubmit() ? { paidAt: paidAtForSubmit() } : {}),
         originalAmount: values.originalAmount,
         // مبلغ نقدی همان است که محاسبه شده؛ صفر یعنی بقیه با بیعانه/کیف پول/امتیاز پوشش داده شده
         amount: values.amount ?? 0,
@@ -790,9 +820,46 @@ export default function Payments() {
       return true;
     });
   }, [payments, searchText, methodFilter, dateRange]);
+  // پرداختی که در ماهی (شمسی) غیر از ماه خدمت ثبت شده — مثلاً خدمت شهریور که مهر در صندوق ثبت شده؛
+  // درآمد و سودش در ماه اشتباه حساب می‌شود. مدیر با یک کلیک آن را به روز خدمت منتقل می‌کند.
+  const [onlyWrongMonth, setOnlyWrongMonth] = useState(false);
+  const wrongMonthIds = useMemo(() => {
+    const monthKey = new Intl.DateTimeFormat("en-u-ca-persian", { year: "numeric", month: "numeric", timeZone: "Asia/Tehran" });
+    const ids = new Set<number>();
+    for (const p of payments ?? []) {
+      const svc = (p as { serviceScheduledAt?: number | null }).serviceScheduledAt;
+      if (!svc) continue;
+      const svcSec = svc > 1e11 ? Math.floor(svc / 1000) : svc;
+      if (p.paidAt - svcSec < 86400) continue; // پرداخت قبل از خدمت (بیعانه) یا همان روز
+      if (monthKey.format(new Date(svcSec * 1000)) !== monthKey.format(new Date(p.paidAt * 1000))) ids.add(p.id);
+    }
+    return ids;
+  }, [payments]);
+  const [movingId, setMovingId] = useState<number | null>(null);
+  async function moveToServiceDate(p: { id: number; paidAt: number; serviceScheduledAt?: number | null }) {
+    if (!p.serviceScheduledAt) return;
+    const svcSec = p.serviceScheduledAt > 1e11 ? Math.floor(p.serviceScheduledAt / 1000) : p.serviceScheduledAt;
+    setMovingId(p.id);
+    try {
+      await customFetch(`/api/payments/${p.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paidAt: svcSec }),
+      });
+      await queryClient.invalidateQueries();
+      toast({ title: "پرداخت به تاریخ خدمت منتقل شد", description: formatShamsiDate(svcSec) });
+    } catch (err) {
+      toastApiError(err, "انتقال ناموفق بود");
+    } finally {
+      setMovingId(null);
+    }
+  }
+
   const visiblePayments = useMemo(
-    () => (onlyDuplicates ? filteredPayments.filter((p) => duplicateIds.has(p.id)) : filteredPayments),
-    [filteredPayments, onlyDuplicates, duplicateIds],
+    () => filteredPayments
+      .filter((p) => !onlyDuplicates || duplicateIds.has(p.id))
+      .filter((p) => !onlyWrongMonth || wrongMonthIds.has(p.id)),
+    [filteredPayments, onlyDuplicates, duplicateIds, onlyWrongMonth, wrongMonthIds],
   );
   const visibleTotal = useMemo(() => visiblePayments.reduce((sum, p) => sum + p.amount, 0), [visiblePayments]);
   const filtersActive = !!searchText.trim() || methodFilter !== "all" || datePreset !== "all" || onlyDuplicates;
@@ -1021,6 +1088,19 @@ export default function Payments() {
                   </p>
                 </div>
               )}
+
+              {/* تاریخ پرداخت */}
+              <div className="space-y-1.5">
+                <Label className="text-sm">تاریخ پرداخت</Label>
+                <PersianDatePicker value={payDate} onChange={(v) => setPayDate(v && v <= todayIso ? v : todayIso)} placeholder="امروز" />
+                {apptDay && apptDay.iso < todayIso && (
+                  <p className={cn("text-xs rounded-lg px-2 py-1", payDate === apptDay.iso ? "bg-green-50 text-green-800" : "bg-amber-50 text-amber-800")} data-testid="past-service-date-note">
+                    {payDate === apptDay.iso
+                      ? `این خدمت در ${formatShamsiDate(selectedAppt!.scheduledAt)} انجام شده؛ درآمد و سود آن در همان تاریخ ثبت می‌شود.`
+                      : `خدمت در ${formatShamsiDate(selectedAppt!.scheduledAt)} انجام شده ولی پرداخت با تاریخ دیگری ثبت می‌شود و در ماه همان تاریخ حساب می‌شود.`}
+                  </p>
+                )}
+              </div>
 
               {/* Method */}
               <FormField control={form.control} name="method" render={({ field }) => (
@@ -1446,6 +1526,17 @@ export default function Payments() {
             </div>
           </div>
 
+          {wrongMonthIds.size > 0 && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 py-2 text-sm text-sky-900" data-testid="wrong-month-notice">
+              <span>
+                {toPersianDigits(wrongMonthIds.size)} پرداخت در ماهی غیر از ماه انجام خدمت ثبت شده و درآمد و سودش در ماه ثبت حساب می‌شود.
+                {user?.role === "admin" ? " با «انتقال به ماه خدمت» تاریخ پرداخت روز خدمت می‌شود." : " برای اصلاح به مدیر بگویید."}
+              </span>
+              <Button size="sm" variant={onlyWrongMonth ? "default" : "outline"} onClick={() => setOnlyWrongMonth((v) => !v)}>
+                {onlyWrongMonth ? "نمایش همهٔ پرداخت‌ها" : "فقط همین موارد"}
+              </Button>
+            </div>
+          )}
           {duplicateIds.size > 0 && (
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900" data-testid="duplicate-payments-notice">
               <span>
@@ -1484,6 +1575,18 @@ export default function Payments() {
                       <Badge variant="outline" className="mr-1 border-amber-400 bg-amber-50 text-amber-800 text-[10px]" title="همین مراجع، همین خدمت و همین مبلغ در کمتر از ۷ روز دوباره ثبت شده است">
                         احتمالاً تکراری
                       </Badge>
+                    )}
+                    {wrongMonthIds.has(p.id) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-[11px] text-sky-800">
+                        <span>خدمت: {formatShamsiDate((p as { serviceScheduledAt?: number | null }).serviceScheduledAt ?? 0)}</span>
+                        {user?.role === "admin" && (
+                          <Button size="sm" variant="outline" className="h-6 px-2 text-[11px]" disabled={movingId === p.id}
+                            onClick={() => moveToServiceDate(p as typeof p & { serviceScheduledAt?: number | null })}
+                            data-testid={`move-to-service-date-${p.id}`}>
+                            {movingId === p.id ? "در حال انتقال…" : "انتقال به ماه خدمت"}
+                          </Button>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground max-w-[160px] truncate">

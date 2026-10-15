@@ -76,13 +76,18 @@ router.get("/payments", async (req, res): Promise<void> => {
   }
   const { page, limit } = query.data;
 
-  let q = db.select().from(paymentsTable).orderBy(desc(paymentsTable.paidAt)).$dynamic();
+  // تاریخ خدمت (زمان نوبت، میلی‌ثانیه) کنار هر پرداخت، تا صندوق پرداخت‌هایی را که در ماهی غیر از
+  // ماه خدمت ثبت شده‌اند نشان دهد
+  let q = db.select({ payment: paymentsTable, serviceScheduledAt: appointmentsTable.scheduledAt })
+    .from(paymentsTable)
+    .leftJoin(appointmentsTable, eq(appointmentsTable.id, paymentsTable.appointmentId))
+    .orderBy(desc(paymentsTable.paidAt)).$dynamic();
   if (typeof limit === "number") {
     const offset = ((page ?? 1) - 1) * limit;
     q = q.limit(limit).offset(offset);
   }
   const rows = await q;
-  res.json(rows);
+  res.json(rows.map((r) => ({ ...r.payment, serviceScheduledAt: r.serviceScheduledAt ?? null })));
 });
 
 type CreatePaymentInput = ReturnType<typeof CreatePaymentBody.parse>;
@@ -441,7 +446,19 @@ router.post("/payments", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const paidAt = Math.floor(Date.now() / 1000);
+  // تاریخ پرداخت: پیش‌فرض «الان»؛ برای خدمتی که قبلاً انجام شده و حالا در صندوق ثبت می‌شود،
+  // صندوق تاریخ واقعی (معمولاً روز خدمت) را می‌فرستد تا درآمد و سود در ماه خودش حساب شود.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const rawPaidAt = (req.body as { paidAt?: unknown })?.paidAt;
+  let paidAt = nowSec;
+  if (rawPaidAt !== undefined && rawPaidAt !== null) {
+    const n = Number(rawPaidAt);
+    if (!Number.isInteger(n) || n < 1_577_836_800 /* ۲۰۲۰ */ || n > nowSec + 300) {
+      res.status(400).json({ error: "تاریخ پرداخت نامعتبر است (نباید در آینده باشد)" });
+      return;
+    }
+    paidAt = n;
+  }
 
   // ثبت پرداخت و همهٔ آثارش در یک تراکنش انجام می‌شود تا اتمیک بماند.
   let result: CreatedPayment;
