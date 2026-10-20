@@ -81,6 +81,10 @@ export default function Backup() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreOpen, setRestoreOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  // خلاصهٔ فایل انتخاب‌شده برای تأیید آگاهانه (تاریخ تهیه و تعداد مراجعین/نوبت‌ها)
+  const [restoreInfo, setRestoreInfo] = useState<
+    { exportedAt?: string; patients: number; appointments: number; valid: boolean } | null
+  >(null);
 
   // مسیر ذخیره بکاپ
   const [defaultDir, setDefaultDir] = useState("");
@@ -208,7 +212,21 @@ export default function Backup() {
     const file = e.target.files?.[0] ?? null;
     if (file) {
       setRestoreFile(file);
+      setRestoreInfo(null);
       setRestoreOpen(true);
+      file
+        .text()
+        .then((text) => {
+          const parsed = JSON.parse(text);
+          const d = parsed?.data;
+          setRestoreInfo({
+            exportedAt: typeof parsed?.exportedAt === "string" ? parsed.exportedAt : undefined,
+            patients: Array.isArray(d?.patients) ? d.patients.length : 0,
+            appointments: Array.isArray(d?.appointments) ? d.appointments.length : 0,
+            valid: parsed?.version != null && Array.isArray(d?.patients) && Array.isArray(d?.services),
+          });
+        })
+        .catch(() => setRestoreInfo({ patients: 0, appointments: 0, valid: false }));
     }
     // اجازه انتخاب دوباره همان فایل
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -217,6 +235,7 @@ export default function Backup() {
   function closeRestore() {
     setRestoreOpen(false);
     setRestoreFile(null);
+    setRestoreInfo(null);
   }
 
   async function doRestore() {
@@ -228,19 +247,32 @@ export default function Backup() {
       if (!parsed?.data || typeof parsed.data !== "object") {
         throw new Error("invalid");
       }
+      // نسخه، زمان تهیه و فهرست اصلاح‌های اجراشده هم فرستاده می‌شود تا سرور فایل را
+      // اعتبارسنجی کند و اصلاح‌های لازم برای پشتیبان‌های قدیمی را اجرا کند
       const res = await fetch(`${BASE_URL}/api/backup/restore`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ data: parsed.data }),
+        body: JSON.stringify({
+          version: parsed.version,
+          exportedAt: parsed.exportedAt,
+          dataFixes: parsed.dataFixes,
+          data: parsed.data,
+        }),
       });
-      if (!res.ok) throw new Error("failed");
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(body?.error || "failed");
       queryClient.clear();
-      toast({ title: "اطلاعات با موفقیت بازیابی شد", description: "تمام داده‌ها از فایل پشتیبان جایگزین شد." });
+      toast({
+        title: "اطلاعات با موفقیت بازیابی شد",
+        description: body?.warning || "تمام داده‌ها از فایل پشتیبان جایگزین شد. یک بکاپ ایمنی از اطلاعات قبلی هم گرفته شد.",
+      });
       closeRestore();
+      loadLogs();
     } catch (err) {
-      const msg = err instanceof SyntaxError || (err as Error)?.message === "invalid"
+      const message = (err as Error)?.message;
+      const msg = err instanceof SyntaxError || message === "invalid"
         ? "فایل انتخاب‌شده یک پشتیبان معتبر نیست"
-        : "خطا در بازیابی اطلاعات";
+        : message && message !== "failed" ? message : "خطا در بازیابی اطلاعات";
       toast({ title: msg, variant: "destructive" });
     } finally {
       setRestoring(false);
@@ -273,7 +305,7 @@ export default function Backup() {
       const res = await fetch(`${BASE_URL}/api/backup/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ data: parsed.data }),
+        body: JSON.stringify({ exportedAt: parsed.exportedAt, dataFixes: parsed.dataFixes, data: parsed.data }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "failed");
@@ -607,6 +639,7 @@ export default function Backup() {
                     <div className="text-xs text-muted-foreground">
                       {formatLogDate(log.createdAt)}
                       {log.kind === "pre-merge" ? " • بکاپ ایمنی پیش از ادغام" : ""}
+                      {log.kind === "pre-restore" ? " • بکاپ ایمنی پیش از بازیابی" : ""}
                       {log.kind === "mirror" ? " • نسخهٔ دوم" : ""}
                       {log.kind === "auto" && log.message ? ` • ${BACKUP_REASON_LABELS[log.message] ?? ""}` : ""}
                       {log.status === "error" && log.message ? ` • ${log.message}` : ""}
@@ -740,17 +773,35 @@ export default function Backup() {
           <div className="space-y-4">
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800 space-y-2">
               <p className="font-bold">⚠️ این عملیات تمام اطلاعات فعلی مطب را پاک می‌کند!</p>
-              <p>پس از بازیابی، اطلاعات فعلی با محتوای فایل پشتیبان جایگزین می‌شود و قابل بازگشت نیست.</p>
+              <p>
+                مراجعین، نوبت‌ها، پرداخت‌ها، خدمات و سایر اطلاعات فعلی حذف و با محتوای فایل پشتیبان جایگزین
+                می‌شوند. هر چه پس از تاریخ این فایل ثبت شده از بین می‌رود.
+              </p>
+              <p>
+                پیش از شروع، یک بکاپ ایمنی خودکار از اطلاعات فعلی گرفته می‌شود؛ اگر گرفتن آن ممکن نباشد بازیابی
+                انجام نمی‌شود. برای افزودن اطلاعات بدون پاک کردن، از «بازیابی ادغامی» استفاده کنید.
+              </p>
             </div>
             {restoreFile && (
               <p className="text-sm text-muted-foreground">
                 فایل انتخاب‌شده: <span className="font-medium">{restoreFile.name}</span>
               </p>
             )}
+            {restoreInfo && restoreInfo.valid && (
+              <p className="text-sm text-muted-foreground">
+                {restoreInfo.exportedAt ? `تاریخ تهیه: ${new Date(restoreInfo.exportedAt).toLocaleString("fa-IR")} • ` : ""}
+                {restoreInfo.patients.toLocaleString("fa-IR")} مراجع، {restoreInfo.appointments.toLocaleString("fa-IR")} نوبت
+              </p>
+            )}
+            {restoreInfo && !restoreInfo.valid && (
+              <p className="text-sm text-destructive">
+                این فایل یک پشتیبان کامل و معتبر برنامه نیست (نسخه یا بخش مراجعین/خدمات را ندارد) و بازیابی نمی‌شود.
+              </p>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={closeRestore} disabled={restoring}>انصراف</Button>
-            <Button variant="destructive" onClick={doRestore} disabled={restoring} className="gap-2">
+            <Button variant="destructive" onClick={doRestore} disabled={restoring || restoreInfo?.valid === false} className="gap-2">
               <RotateCcw className="h-4 w-4" />
               {restoring ? "در حال بازیابی..." : "بازیابی اطلاعات"}
             </Button>

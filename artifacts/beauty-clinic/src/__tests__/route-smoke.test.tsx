@@ -43,6 +43,11 @@ const routes: RouteCase[] = [
   { path: "/backup", heading: "پشتیبان‌گیری" },
   { path: "/accounting", heading: "حسابداری و سود و زیان" },
   { path: "/users", heading: "مدیریت کاربران" },
+  { path: "/purchases", heading: "خریدها" },
+  { path: "/sms", heading: "پنل پیامکی" },
+  { path: "/surveys", heading: "نظرسنجی‌ها" },
+  { path: "/activity-log", heading: "تاریخچهٔ تغییرات" },
+  { path: "/client-errors", heading: "گزارش‌های خطا" },
 ];
 
 beforeEach(() => {
@@ -94,6 +99,11 @@ const lazyModules: Record<string, () => Promise<{ default: unknown }>> = {
   accounting: () => import("@/pages/accounting"),
   users: () => import("@/pages/users"),
   laser: () => import("@/pages/laser"),
+  purchases: () => import("@/pages/purchases"),
+  sms: () => import("@/pages/sms"),
+  surveys: () => import("@/pages/surveys"),
+  "activity-log": () => import("@/pages/activity-log"),
+  "client-errors": () => import("@/pages/client-errors"),
 };
 
 describe("lazy page chunks expose a default component", () => {

@@ -328,7 +328,7 @@ export function ProfitDetailsDialog({
             سود خالص مطب ({formatCurrency(summary.netProfit)}) = سود خدمات
             {summary.laserRevenue - summary.laserCommissions !== 0 && <> + سود لیزر ({formatCurrency(summary.laserRevenue - summary.laserCommissions)})</>}
             {" "}− هزینه‌های ثابت ({formatCurrency(summary.expenses)})
-            {summary.revenue !== totals.revenue && <> ± پرداخت/پورسانت بدون نوبت</>}
+            {(summary.revenue !== totals.revenue || summary.commissions !== totals.commission) && <> ± پرداخت/پورسانت بدون نوبت</>}
           </p>
         )}
 

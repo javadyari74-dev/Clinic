@@ -506,6 +506,93 @@ const patientLoyalty = {
   member: { tier: "silver", joinedAt: NOW - 30 * DAY, spend12m: 25_000_000, nextTier: { tier: "gold", min: 50_000_000, remaining: 25_000_000 } },
 };
 
+// ── خریدها ──
+export const PURCHASE_PRODUCT_NAME = "فیلر رووفیل";
+const purchases = [
+  {
+    id: 1, productType: "فیلر", productName: PURCHASE_PRODUCT_NAME, supplier: "پخش آریا", quantity: 2,
+    price: 6_000_000, purchaseDate: NOW - 3 * DAY, isSettled: false, settledAt: null, notes: null, createdAt: NOW - 3 * DAY,
+  },
+];
+const purchaseProducts = [
+  { id: 1, productType: "فیلر", name: PURCHASE_PRODUCT_NAME, defaultSupplier: "پخش آریا", defaultPrice: 3_000_000, notes: null, createdAt: NOW - 10 * DAY },
+];
+
+// ── پیامک ──
+const smsSettings = {
+  username: "09120000000", from: "3000123", hasPassword: true,
+  enabledAppointment: true, enabledPayment: true, enabledCommission: false, enabledRecipientWelcome: false,
+  enabledSurvey: true, surveyThrottleDays: 30,
+  enabledAppointmentReminder: true, enabledFollowupReminder: true, enabledBirthdayAuto: true,
+  appointmentReminderHour: 10, dailyAutoHour: 9,
+  enabledLoyaltyWelcome: false, enabledLoyaltyTierUp: false, enabledLoyaltyExpiry: false, enabledLoyaltyReferral: false,
+  sendMode: "pattern",
+  bodyIdAppointment: "1001", bodyIdPayment: "1002", bodyIdCommission: "", bodyIdBirthday: "1003", bodyIdSurvey: "1004",
+  bodyIdRecipientWelcome: "", bodyIdAppointmentReminder: "1005", bodyIdFollowupReminder: "1006",
+  bodyIdLoyaltyWelcome: "", bodyIdLoyaltyTierUp: "", bodyIdLoyaltyExpiry: "", bodyIdLoyaltyReferral: "",
+  bodyIdPaymentLoyalty: "", bodyIdLoyaltyNotify: "", bodyIdLoyaltyBalance: "",
+};
+const smsTemplateTexts = {
+  appointment: "نوبت شما ثبت شد", payment: "پرداخت شما ثبت شد", commission: "کمیسیون", birthday: "تولدتان مبارک",
+  survey: "نظرسنجی", recipientWelcome: "خوش آمدید", appointmentReminder: "یادآوری نوبت فردا", followupReminder: "یادآوری مراجعه",
+  loyaltyWelcome: "عضویت باشگاه", loyaltyTierUp: "ارتقای سطح", loyaltyExpiry: "انقضای امتیاز", loyaltyReferral: "معرفی",
+};
+const smsTemplates = { ...smsTemplateTexts, defaults: smsTemplateTexts };
+const smsLogs = {
+  data: [
+    { id: 1, recipientPhone: "09120000001", recipientName: PATIENT_ONE_NAME, patientId: 1, eventType: "appointment", message: "نوبت شما ثبت شد", status: "sent", error: null, createdAt: NOW - 3600 },
+  ],
+  total: 1,
+};
+const savedSmsPatterns = { data: [{ id: 1, name: "یادآوری نوبت", bodyId: "1005", createdAt: NOW - DAY }] };
+
+// ── نظرسنجی ──
+const surveysList = {
+  data: [
+    {
+      id: 1, patientId: 1, appointmentId: 1, paymentId: 1, serviceId: 1, staffId: 1, sentAt: NOW - DAY, smsStatus: "sent",
+      score: 5, comment: "عالی بود", scoredAt: NOW - 3600, createdAt: NOW - DAY,
+      patientName: PATIENT_ONE_NAME, patientPhone: "09120000001", patientFileNumber: "1001", serviceName: SERVICE_NAME, staffName: STAFF_NAME,
+    },
+  ],
+  total: 1,
+};
+const surveyStats = {
+  total: 1, scoredCount: 1, avgScore: 5,
+  byService: [{ id: 1, name: SERVICE_NAME, count: 1, avgScore: 5 }],
+  byStaff: [{ id: 1, name: STAFF_NAME, count: 1, avgScore: 5 }],
+};
+const emptySurveyStats = { total: 0, scoredCount: 0, avgScore: null, byService: [], byStaff: [] };
+
+// ── گزارش خطاها ──
+export const CLIENT_ERROR_MESSAGE = "Cannot read properties of undefined (reading 'map')";
+const clientErrors = [
+  {
+    id: 1, message: CLIENT_ERROR_MESSAGE, stack: "TypeError: ...\n    at Page", componentStack: "\n    at Page", url: "http://localhost/patients",
+    userAgent: "Mozilla/5.0", occurredAt: new Date((NOW - 600) * 1000).toISOString(), createdAt: NOW - 600,
+  },
+];
+
+// ── ریز سود حسابداری ──
+const profitDetails = {
+  from: NOW - 30 * DAY,
+  to: NOW,
+  services: [
+    {
+      serviceId: 1, serviceName: SERVICE_NAME, category: "لیزر", count: 1, revenue: 1_200_000,
+      doctorCost: 200_000, materialCost: 100_000, otherCost: 50_000, serviceCost: 350_000, commission: 120_000,
+      profit: 730_000, profitMargin: 60.8,
+      periods: [],
+      visits: [
+        {
+          appointmentId: 1, patientId: 1, patientName: PATIENT_ONE_NAME, serviceDate: NOW - DAY, versionFrom: 0, counted: true,
+          revenue: 1_200_000, doctorCost: 200_000, materialCost: 100_000, otherCost: 50_000, serviceCost: 350_000, commission: 120_000,
+        },
+      ],
+    },
+  ],
+};
+
 type Handler = () => unknown;
 
 // Empty equivalents, matching the *shape* the API uses when there are no rows:
@@ -536,6 +623,17 @@ const routes: Array<[RegExp, Handler, Handler]> = [
   [/\/api\/reports\/summary$/, () => reportsSummary, emptyObj],
   [/\/api\/accounting\/summary$/, () => accountingSummary, emptyObj],
   [/\/api\/accounting\/debts$/, () => accountingDebts, emptyObj],
+  [/\/api\/accounting\/profit-details$/, () => profitDetails, () => ({ from: profitDetails.from, to: profitDetails.to, services: [] })],
+  [/\/api\/purchases\/products$/, () => purchaseProducts, emptyArr],
+  [/\/api\/purchases$/, () => purchases, emptyArr],
+  [/\/api\/sms\/settings$/, () => smsSettings, () => smsSettings],
+  [/\/api\/sms\/templates$/, () => smsTemplates, () => smsTemplates],
+  [/\/api\/sms\/credit$/, () => ({ ok: true, credit: 125_000 }), () => ({ ok: true, credit: 0 })],
+  [/\/api\/sms\/logs$/, () => smsLogs, () => ({ data: [], total: 0 })],
+  [/\/api\/sms\/patterns$/, () => savedSmsPatterns, () => ({ data: [] })],
+  [/\/api\/surveys\/stats$/, () => surveyStats, () => emptySurveyStats],
+  [/\/api\/surveys$/, () => surveysList, () => ({ data: [], total: 0 })],
+  [/\/api\/client-errors$/, () => clientErrors, emptyArr],
   [/\/api\/accounting\/by-service$/, () => accountingByService, emptyArr],
   [/\/api\/accounting\/chart$/, () => accountingChart, emptyArr],
   [/\/api\/accounting\/expenses$/, () => expenses, emptyArr],

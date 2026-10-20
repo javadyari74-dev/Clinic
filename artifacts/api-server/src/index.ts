@@ -2,7 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import app from "./app";
 import { logger } from "./lib/logger";
-import { runMigrations } from "@workspace/db";
+import { runMigrations, snapshotBeforeMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
 import { startSchedulers } from "./lib/scheduler";
 import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates, fixOverstatedCashbackOnce, movePaymentsToServiceMonthOnce } from "./lib/backfill";
@@ -25,7 +25,14 @@ if (Number.isNaN(port) || port <= 0) {
 
 const migrationsFolder = path.resolve(__dirname, "migrations");
 
-runMigrations(migrationsFolder)
+// پیش از مایگریشن/اصلاح‌های یک‌بارهٔ نسخهٔ تازه، یک نسخهٔ کامل از clinic.db کنار خودش
+// (clinic.pre-upgrade-<زمان>.db، سه نسخهٔ آخر) نگه داشته می‌شود؛ خطا در آن مانع شروع نمی‌شود.
+snapshotBeforeMigrations(migrationsFolder, 3)
+  .then((snap) => {
+    if (snap.path) logger.info({ path: snap.path }, "Saved a copy of the database before upgrading");
+    if (snap.error) logger.warn({ error: snap.error }, "Could not save a pre-upgrade copy of the database");
+  })
+  .then(() => runMigrations(migrationsFolder))
   .then(async () => {
     logger.info("Database migrations applied successfully");
     await seedAdminUser();

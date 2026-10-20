@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request } from "express";
-import { eq, or } from "drizzle-orm";
+import { eq, or, sql } from "drizzle-orm";
 import {
   db,
   patientsTable,
@@ -32,8 +32,9 @@ import {
   servicePriceHistoryTable,
   purchasesTable,
   purchaseProductsTable,
-  scheduledSmsTable,
 } from "@workspace/db";
+import { timingSafeEqual } from "node:crypto";
+import { logger } from "../lib/logger";
 import { seedAdminUser } from "../lib/seed";
 import { requireAdmin } from "../lib/auth";
 import {
@@ -51,6 +52,10 @@ import {
   LAST_AUTO_BACKUP_KEY,
   coerceDateColumns,
   isDeviceLocalSettingKey,
+  BACKUP_VERSION,
+  dataFixesAppliedIn,
+  syncDataFixFlagsForRestore,
+  runDataFixesAfterRestore,
 } from "../lib/backup-service";
 
 const router: IRouter = Router();
@@ -76,13 +81,14 @@ router.get("/backup/download", requireAdmin, async (_req, res): Promise<void> =>
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 // حذف تمام داده‌های مطب (فرزند → والد). کاربران و بخش لیزر دست‌نخورده می‌مانند.
-async function wipeClinicData(tx: Tx): Promise<void> {
+// keep: در بازیابی، بخش‌های مستقلی (خریدها) که فایل پشتیبان ندارد پاک نمی‌شوند.
+async function wipeClinicData(tx: Tx, keep: { purchases?: boolean; purchaseProducts?: boolean } = {}): Promise<void> {
   await tx.delete(loyaltyTransactionsTable);
   await tx.delete(loyaltyMembersTable);
   await tx.delete(surveysTable);
   await tx.delete(servicePriceHistoryTable);
-  await tx.delete(purchasesTable);
-  await tx.delete(purchaseProductsTable);
+  if (!keep.purchases) await tx.delete(purchasesTable);
+  if (!keep.purchaseProducts) await tx.delete(purchaseProductsTable);
   await tx.delete(waitingListTable);
   await tx.delete(smsLogTable);
   await tx.delete(patientAccountTransactionsTable);
@@ -120,6 +126,18 @@ async function restoreRows(tx: Tx, table: any, rows: unknown): Promise<void> {
   }
 }
 
+// نسخهٔ پایهٔ تاریخچهٔ قیمت برای خدماتی که هیچ تاریخچه‌ای ندارند (همان مایگریشن ۰۰۲۶)
+async function rebuildBasePriceHistory(tx: Tx): Promise<void> {
+  await tx.run(sql`
+    INSERT INTO service_price_history (uuid, service_id, effective_from, price, price_mode, unit_count, doctor_fee, doctor_fee_mode, material_cost, material_cost_mode, other_cost, other_cost_mode, note, created_at)
+    SELECT lower(hex(randomblob(16))), s.id, 0, s.price, COALESCE(s.price_mode, 'total'), COALESCE(s.unit_count, 1),
+      COALESCE(s.doctor_fee, 0), COALESCE(s.doctor_fee_mode, 'total'), COALESCE(s.material_cost, 0), COALESCE(s.material_cost_mode, 'total'),
+      COALESCE(s.other_cost, 0), COALESCE(s.other_cost_mode, 'total'), 'قیمت پیش از ثبت تاریخچه', CAST(strftime('%s','now') AS integer)
+    FROM services s
+    WHERE NOT EXISTS (SELECT 1 FROM service_price_history h WHERE h.service_id = s.id)
+  `);
+}
+
 // DELETE /api/reset — حذف کامل تمام داده‌های مطب (کاربران و بخش لیزر حفظ می‌شوند)
 router.delete("/reset", async (_req, res): Promise<void> => {
   try {
@@ -130,14 +148,39 @@ router.delete("/reset", async (_req, res): Promise<void> => {
   }
 });
 
+// بخش‌هایی که از نخستین نسخه‌های فایل پشتیبان وجود داشته‌اند؛ بازیابی بدون مراجعین و خدمات
+// (مثلاً فایل اشتباه یا ناقص) همهٔ داده‌ها را پاک می‌کرد.
+const REQUIRED_RESTORE_SECTIONS = ["patients", "services"] as const;
+
+// اعتبارسنجی فایل پیش از هر نوشتنی؛ پیام خطا یا null
+function validateRestorePayload(body: any): string | null {
+  const data = body?.data;
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "فایل پشتیبان نامعتبر است";
+  const version = Number(body?.version);
+  if (body?.version == null || !Number.isInteger(version) || version < 1) {
+    return "نسخهٔ فایل پشتیبان مشخص نیست؛ لطفاً فایل پشتیبانی را که خود برنامه ساخته است انتخاب کنید";
+  }
+  if (version > BACKUP_VERSION) {
+    return "این فایل پشتیبان با نسخهٔ جدیدتری از برنامه ساخته شده است؛ ابتدا برنامه را به‌روز کنید";
+  }
+  for (const key of REQUIRED_RESTORE_SECTIONS) {
+    if (!Array.isArray(data[key])) return "فایل پشتیبان ناقص است (بخش مراجعین یا خدمات را ندارد)؛ بازیابی انجام نشد";
+  }
+  for (const [key, value] of Object.entries(data)) {
+    if (value != null && !Array.isArray(value)) return `بخش «${key}» در فایل پشتیبان نامعتبر است`;
+  }
+  return null;
+}
+
 // POST /api/backup/restore — بازیابی کامل از فایل پشتیبان
 // تمام داده‌های فعلی مطب پاک و با داده‌های فایل جایگزین می‌شود (والد → فرزند، با حفظ شناسه‌ها)
 router.post("/backup/restore", async (req, res): Promise<void> => {
-  const data = req.body?.data;
-  if (!data || typeof data !== "object") {
-    res.status(400).json({ error: "فایل پشتیبان نامعتبر است" });
+  const invalid = validateRestorePayload(req.body);
+  if (invalid) {
+    res.status(400).json({ error: invalid });
     return;
   }
+  const data = req.body.data;
 
   // فایل‌های پشتیبان قدیمی (نسخه ۲) بخش لیزر را ندارند؛ در آن صورت داده‌های
   // لیزر فعلی نباید پاک شوند. فقط وقتی فایل شامل بخش لیزر است آن را جایگزین می‌کنیم.
@@ -148,14 +191,29 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
     "laserAppointments" in data ||
     "laserPayments" in data;
 
+  // بکاپ ایمنی اجباری از وضعیت فعلی؛ بدون آن بازیابی (که همه چیز را جایگزین می‌کند) انجام نمی‌شود
+  const safety = await runAutoBackup({ reason: "pre-restore", force: true });
+  if (!safety.ok) {
+    res.status(400).json({
+      error:
+        `بکاپ ایمنی پیش از بازیابی ناموفق بود: ${safety.error ?? "خطای نامشخص"}. ` +
+        "بازیابی انجام نشد؛ لطفاً یک مسیر ذخیره بکاپ معتبر تنظیم کنید و دوباره تلاش کنید.",
+    });
+    return;
+  }
+  const fileFixes = dataFixesAppliedIn(req.body);
+
   try {
     await db.transaction(async (tx) => {
-      // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)
-      await wipeClinicData(tx);
+      // ۱) پاک‌سازی داده‌های فعلی (فرزند → والد)؛ خریدها فقط وقتی فایل آن‌ها را دارد
+      await wipeClinicData(tx, {
+        purchases: !Array.isArray(data.purchases),
+        purchaseProducts: !Array.isArray(data.purchaseProducts),
+      });
       if (hasLaserData) await wipeLaserData(tx);
-      // کلیدهای پیامک‌های زمان‌بندی‌شده به id نوبت/مراجع قدیمی اشاره می‌کنند؛ پس از
-      // جایگزینی داده‌ها معنایشان عوض می‌شود و ممکن است پیامکی را به‌اشتباه «ارسال‌شده» نشان دهند.
-      await tx.delete(scheduledSmsTable);
+      // پیامک‌های زمان‌بندی‌شده (scheduled_sms) پاک نمی‌شوند: کلیدشان به شناسهٔ نوبت/مراجع اشاره
+      // می‌کند و شناسه‌ها در بازیابی حفظ می‌شوند؛ پاک‌کردنشان باعث ارسال دوبارهٔ تبریک تولد،
+      // یادآوری نوبت و پیگیری‌هایی می‌شد که قبلاً فرستاده شده‌اند.
       // فایل‌های قدیمی (پیش از نسخه ۵) پترن‌ها را ندارند؛ در آن صورت پترن‌های فعلی حفظ می‌شوند
       if (Array.isArray(data.smsSavedPatterns)) await tx.delete(smsSavedPatternsTable);
 
@@ -178,10 +236,12 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
       await restoreRows(tx, patientAccountTransactionsTable, data.accountTransactions);
       await restoreRows(tx, waitingListTable, data.waitingList);
       await restoreRows(tx, surveysTable, data.surveys);
-      // فایل‌های قدیمی تاریخچه ندارند؛ نسخهٔ اول هر خدمت در شروع بعدی برنامه (مایگریشن ۰۰۲۶) ساخته می‌شود
+      // تاریخچهٔ قیمت به شناسهٔ خدمت وابسته است و خدمات همیشه جایگزین می‌شوند، پس همیشه پاک
+      // می‌شود؛ فایل‌های قدیمی که تاریخچه ندارند همین‌جا نسخهٔ پایهٔ هر خدمت را می‌گیرند (مثل مایگریشن ۰۰۲۶)
       await restoreRows(tx, servicePriceHistoryTable, data.servicePriceHistory);
-      await restoreRows(tx, purchasesTable, data.purchases);
-      await restoreRows(tx, purchaseProductsTable, data.purchaseProducts);
+      if (!Array.isArray(data.servicePriceHistory)) await rebuildBasePriceHistory(tx);
+      if (Array.isArray(data.purchases)) await restoreRows(tx, purchasesTable, data.purchases);
+      if (Array.isArray(data.purchaseProducts)) await restoreRows(tx, purchaseProductsTable, data.purchaseProducts);
       await restoreRows(tx, smsLogTable, data.smsLog);
       await restoreRows(tx, loyaltyTransactionsTable, data.loyaltyTransactions);
       await restoreRows(tx, loyaltyMembersTable, data.loyaltyMembers);
@@ -228,12 +288,24 @@ router.post("/backup/restore", async (req, res): Promise<void> => {
           await tx.insert(usersTable).values(row as typeof usersTable.$inferInsert);
         }
       }
+
+      // ۴) نشانه‌های اصلاح‌های یک‌باره مطابق دادهٔ بازیابی‌شده (نه دادهٔ پاک‌شده)
+      await syncDataFixFlagsForRestore(tx, fileFixes);
     });
 
     // تضمین وجود حساب مدیر تا امکان ورود همیشه باقی بماند
     await seedAdminUser();
 
-    res.json({ ok: true, message: "اطلاعات با موفقیت بازیابی شد" });
+    // اصلاح‌های یک‌باره‌ای که دادهٔ فایل (پشتیبان قدیمی) هنوز نگرفته؛ خطا بازیابی را باطل نمی‌کند
+    let warning: string | undefined;
+    try {
+      await runDataFixesAfterRestore();
+    } catch (err) {
+      logger.warn({ err }, "one-time data fixes after restore failed");
+      warning = "اطلاعات بازیابی شد، اما اصلاح خودکار داده‌های قدیمی کامل نشد؛ با شروع دوبارهٔ برنامه تکرار می‌شود.";
+    }
+
+    res.json({ ok: true, message: "اطلاعات با موفقیت بازیابی شد", safetyBackup: safety.filename, warning });
   } catch (err) {
     res.status(500).json({ error: "خطا در بازیابی اطلاعات", detail: String(err) });
   }
@@ -334,6 +406,7 @@ router.post("/backup/merge", async (req, res): Promise<void> => {
     const result = await mergeRestore(req.body);
     res.json({ ok: true, ...result });
   } catch (err) {
+    logger.warn({ err }, "merge restore failed");
     if (err instanceof MergeError) {
       res.status(400).json({ error: err.message });
       return;
@@ -345,8 +418,14 @@ router.post("/backup/merge", async (req, res): Promise<void> => {
 export default router;
 
 // --------------------------------------------------------------------------
-// روتر داخلی (بدون احراز هویت) فقط برای فراخوانی از خود دستگاه
+// روتر داخلی (بدون احراز هویت کاربر) فقط برای فراخوانی پوستهٔ دسکتاپ
 // --------------------------------------------------------------------------
+// «فقط localhost» کافی نیست: هر صفحهٔ وبی که در مرورگر همین دستگاه باز است می‌تواند به
+// 127.0.0.1 درخواست بفرستد. پس درخواست باید رمز مشترکی را که فقط پوستهٔ دسکتاپ می‌داند
+// (BACKUP_TRIGGER_TOKEN، هنگام اجرای سرور ساخته و به آن داده می‌شود) در هدر بفرستد؛
+// درخواستِ دارای Origin (یعنی از مرورگر) هم همیشه رد می‌شود.
+export const BACKUP_TRIGGER_HEADER = "x-backup-trigger-token";
+
 function isLoopback(req: Request): boolean {
   const ip = req.ip || req.socket?.remoteAddress || "";
   return (
@@ -357,15 +436,22 @@ function isLoopback(req: Request): boolean {
   );
 }
 
+function hasTriggerToken(req: Request): boolean {
+  const expected = process.env.BACKUP_TRIGGER_TOKEN ?? "";
+  const got = req.get(BACKUP_TRIGGER_HEADER) ?? "";
+  if (expected.length < 16 || got.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(got), Buffer.from(expected));
+}
+
 export const internalBackupRouter: IRouter = Router();
 
-// POST /api/backup/auto — گرفتن بکاپ خودکار (با رعایت throttle). فقط از localhost.
+// POST /api/backup/auto — گرفتن بکاپ خودکار (با رعایت throttle). فقط پوستهٔ دسکتاپ.
 internalBackupRouter.post("/backup/auto", async (req, res): Promise<void> => {
-  if (!isLoopback(req)) {
+  if (!isLoopback(req) || req.get("origin") != null || !hasTriggerToken(req)) {
     res.status(403).json({ error: "forbidden" });
     return;
   }
-  const reason = typeof req.body?.reason === "string" ? req.body.reason : "auto";
+  const reason = req.body?.reason === "shutdown" ? "shutdown" : "auto";
   // هنگام بستن برنامه همیشه بکاپ گرفته می‌شود (بدون محدودیت ۱۵ دقیقه‌ای)
   const result = await runAutoBackup({ reason, force: reason === "shutdown" });
   res.json(result);

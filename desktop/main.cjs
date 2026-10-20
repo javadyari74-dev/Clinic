@@ -24,6 +24,11 @@ let serverProcess = null;
 let mainWindow = null;
 let activePort = PREFERRED_PORT;
 
+// Shared secret for the internal /api/backup/auto endpoint: generated fresh on
+// every launch and handed only to the server process, so a web page open in a
+// browser on this machine cannot trigger backups through 127.0.0.1.
+const BACKUP_TRIGGER_TOKEN = crypto.randomBytes(32).toString("hex");
+
 // Rolling buffer of the most recent server output, used to surface the real
 // error to the user (and to a log file) when the server fails to start.
 let serverOutput = "";
@@ -231,6 +236,7 @@ function startServer(port) {
         SQLITE_DB_PATH: dbPath,
         SERVE_STATIC_DIR: PUBLIC_DIR,
         SESSION_SECRET: getSessionSecret(),
+        BACKUP_TRIGGER_TOKEN,
       },
       stdio: "pipe",
     });
@@ -429,7 +435,11 @@ function requestShutdownBackup(port) {
         port,
         path: "/api/backup/auto",
         method: "POST",
-        headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "X-Backup-Trigger-Token": BACKUP_TRIGGER_TOKEN,
+        },
         timeout: SHUTDOWN_BACKUP_TIMEOUT_MS,
       },
       (res) => {

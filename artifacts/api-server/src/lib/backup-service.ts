@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { eq, desc, getTableColumns } from "drizzle-orm";
+import { eq, desc, getTableColumns, inArray, sql } from "drizzle-orm";
 import {
   db,
   DB_PATH,
@@ -36,9 +36,18 @@ import {
   purchasesTable,
   purchaseProductsTable,
   DATA_FIX_KEY_PREFIX,
+  ONE_TIME_DATA_FIX_KEYS,
+  runPendingDataFixes,
 } from "@workspace/db";
 import { logger } from "./logger";
 import { backfillLoyaltyMembers } from "./loyalty";
+import {
+  BILLED_CASHBACK_FIX_KEY,
+  MOVE_TO_SERVICE_MONTH_KEY,
+  fixOverstatedCashbackOnce,
+  movePaymentsToServiceMonth,
+  movePaymentsToServiceMonthOnce,
+} from "./backfill";
 
 // نسخه فرمت فایل پشتیبان — هنگام افزودن/حذف جدول افزایش یابد.
 // نسخه ۴: افزودن لیست انتظار، نظرسنجی‌ها، لاگ پیامک، باشگاه مشتریان و بخش لیزر.
@@ -147,6 +156,7 @@ export function validateBackupDir(dir: string): { ok: boolean; error?: string } 
 export async function buildBackupData(): Promise<{
   exportedAt: string;
   version: number;
+  dataFixes: string[];
   data: Record<string, unknown[]>;
 }> {
   const [
@@ -216,6 +226,9 @@ export async function buildBackupData(): Promise<{
   return {
     exportedAt: new Date().toISOString(),
     version: BACKUP_VERSION,
+    // اصلاح‌های یک‌باره‌ای که روی همین داده اجرا شده‌اند (نشانه‌ها مختص دستگاه‌اند و در
+    // appSettings نمی‌آیند؛ این فهرست به بازیابی می‌گوید کدام اصلاح هنوز لازم است)
+    dataFixes: appSettings.map((r) => r.key).filter((k) => k.startsWith(DATA_FIX_KEY_PREFIX)).sort(),
     data: {
       patients,
       services,
@@ -273,11 +286,37 @@ function fileTimestamp(d = new Date()): string {
   );
 }
 
+// نوشتن اتمیک: ابتدا فایل موقت (با نقطهٔ ابتدای نام تا در فهرست بکاپ‌ها نیاید)، سپس
+// تغییر نام. قطع برق یا پرشدن دیسک در میانهٔ نوشتن، فایل بکاپِ نیمه‌کاره با نام معتبر نمی‌سازد.
+export function writeFileAtomic(target: string, write: (tmp: string) => void): void {
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.tmp`);
+  try {
+    write(tmp);
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* ignore */
+    }
+    throw err;
+  }
+}
+
 async function writeBackupFile(dir: string, prefix: string): Promise<string> {
   fs.mkdirSync(dir, { recursive: true });
   const backup = await buildBackupData();
   const filename = `${prefix}${fileTimestamp()}.json`;
-  fs.writeFileSync(path.join(dir, filename), JSON.stringify(backup, null, 2));
+  const json = JSON.stringify(backup, null, 2);
+  writeFileAtomic(path.join(dir, filename), (tmp) => {
+    const fd = fs.openSync(tmp, "w");
+    try {
+      fs.writeFileSync(fd, json);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  });
   return filename;
 }
 
@@ -365,7 +404,7 @@ export async function runAutoBackup(
     const filename = await writeBackupFile(dir, "auto-");
     pruneAutoBackups(dir, MAX_AUTO_BACKUPS);
     await setSetting(LAST_AUTO_BACKUP_KEY, String(Date.now()));
-    const kind = reason === "pre-merge" ? "pre-merge" : "auto";
+    const kind = reason === "pre-merge" || reason === "pre-restore" ? reason : "auto";
     await logBackup(kind, filename, "success", reason);
     await copyToMirror(dir, filename);
     return { ok: true, skipped: false, filename };
@@ -382,7 +421,7 @@ async function copyToMirror(dir: string, filename: string): Promise<void> {
   if (!mirror || path.resolve(mirror) === path.resolve(dir)) return;
   try {
     fs.mkdirSync(mirror, { recursive: true });
-    fs.copyFileSync(path.join(dir, filename), path.join(mirror, filename));
+    writeFileAtomic(path.join(mirror, filename), (tmp) => fs.copyFileSync(path.join(dir, filename), tmp));
     pruneAutoBackups(mirror, MAX_AUTO_BACKUPS);
     await logBackup("mirror", filename, "success", mirror);
   } catch (err) {
@@ -403,6 +442,69 @@ export async function getBackupLogs(limit = 50) {
     .from(backupLogTable)
     .orderBy(desc(backupLogTable.id))
     .limit(limit);
+}
+
+// ---------------------------------------------------------------------------
+// اصلاح‌های یک‌بارهٔ داده پس از بازیابی
+// ---------------------------------------------------------------------------
+// هر اصلاح یک‌باره (lib/db ONE_TIME_DATA_FIXES و lib/backfill) با نشانهٔ data_fix_* در
+// app_settings فقط یک بار روی هر پایگاه داده اجرا می‌شود. این اصلاح‌ها «idempotent» نیستند
+// (مثلاً انتقال پرداخت به ماه خدمت، تسویهٔ بدهیِ ماه بعد را هم جابه‌جا می‌کند؛ اصلاح اعتبار سود،
+// اعتبارِ درستِ تازه را هم کم می‌کند)، پس پس از بازیابی نباید کورکورانه دوباره اجرا شوند.
+// به‌جای آن نشانه‌ها با وضعیت دادهٔ بازیابی‌شده هماهنگ می‌شوند و فقط اصلاح‌هایی که آن داده
+// هنوز نگرفته اجرا می‌شوند.
+//
+// زمان معرفی هر اصلاح (ثانیه)، برای فایل‌های قدیمی که فهرست dataFixes ندارند: فایلی که پیش
+// از این زمان گرفته شده آن اصلاح را ندارد.
+export const DATA_FIX_INTRODUCED_AT: Record<string, number> = {
+  [`${DATA_FIX_KEY_PREFIX}adjust_sign_done`]: 1_791_500_000, // مایگریشن ۰۰۲۳
+  [`${DATA_FIX_KEY_PREFIX}historic_shortfall_settled`]: 1_791_815_412,
+  [`${DATA_FIX_KEY_PREFIX}paid_appointments_completed`]: 1_791_815_412,
+  [BILLED_CASHBACK_FIX_KEY]: 1_791_980_790,
+  [MOVE_TO_SERVICE_MONTH_KEY]: 1_792_053_167,
+};
+
+const KNOWN_DATA_FIX_KEYS = new Set<string>([...ONE_TIME_DATA_FIX_KEYS, ...Object.keys(DATA_FIX_INTRODUCED_AT)]);
+
+/** کدام اصلاح‌های یک‌باره روی دادهٔ این فایل پشتیبان از قبل اجرا شده‌اند. */
+export function dataFixesAppliedIn(payload: { dataFixes?: unknown; exportedAt?: unknown }): Set<string> {
+  if (Array.isArray(payload?.dataFixes)) {
+    return new Set(
+      (payload.dataFixes as unknown[]).filter(
+        (k): k is string => typeof k === "string" && k.startsWith(DATA_FIX_KEY_PREFIX),
+      ),
+    );
+  }
+  const exported =
+    typeof payload?.exportedAt === "string" || typeof payload?.exportedAt === "number"
+      ? new Date(payload.exportedAt as string | number).getTime() / 1000
+      : NaN;
+  // زمان نامعلوم: فرض بر اجراشده — اجرای نابجای اصلاح روی دادهٔ درست، از نگرفتنش بدتر است
+  if (!Number.isFinite(exported)) return new Set(KNOWN_DATA_FIX_KEYS);
+  return new Set(
+    [...KNOWN_DATA_FIX_KEYS].filter((k) => (DATA_FIX_INTRODUCED_AT[k] ?? 0) <= exported),
+  );
+}
+
+/** داخل تراکنش بازیابی کامل: نشانه‌های اصلاح را دقیقاً مطابق دادهٔ بازیابی‌شده می‌کند. */
+export async function syncDataFixFlagsForRestore(tx: any, applied: Set<string>): Promise<void> {
+  const known = [...KNOWN_DATA_FIX_KEYS];
+  if (known.length > 0) await tx.delete(appSettingsTable).where(inArray(appSettingsTable.key, known));
+  const now = nowSeconds();
+  for (const key of applied) {
+    await tx
+      .insert(appSettingsTable)
+      .values({ key, value: "restored", updatedAt: now })
+      .onConflictDoNothing();
+  }
+}
+
+/** پس از بازیابی کامل: اصلاح‌های یک‌باره‌ای که نشانه‌شان نیست (دادهٔ قدیمی) اجرا می‌شوند. */
+export async function runDataFixesAfterRestore(): Promise<void> {
+  // همان ترتیب شروع برنامه: اصلاح‌های lib/db، سپس انتقال پرداخت‌ها و اصلاح اعتبار سود
+  await runPendingDataFixes();
+  await movePaymentsToServiceMonthOnce();
+  await fixOverstatedCashbackOnce();
 }
 
 // ---------------------------------------------------------------------------
@@ -528,7 +630,13 @@ type MergeCount = { added: number; skipped: number };
 // ستون متنی یکتا (غیر از uuid) که ممکن است در دو دستگاه مستقل مقدار یکسان گرفته باشد
 // (مثل شماره پرونده یا کد لیزر): nullable → خالی می‌شود (بعداً دوباره ساخته می‌شود)،
 // اجباری → پسوند «-2»، «-3» و ... می‌گیرد تا درج به خطای UNIQUE نخورد.
-type UniqueTextCol = { key: string; nullable: boolean };
+// fa: پسوند با رقم فارسی («SRV-0001-۲»، «441-۲») تا کد برای کاربر خوانا بماند.
+type UniqueTextCol = { key: string; nullable: boolean; fa?: boolean };
+
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+function faNum(n: number): string {
+  return String(n).replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+}
 
 // ادغام یک جدول: تکراری‌ها (بر اساس uuid) رد می‌شوند؛ رکوردهای جدید با id عددی
 // تازه درج و در نگاشت ثبت می‌شوند تا فرزندان به id صحیح متصل شوند.
@@ -538,7 +646,9 @@ async function mergeTable(
   table: any,
   rows: unknown,
   remap?: (row: Row) => Row | null,
-  opts: { allowMissingUuid?: boolean; uniqueText?: UniqueTextCol[] } = {},
+  // matchBy: ستون‌هایی که با هم یکتا هستند (مثلاً نوع+نام محصول خرید)؛ ردیفِ ورودی با همان
+  // مقادیر، همان رکورد محلی به حساب می‌آید (درج نمی‌شود و به آن نگاشت می‌شود).
+  opts: { allowMissingUuid?: boolean; uniqueText?: UniqueTextCol[]; matchBy?: string[] } = {},
 ): Promise<{
   count: MergeCount;
   idMap: IdMap;
@@ -567,6 +677,20 @@ async function mergeTable(
     taken.set(u.key, new Set((vals as Array<{ v: unknown }>).filter((x) => x.v != null).map((x) => String(x.v))));
   }
 
+  const tupleKey = (r: Row): string | null => {
+    const vals = opts.matchBy!.map((k) => r[k]);
+    return vals.some((v) => v == null) ? null : JSON.stringify(vals);
+  };
+  const existingByTuple = new Map<string, number>();
+  if (opts.matchBy) {
+    const sel: Record<string, any> = { id: table.id };
+    for (const k of opts.matchBy) sel[k] = table[k];
+    for (const e of (await tx.select(sel).from(table)) as Row[]) {
+      const k = tupleKey(e);
+      if (k) existingByTuple.set(k, e.id);
+    }
+  }
+
   for (const row of rows as Row[]) {
     if (typeof row.uuid !== "string" || row.uuid.length === 0) {
       // فقط برای بخش‌هایی که فایل‌های قدیمی‌شان uuid نداشت (لیزر) — رد با یادداشت
@@ -589,6 +713,15 @@ async function mergeTable(
       count.skipped++;
       continue;
     }
+    const tk = opts.matchBy ? tupleKey(values) : null;
+    if (tk) {
+      const same = existingByTuple.get(tk);
+      if (same !== undefined) {
+        idMap.set(row.id, same);
+        count.skipped++;
+        continue;
+      }
+    }
     for (const u of opts.uniqueText ?? []) {
       const set = taken.get(u.key)!;
       const v = values[u.key];
@@ -599,9 +732,10 @@ async function mergeTable(
           values[u.key] = null;
           continue;
         }
+        const suffixed = (n: number) => `${v}-${u.fa ? faNum(n) : n}`;
         let n = 2;
-        while (set.has(`${v}-${n}`)) n++;
-        next = `${v}-${n}`;
+        while (set.has(suffixed(n))) n++;
+        next = suffixed(n);
         values[u.key] = next;
       }
       set.add(next);
@@ -609,6 +743,7 @@ async function mergeTable(
     const res = await tx.insert(table).values(values).returning({ id: table.id });
     const newId = res[0].id as number;
     existingByUuid.set(row.uuid, newId);
+    if (tk) existingByTuple.set(tk, newId);
     idMap.set(row.id, newId);
     inserted.push({ newId, row });
     count.added++;
@@ -741,8 +876,18 @@ export type MergeReport = Record<string, MergeCount> & {
   totals: { added: number; skipped: number };
 };
 
+function isUniqueViolation(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let i = 0; cur != null && i < 10; i++) {
+    const msg = cur instanceof Error ? cur.message : String(cur);
+    if (/UNIQUE constraint failed/i.test(msg)) return true;
+    cur = cur instanceof Error ? (cur as { cause?: unknown }).cause : null;
+  }
+  return false;
+}
+
 export async function mergeRestore(
-  payload: { data?: unknown },
+  payload: { data?: unknown; dataFixes?: unknown; exportedAt?: unknown },
 ): Promise<{ report: MergeReport; safetyBackup?: string; ignoredSections: string[]; notes: string[] }> {
   const data = payload?.data;
   if (!data || typeof data !== "object") {
@@ -764,14 +909,21 @@ export async function mergeRestore(
 
   // ۳) ادغام درون یک تراکنش — هر خطایی کل عملیات را برمی‌گرداند و دیتابیس دست‌نخورده می‌ماند
   const mergeNotes: string[] = [];
-  const report = await db.transaction(async (tx) => {
+  const fileFixes = dataFixesAppliedIn(payload);
+  const runTransaction = () => db.transaction(async (tx) => {
     const rep: Record<string, MergeCount> = {};
 
-    const services = await mergeTable(tx, servicesTable, d.services);
+    // کدهای یکتای خوانا (کد خدمت SRV-0001، شماره پرونده، کد تخفیف) روی هر دستگاه مستقل
+    // ساخته می‌شوند و ممکن است با رکورد دیگری (uuid متفاوت) یکی باشند → پسوند «-۲»، «-۳» ...
+    const services = await mergeTable(tx, servicesTable, d.services, undefined, {
+      uniqueText: [{ key: "serviceCode", nullable: false, fa: true }],
+    });
     rep.services = services.count;
     const staff = await mergeTable(tx, staffTable, d.staff);
     rep.staff = staff.count;
-    const discounts = await mergeTable(tx, discountsTable, d.discounts);
+    const discounts = await mergeTable(tx, discountsTable, d.discounts, undefined, {
+      uniqueText: [{ key: "code", nullable: false, fa: true }],
+    });
     rep.discounts = discounts.count;
     const inventory = await mergeTable(tx, inventoryTable, d.inventory);
     rep.inventory = inventory.count;
@@ -779,7 +931,9 @@ export async function mergeRestore(
     rep.recipients = recipients.count;
 
     // مراجعین — نگاشت referrerId در پایان (پس از کامل‌شدن تمام نگاشت‌ها) انجام می‌شود
-    const patients = await mergeTable(tx, patientsTable, d.patients);
+    const patients = await mergeTable(tx, patientsTable, d.patients, undefined, {
+      uniqueText: [{ key: "fileNumber", nullable: false, fa: true }],
+    });
     rep.patients = patients.count;
 
     const maps: Maps = {
@@ -815,8 +969,19 @@ export async function mergeRestore(
       recipientId: resolvePolyRequired(row.recipientType, row.recipientId, maps, "کمیسیون→دریافت‌کننده"),
       appointmentId: resolveRef(maps.appointments, row.appointmentId, false, "کمیسیون→نوبت"),
       paymentId: resolveRef(maps.payments, row.paymentId, false, "کمیسیون→پرداخت"),
-    }));
+    }), {
+      // یک کمیسیون برای هر (پرداخت، نوع گیرنده، گیرنده): همان کمیسیونِ موجود حساب می‌شود
+      matchBy: ["paymentId", "recipientType", "recipientId"],
+    });
     rep.commissions = commissions.count;
+    // پرداخت‌های فایل قدیمی که اصلاح «انتقال به ماه خدمت» را نگرفته‌اند — فقط همین پرداخت‌ها
+    // (پس از ادغام کمیسیون‌ها تا تاریخ کمیسیون‌هایشان هم با آن‌ها جابه‌جا شود)
+    if (!fileFixes.has(MOVE_TO_SERVICE_MONTH_KEY) && payments.inserted.length > 0) {
+      await movePaymentsToServiceMonth(
+        tx as unknown as Pick<typeof db, "all" | "run">,
+        payments.inserted.map((p) => p.newId),
+      );
+    }
 
     const notes = await mergeTable(tx, patientNotesTable, d.notes, (row) => ({
       ...row,
@@ -836,9 +1001,22 @@ export async function mergeRestore(
     );
     rep.accountTransactions = accountTransactions.count;
 
+    // موجودی اکانت = جمع تراکنش‌ها؛ برای مراجعینی که تراکنش تازه گرفتند دوباره حساب می‌شود
+    const touched = [...new Set(accountTransactions.inserted.map((t) => maps.patients.get(t.row.patientId)))]
+      .filter((id): id is number => typeof id === "number");
+    for (const pid of touched) {
+      await tx
+        .update(patientsTable)
+        .set({
+          accountBalance: sql`(SELECT COALESCE(SUM(${patientAccountTransactionsTable.amount}), 0) FROM ${patientAccountTransactionsTable} WHERE ${patientAccountTransactionsTable.patientId} = ${pid})`,
+        })
+        .where(eq(patientsTable.id, pid));
+    }
+
     const reminders = await mergeTable(tx, remindersTable, d.reminders, (row) => ({
       ...row,
       patientId: resolveRef(maps.patients, row.patientId, false, "یادآوری→مراجع"),
+      paymentId: resolveRef(maps.payments, row.paymentId, false, "یادآوری→پرداخت"),
     }));
     rep.reminders = reminders.count;
 
@@ -873,7 +1051,10 @@ export async function mergeRestore(
     const purchases = await mergeTable(tx, purchasesTable, d.purchases, (row) => ({ ...row }));
     rep.purchases = purchases.count;
 
-    const purchaseProducts = await mergeTable(tx, purchaseProductsTable, d.purchaseProducts, (row) => ({ ...row }));
+    // محصول ذخیره‌شده با همان نوع و نام، همان محصول است (یکتا روی product_type + name)
+    const purchaseProducts = await mergeTable(tx, purchaseProductsTable, d.purchaseProducts, (row) => ({ ...row }), {
+      matchBy: ["productType", "name"],
+    });
     rep.purchaseProducts = purchaseProducts.count;
 
     const surveys = await mergeTable(tx, surveysTable, d.surveys, (row) => ({
@@ -971,6 +1152,22 @@ export async function mergeRestore(
     );
     return { ...rep, totals } as MergeReport;
   });
+
+  let report: MergeReport;
+  try {
+    report = await runTransaction();
+  } catch (err) {
+    if (err instanceof MergeError) throw err;
+    // هر تداخل یکتای پیش‌بینی‌نشده: کل ادغام برگشت خورده؛ پیام قابل‌فهم به‌جای خطای ۵۰۰
+    if (isUniqueViolation(err)) {
+      logger.warn({ err }, "merge restore hit a unique constraint");
+      throw new MergeError(
+        "برخی رکوردهای فایل پشتیبان با اطلاعات فعلی تداخل دارند (مقدار تکراری در یک فیلد یکتا)؛ " +
+          "ادغام انجام نشد و اطلاعات فعلی دست‌نخورده ماند.",
+      );
+    }
+    throw err;
+  }
 
   // مراجعین تازه‌ادغام‌شده که پرداخت دارند عضو باشگاه می‌شوند (اعضای باشگاه uuid
   // ندارند و مستقیم ادغام نمی‌شوند). خطا در این مرحله ادغامِ انجام‌شده را باطل نمی‌کند.

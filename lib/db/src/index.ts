@@ -202,6 +202,90 @@ WHERE \`type\` = 'adjust' AND \`amount\` > 0 AND EXISTS (
   },
 ];
 
+// Keys of the one-time fixes above, so backup restore can tell which of them the
+// restored data has already had (see artifacts/api-server backup-service).
+export const ONE_TIME_DATA_FIX_KEYS: readonly string[] = ONE_TIME_DATA_FIXES.map((f) => f.key);
+
+/**
+ * Runs every one-time data fix whose "already applied" flag is missing. Used after
+ * a full backup restore: the restore resets the flags to what the restored data
+ * had, so only fixes that data never got run (each still exactly once).
+ */
+export async function runPendingDataFixes(): Promise<void> {
+  await runOneTimeDataFixes(new Set());
+}
+
+/**
+ * Before migrations / one-time data fixes touch an existing database, keep a
+ * consistent copy of it next to the database file (`<name>.pre-upgrade-<time>.db`,
+ * newest `keep` copies kept). Only when something is pending — a journal entry
+ * not yet recorded or a one-time fix not yet applied — so ordinary restarts do
+ * not rotate out the copy taken before the last real upgrade. Never throws:
+ * a failed copy is reported to the caller but must not block startup.
+ */
+export async function snapshotBeforeMigrations(
+  migrationsFolder: string,
+  keep = 3,
+): Promise<{ path: string | null; error?: string }> {
+  try {
+    if (!fs.existsSync(DB_PATH) || fs.statSync(DB_PATH).size === 0) return { path: null };
+    const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+    if (!fs.existsSync(journalPath)) return { path: null };
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as { entries: { when: number }[] };
+    const tables = new Set(
+      (await db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table'`)).map((r) => r.name),
+    );
+    if (!tables.has("__drizzle_migrations")) {
+      // No journal table: a brand-new (empty) database has nothing worth copying.
+      if (![...tables].some((t) => !t.startsWith("sqlite_"))) return { path: null };
+    } else {
+      const recorded = new Set(
+        (await db.all<{ created_at: number }>(sql`SELECT "created_at" FROM __drizzle_migrations`)).map((r) =>
+          Number(r.created_at),
+        ),
+      );
+      const migrationsPending = journal.entries.some((e) => !recorded.has(Number(e.when)));
+      let fixesPending = false;
+      if (tables.has("app_settings")) {
+        const flags = new Set(
+          (await db.all<{ key: string }>(sql`SELECT "key" FROM app_settings WHERE "key" LIKE 'data_fix_%'`)).map(
+            (r) => r.key,
+          ),
+        );
+        fixesPending = ONE_TIME_DATA_FIX_KEYS.some((k) => !flags.has(k));
+      }
+      if (!migrationsPending && !fixesPending) return { path: null };
+    }
+
+    const dir = path.dirname(DB_PATH);
+    const base = path.basename(DB_PATH).replace(/\.db$/i, "");
+    const p = (n: number) => String(n).padStart(2, "0");
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+    const target = path.join(dir, `${base}.pre-upgrade-${stamp}.db`);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    // VACUUM INTO writes a consistent copy (including anything still in the WAL)
+    await db.run(sql.raw(`VACUUM INTO '${target.replace(/'/g, "''")}'`));
+
+    const prefix = `${base}.pre-upgrade-`;
+    const copies = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".db"))
+      .sort()
+      .reverse();
+    for (const f of copies.slice(keep)) {
+      try {
+        fs.unlinkSync(path.join(dir, f));
+      } catch {
+        /* ignore */
+      }
+    }
+    return { path: target };
+  } catch (err) {
+    return { path: null, error: String(err) };
+  }
+}
+
 async function runOneTimeDataFixes(recordedBefore: Set<number>): Promise<void> {
   for (const fix of ONE_TIME_DATA_FIXES) {
     const done = await db.all<{ key: string }>(sql`SELECT "key" FROM app_settings WHERE "key" = ${fix.key}`);

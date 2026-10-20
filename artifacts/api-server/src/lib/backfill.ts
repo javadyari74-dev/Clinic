@@ -98,7 +98,7 @@ export async function repairShamsiReminderDates(): Promise<number> {
 // یک‌بار پس از ارتقا: اعتبار سودهایی که با هزینهٔ «یک جلسه» برای صورت‌حساب‌های چند برابری
 // حساب شده بودند اصلاح می‌شوند (lib/loyalty.ts → fixOverstatedCashback). جمع مبلغ کسرشده را برمی‌گرداند.
 // v2: هزینهٔ «کل» در خدمات «هر واحد» هم به نسبت واحدهای فروخته‌شده (اجرای دوباره روی داده‌های قبلی بی‌خطر است)
-const BILLED_CASHBACK_FIX_KEY = "data_fix_billed_cost_cashback_v2";
+export const BILLED_CASHBACK_FIX_KEY = "data_fix_billed_cost_cashback_v2";
 export async function fixOverstatedCashbackOnce(): Promise<number> {
   return db.transaction(async (tx) => {
     const done = await tx.select().from(appSettingsTable).where(eq(appSettingsTable.key, BILLED_CASHBACK_FIX_KEY)).get();
@@ -113,14 +113,22 @@ export async function fixOverstatedCashbackOnce(): Promise<number> {
 // ثبت شده) به روز خدمت منتقل می‌شوند تا درآمد، هزینه و سودشان در ماه خودش حساب شود.
 // فقط پرداخت‌هایی که دست‌کم یک روز بعد از خدمت و در ماه شمسیِ دیگری ثبت شده‌اند؛ بیعانهٔ پیش از
 // خدمت و پرداختِ همان ماه دست نمی‌خورند. کمیسیون‌های همان پرداخت هم با آن جابه‌جا می‌شوند.
-const MOVE_TO_SERVICE_MONTH_KEY = "data_fix_payments_to_service_month";
+export const MOVE_TO_SERVICE_MONTH_KEY = "data_fix_payments_to_service_month";
 const TEHRAN_OFFSET_SEC = 12_600;
 function shamsiMonthKey(sec: number): string {
   const d = new Date((sec + TEHRAN_OFFSET_SEC) * 1000);
   const [jy, jm] = gregorianToJalali(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
   return `${jy}-${jm}`;
 }
-export async function movePaymentsToServiceMonth(executor: Pick<typeof db, "all" | "run"> = db): Promise<number> {
+// paymentIds: فقط همین پرداخت‌ها (مثلاً پرداخت‌های تازه‌ادغام‌شده از یک پشتیبان قدیمی)؛
+// بدون آن همهٔ پرداخت‌ها. اجرای دوباره روی پرداختی که منتقل شده بی‌اثر است (فاصله‌اش صفر می‌شود)،
+// اما پرداخت‌های تازهٔ ماهِ بعد (مثلاً تسویهٔ بدهی) را هم جابه‌جا می‌کند — پس فقط یک‌بار به ازای داده.
+export async function movePaymentsToServiceMonth(
+  executor: Pick<typeof db, "all" | "run"> = db,
+  paymentIds?: number[],
+): Promise<number> {
+  if (paymentIds && paymentIds.length === 0) return 0;
+  const only = new Set(paymentIds ?? []);
   const rows = await executor.all<{ id: number; paid_at: number; svc: number }>(sql`
     SELECT p.id AS id, p.paid_at AS paid_at,
       (CASE WHEN a.scheduled_at < 100000000000 THEN a.scheduled_at ELSE a.scheduled_at / 1000 END) AS svc
@@ -129,6 +137,7 @@ export async function movePaymentsToServiceMonth(executor: Pick<typeof db, "all"
   `);
   let moved = 0;
   for (const r of rows) {
+    if (paymentIds && !only.has(Number(r.id))) continue;
     const svc = Math.floor(Number(r.svc));
     if (shamsiMonthKey(Number(r.paid_at)) === shamsiMonthKey(svc)) continue;
     await executor.run(sql`UPDATE payments SET paid_at = ${svc} WHERE id = ${r.id}`);

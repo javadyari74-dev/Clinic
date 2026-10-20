@@ -139,6 +139,7 @@ describe("POST /backup/restore", () => {
 
     // دو ردیف با شناسهٔ یکسان → خطای UNIQUE پس از پاک‌سازی داده‌ها
     const status = await call("boss", "POST", "/backup/restore", {
+      version: 8,
       data: {
         services: [],
         patients: [
@@ -155,7 +156,7 @@ describe("POST /backup/restore", () => {
 });
 
 describe("POST /backup/restore — version 5 sections", () => {
-  it("restores app settings (except device-local keys) and SMS patterns, clears scheduled SMS, accepts old laser rows without uuid", async () => {
+  it("restores app settings (except device-local keys) and SMS patterns, keeps scheduled SMS, accepts old laser rows without uuid", async () => {
     const { db, appSettingsTable, smsSavedPatternsTable, scheduledSmsTable, laserClientsTable } = dbModule;
     const { eq } = await import("drizzle-orm");
     await db.insert(appSettingsTable).values({ key: "backup_dir", value: "/local/backups", updatedAt: 1 })
@@ -165,7 +166,9 @@ describe("POST /backup/restore — version 5 sections", () => {
     await db.insert(scheduledSmsTable).values({ key: "appointment:1:1", kind: "appointment", status: "sent" });
 
     const status = await call("boss", "POST", "/backup/restore", {
+      version: 5,
       data: {
+        services: [],
         patients: [{ id: 1, uuid: "p-r-1", name: "الف", phone: "1", fileNumber: "RS-1", createdAt: 1 }],
         appSettings: [
           { key: "sms_from", value: "FROM-BACKUP" },
@@ -183,7 +186,8 @@ describe("POST /backup/restore — version 5 sections", () => {
     expect(await get("sms_from")).toBe("FROM-BACKUP");
     expect(await get("backup_dir")).toBe("/local/backups");
     expect((await db.select().from(smsSavedPatternsTable)).map((r) => r.bodyId)).toEqual(["123"]);
-    expect(await db.select().from(scheduledSmsTable)).toEqual([]);
+    // ارسال‌شده‌ها حفظ می‌شوند تا پیامک‌ها دوباره فرستاده نشوند (شناسه‌ها در بازیابی حفظ می‌شوند)
+    expect((await db.select().from(scheduledSmsTable)).map((r) => r.key)).toEqual(["appointment:1:1"]);
     const laser = await db.select().from(laserClientsTable);
     expect(laser).toHaveLength(1);
     expect(typeof laser[0].uuid).toBe("string");

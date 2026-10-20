@@ -80,24 +80,67 @@ function shamsiOf(d: Date): DateObject {
 }
 
 /**
- * بازهٔ هم‌اندازهٔ درست قبل از بازهٔ فعلی برای مقایسه: «این ماه»/«ماه گذشته» ← ماه شمسی قبل،
- * «امسال» ← سال شمسی قبل، امروز/هفته/بازهٔ دلخواه ← همان تعداد روزِ درست قبل. «همه» مقایسه ندارد.
+ * بازهٔ قبلی برای مقایسه. دورهٔ «در جریان» (این ماه/امسال/این هفته که امروز داخلش است) با
+ * همان مقدارِ سپری‌شده از دورهٔ قبل مقایسه می‌شود، نه با کل آن: ۱ تا ۳ آبان ← ۱ تا ۳ مهر؛
+ * شنبه تا سه‌شنبهٔ این هفته ← شنبه تا سه‌شنبهٔ هفتهٔ قبل؛ امسال تا امروز ← همین مدت در سال قبل.
+ * دورهٔ کامل‌شده (ماه گذشته، یا آخرین روز ماه/سال) ← کل دورهٔ قبل. امروز ← دیروز؛ بازهٔ دلخواه ←
+ * همان تعداد روزِ درست قبل. «همه» مقایسه ندارد.
  */
-function previousRange(preset: RangePreset, range: DateRange): { range: DateRange; label: string } | null {
+export function previousRange(
+  preset: RangePreset,
+  range: DateRange,
+  now: Date = new Date(),
+): { range: DateRange; label: string } | null {
   if (preset === "all" || range.from === 0) return null;
   const from = new Date(range.from * 1000);
   const prevDay = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 1);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todaySec = Math.floor(today.getTime() / 1000);
+  const inProgress = todaySec >= range.from && todaySec < range.to;
+  // روز nام (از ۱) پس از first، حداکثر تا last
+  const nthDay = (first: Date, n: number, last: Date) => {
+    const d = new Date(first.getFullYear(), first.getMonth(), first.getDate() + n - 1);
+    return d > last ? last : d;
+  };
+  const elapsed = (first: Date) =>
+    Math.round((today.getTime() - new Date(first.getFullYear(), first.getMonth(), first.getDate()).getTime()) / 86_400_000) + 1;
+
   if (preset === "month" || preset === "lastMonth") {
     const first = shamsiOf(prevDay).toFirstOfMonth().toDate();
-    return { range: rangeFromDays(first, prevDay), label: shamsiOf(prevDay).format("MMMM") };
+    const monthName = shamsiOf(prevDay).format("MMMM");
+    const isLastDay = shamsiOf(today).day === shamsiOf(today).month.length;
+    if (preset === "month" && inProgress && !isLastDay) {
+      const last = nthDay(first, shamsiOf(today).day, prevDay);
+      const lastDay = shamsiOf(last).format("D");
+      const label =
+        last.getTime() === prevDay.getTime() ? monthName
+          : last.getTime() === first.getTime() ? `۱ ${monthName}`
+            : `۱ تا ${lastDay} ${monthName}`;
+      return { range: rangeFromDays(first, last), label };
+    }
+    return { range: rangeFromDays(first, prevDay), label: monthName };
   }
   if (preset === "year") {
     const first = shamsiOf(prevDay).toFirstOfYear().toDate();
-    return { range: rangeFromDays(first, prevDay), label: `سال ${shamsiOf(prevDay).format("YYYY")}` };
+    const yearLabel = `سال ${shamsiOf(prevDay).format("YYYY")}`;
+    const t = shamsiOf(today);
+    const isLastDay = t.month.number === 12 && t.day === t.month.length;
+    if (inProgress && !isLastDay) {
+      const n = elapsed(new Date(range.from * 1000));
+      return { range: rangeFromDays(first, nthDay(first, n, prevDay)), label: `همین مدت در ${yearLabel}` };
+    }
+    return { range: rangeFromDays(first, prevDay), label: yearLabel };
+  }
+  if (preset === "week") {
+    // همان روزهای هفتهٔ قبل (شنبه تا همان روزِ هفته)
+    const days = Math.max(1, rangeDays(range));
+    const first = new Date(from.getFullYear(), from.getMonth(), from.getDate() - 7);
+    const last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + days - 1);
+    return { range: rangeFromDays(first, last), label: days >= 7 ? "هفتهٔ قبل" : "همین روزهای هفتهٔ قبل" };
   }
   const days = Math.max(1, rangeDays(range));
   const first = new Date(prevDay.getFullYear(), prevDay.getMonth(), prevDay.getDate() - (days - 1));
-  const label = preset === "today" ? "دیروز" : preset === "week" ? "هفتهٔ قبل" : "بازهٔ قبل";
+  const label = preset === "today" ? "دیروز" : "بازهٔ قبل";
   return { range: rangeFromDays(first, prevDay), label };
 }
 

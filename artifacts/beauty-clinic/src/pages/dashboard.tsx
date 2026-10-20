@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { PageHeader } from "@/components/page-header";
 import { StatCard } from "@/components/stat-card";
-import { tehranNowHHMM } from "@/lib/tehran-date";
+import { tehranNowHHMM, tehranTodayISO } from "@/lib/tehran-date";
 import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
   Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone, Plus,
@@ -125,6 +125,26 @@ function useUpcomingBirthdays(days = 10) {
     queryFn: () => customFetch<BirthdayAlert[]>(`/api/patients/upcoming-birthdays?days=${days}`),
     staleTime: 5 * 60 * 1000,
   });
+}
+
+/**
+ * درآمد ۷ روز اخیر تهران (قدیمی‌ترین اول) برای نمودار کوچک کارت درآمد. سری نمودار فقط روزهای
+ * دارای پرداخت را دارد؛ slice(-7) آن ممکن بود هفته‌ها را بپوشاند. روزهای بی‌پرداخت صفرند.
+ */
+export function lastTehranDaysRevenue(
+  series: ReadonlyArray<{ date: string; revenue: number }>,
+  days = 7,
+  now: number = Date.now(),
+): number[] {
+  const byDay = new Map<string, number>();
+  for (const p of series) byDay.set(p.date, (byDay.get(p.date) ?? 0) + (Number(p.revenue) || 0));
+  const today = tehranTodayISO(now);
+  const base = Date.parse(`${today}T12:00:00Z`);
+  const out: number[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    out.push(byDay.get(new Date(base - i * 86_400_000).toISOString().slice(0, 10)) ?? 0);
+  }
+  return out;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -286,7 +306,7 @@ export default function Dashboard() {
           value={formatCurrency(summary?.monthlyRevenue)}
           sub="ماه شمسی جاری · بدون لیزر"
           icon={<Wallet />}
-          spark={chartData && chartData.length > 1 ? chartData.slice(-7).map((d) => d.revenue) : undefined}
+          spark={chartData ? lastTehranDaysRevenue(chartData) : undefined}
         />
         <StatCard
           tone="wine"
