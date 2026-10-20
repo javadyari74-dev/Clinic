@@ -33,18 +33,20 @@ export function unitsSql(unitsOverride?: SQL): SQL {
 /**
  * ضریب مقدار فروخته‌شده برای هزینه‌های «کل»: هزینهٔ «کل» برای قیمت فهرستِ خدمت وارد شده (قیمت
  * کل، یا برای قیمت «هر واحد» = قیمت واحد × تعداد واحد پیش‌فرض خدمت). اگر مبلغ صورت‌حساب این نوبت
- * (مبلغ اصلی آخرین پرداخت تسویه، پیش از تخفیف) بیشتر باشد ــ ۱۱ سی‌سی از خدمتی که قیمتش برای ۱ سی‌سی
+ * (بیشترین مبلغ اصلیِ پرداخت‌های تسویه، پیش از تخفیف) بیشتر باشد ــ ۱۱ سی‌سی از خدمتی که قیمتش برای ۱ سی‌سی
  * است، یا پکیج چند جلسه‌ای در یک نوبت ــ هزینهٔ «کل» هم به همان نسبت بیشتر است.
  * هزینه‌های «هر واحد» خودشان در تعداد واحد ضرب می‌شوند و این ضریب را نمی‌گیرند.
  * تخفیف و چانه‌زنی هزینه را کم نمی‌کند (حداقل ضریب ۱).
+ * چرا «بیشترین»: پرداخت‌های بعدیِ همان نوبت (قسط/مانده) قیمت خالصِ پس از تخفیف یا فقط مانده را
+ * به‌عنوان مبلغ اصلی دارند (کمتر از صورت‌حساب اول)، پس قسط‌ها ضریب را پایین نمی‌آورند و سودِ
+ * ماه‌های بسته‌شده عوض نمی‌شود؛ اگر صورت‌حساب بعدی بزرگ‌تر باشد (واحد بیشتر)، همان ملاک می‌شود.
  */
 export function billedFactorSql(): SQL {
   const referencePrice = sql`(CASE WHEN ${col("price_mode")} = 'per_unit'
     THEN coalesce(${col("price")}, 0) * max(coalesce(${col("unit_count")}, 1), 1) ELSE coalesce(${col("price")}, 0) END)`;
   return sql`max(1.0, coalesce(
-    (SELECT bp.original_amount FROM payments bp
-      WHERE bp.appointment_id = a.id AND coalesce(bp.notes, '') <> 'بیعانه'
-      ORDER BY bp.id DESC LIMIT 1) * 1.0 / nullif(${referencePrice}, 0),
+    (SELECT max(bp.original_amount) FROM payments bp
+      WHERE bp.appointment_id = a.id AND coalesce(bp.notes, '') <> 'بیعانه') * 1.0 / nullif(${referencePrice}, 0),
     1.0))`;
 }
 

@@ -90,15 +90,19 @@ export async function recomputeAppointmentAfterPaymentChange(tx: Tx, appointment
     changes.unitsUsed = null;
     open = true;
   } else {
-    // قیمت نوبت = قیمت خالصِ آخرین پرداخت تسویه‌ایِ باقی‌مانده (اگر پرداختِ با تخفیف توافقی
-    // حذف شود، قیمت به قبل برمی‌گردد)
-    const [last] = await tx.all<{ original_amount: number; discount_amount: number | null }>(sql`
-      SELECT original_amount, discount_amount FROM payments
+    // قیمت و واحد مصرفی نوبت = همان‌های آخرین پرداخت تسویه‌ایِ باقی‌مانده (اگر پرداختِ با تخفیف
+    // توافقی حذف شود، قیمت به قبل برمی‌گردد؛ واحد مصرفیِ پرداخت حذف/ویرایش‌شده هم نمی‌ماند)
+    const [last] = await tx.all<{ original_amount: number; discount_amount: number | null; units_used: number | null }>(sql`
+      SELECT original_amount, discount_amount, units_used FROM payments
       WHERE appointment_id = ${appointmentId} AND COALESCE(notes, '') <> ${DEPOSIT_NOTE}
       ORDER BY id DESC LIMIT 1
     `);
-    const price = last ? Math.max(0, Number(last.original_amount) - Number(last.discount_amount ?? 0)) : appt.price;
-    if (price != null && price !== appt.price) changes.price = price;
+    if (last) {
+      const price = Math.max(0, Number(last.original_amount) - Number(last.discount_amount ?? 0));
+      if (price !== appt.price) changes.price = price;
+      const units = last.units_used != null && Number(last.units_used) > 0 ? Math.round(Number(last.units_used)) : null;
+      if (units !== (appt.unitsUsed ?? null)) changes.unitsUsed = units;
+    }
     // تا وقتی پرداخت تسویه‌ای هست، نوبت انجام‌شده می‌ماند؛ کسری فقط بدهی است
   }
   if (open && appt.status === "completed") changes.status = "confirmed";
@@ -134,11 +138,12 @@ export function automaticReferrerOf(patient: Pick<PatientRow, "referrerType" | "
 /**
  * پورسانت خودکارِ معرف (کارمند/کمیسیون‌گیرنده/لیزر) برای یک پرداخت — داخل تراکنش همان پرداخت.
  * پایه: مبلغ نقدیِ همین پرداخت (برای بیعانه هم جداگانه ثبت می‌شود تا پایهٔ کل شامل بیعانه باشد).
+ * تاریخ کمیسیون = تاریخ پرداخت (paidAt) تا پرداختِ ثبت‌شده با تاریخ گذشته در ماه خودش بیاید.
  * اگر گیرنده دیگر وجود نداشته باشد، پورسانتی ثبت نمی‌شود.
  */
 export async function accrueReferrerCommission(
   tx: Tx,
-  args: { payment: Pick<PaymentRow, "id" | "amount" | "appointmentId">; patient: PatientRow | null | undefined },
+  args: { payment: Pick<PaymentRow, "id" | "amount" | "appointmentId"> & { paidAt?: number | null }; patient: PatientRow | null | undefined },
 ): Promise<ReferrerAccrual | null> {
   const { payment, patient } = args;
   const ref = automaticReferrerOf(patient);
@@ -157,6 +162,8 @@ export async function accrueReferrerCommission(
     amount,
     rate: ref.rate,
     description: `پورسانت معرفی بیمار «${patient.name}»`,
+    // حسابداری کمیسیون را با created_at در ماه حساب می‌کند: تاریخ همان پرداخت (نه لحظهٔ ثبت)
+    ...(payment.paidAt ? { createdAt: payment.paidAt } : {}),
   }).onConflictDoNothing().returning({ id: commissionsTable.id });
   if (inserted.length === 0) return null;
   return {

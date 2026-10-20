@@ -269,20 +269,32 @@ export async function applyLoyaltyOnPayment(
   return { earned, redeemed: redeemPoints, redeemedValue };
 }
 
+const LOYALTY_ORIGINAL_TYPES = ["earn", "redeem", "referral", "cashback"];
+
 /**
- * برگرداندن آثار امتیازی یک پرداخت هنگام حذف آن (داخل همان تراکنش حذف):
- * برای هر تراکنش امتیازیِ این پرداخت یک ردیف «reverse» با دلتای معکوس درج می‌شود
- * تا سابقه بماند. اگر برگردان باعث منفی‌شدن موجودی مراجع شود (امتیازِ کسب‌شده از
- * این پرداخت قبلاً خرج شده)، خطا پرتاب می‌شود و کل حذف لغو می‌گردد.
+ * ردیف‌های امتیازیِ «هنوز برگردانده‌نشدهٔ» یک پرداخت: هر برگرداندن همهٔ ردیف‌های اصلیِ موجود
+ * تا آن لحظه را برمی‌گرداند، پس ردیف‌های اصلیِ بعد از آخرین ردیف «reverse» همان چیزی‌اند که
+ * هنوز اثر دارند (مثلاً پس از ویرایش پرداخت که همان شناسه را دوباره می‌سازد).
  */
-export async function reverseLoyaltyForPayment(tx: LoyaltyExecutor, paymentId: number): Promise<number> {
+export async function unreversedLoyaltyRows(tx: LoyaltyExecutor, paymentId: number) {
   const rows = await tx
     .select()
     .from(loyaltyTransactionsTable)
     .where(eq(loyaltyTransactionsTable.paymentId, paymentId));
-  // فقط ردیف‌های اصلی (کسب/خرج/امتیاز معرفیِ همین پرداخت) برگردانده می‌شوند؛
-  // ردیف‌های reverse قبلی دوباره معکوس نمی‌شوند
-  const originals = rows.filter((r) => ["earn", "redeem", "referral", "cashback"].includes(r.type));
+  const lastReverse = rows.filter((r) => r.type === "reverse").reduce((m, r) => Math.max(m, r.id), 0);
+  return rows.filter((r) => r.id > lastReverse && LOYALTY_ORIGINAL_TYPES.includes(r.type));
+}
+
+/**
+ * برگرداندن آثار امتیازی یک پرداخت هنگام حذف/ویرایش آن (داخل همان تراکنش):
+ * برای هر تراکنش امتیازیِ هنوز برگردانده‌نشدهٔ این پرداخت یک ردیف «reverse» با دلتای معکوس
+ * درج می‌شود تا سابقه بماند. ردیف‌هایی که در یک ویرایش قبلی برگردانده شده‌اند دوباره
+ * برگردانده نمی‌شوند؛ پس هر ترتیبی از ویرایش و حذف دقیقاً موجودی اولیه را برمی‌گرداند.
+ * اگر برگردان باعث منفی‌شدن موجودی مراجع شود (امتیازِ کسب‌شده از این پرداخت قبلاً خرج شده)،
+ * خطا پرتاب می‌شود و کل حذف لغو می‌گردد.
+ */
+export async function reverseLoyaltyForPayment(tx: LoyaltyExecutor, paymentId: number): Promise<number> {
+  const originals = await unreversedLoyaltyRows(tx, paymentId);
   if (originals.length === 0) return 0;
 
   for (const t of originals) {
@@ -303,7 +315,7 @@ export async function reverseLoyaltyForPayment(tx: LoyaltyExecutor, paymentId: n
     });
   }
 
-  const patientIds = [...new Set(originals.map((t) => t.patientId))];
+  const patientIds = [...new Set(originals.filter((t) => t.delta !== 0).map((t) => t.patientId))];
   for (const pid of patientIds) {
     const balance = await getLoyaltyBalance(tx, pid);
     if (balance < 0) throw new Error(LOYALTY_ERRORS.negativeOnDelete);
@@ -363,8 +375,13 @@ export async function updateMembershipAfterPayment(
     const patient = await tx.select({ referrerType: patientsTable.referrerType, referrerId: patientsTable.referrerId })
       .from(patientsTable).where(eq(patientsTable.id, patientId)).get();
     if (patient?.referrerType === "patient" && patient.referrerId && patient.referrerId !== patientId) {
-      const [{ count }] = await tx.all<{ count: number }>(sql`
-        SELECT COUNT(*) AS count FROM payments p INNER JOIN appointments a ON a.id = p.appointment_id
+      // فقط پرداخت‌های تسویه (نه بیعانه) شمرده می‌شوند: اولین نوبتی که بیعانه داشته هم
+      // با پرداخت تسویه‌اش «اولین پرداخت» حساب می‌شود
+      const [{ count, current }] = await tx.all<{ count: number; current: number }>(sql`
+        SELECT
+          COALESCE(SUM(CASE WHEN COALESCE(p.notes, '') <> 'بیعانه' THEN 1 ELSE 0 END), 0) AS count,
+          COALESCE(SUM(CASE WHEN p.id = ${paymentId} AND COALESCE(p.notes, '') <> 'بیعانه' THEN 1 ELSE 0 END), 0) AS current
+        FROM payments p INNER JOIN appointments a ON a.id = p.appointment_id
         WHERE a.patient_id = ${patientId}
       `);
       // یک‌بار برای هر معرَّف: اگر امتیاز معرفیِ یکی از پرداخت‌های همین مراجع هنوز
@@ -379,7 +396,7 @@ export async function updateMembershipAfterPayment(
       // معرفی که دیگر وجود ندارد (مراجع حذف‌شده) اعتباری نمی‌گیرد
       const referrerExists = await tx.select({ id: patientsTable.id }).from(patientsTable)
         .where(eq(patientsTable.id, patient.referrerId)).get();
-      if (referrerExists && Number(count) === 1 && already.length === 0) {
+      if (referrerExists && Number(current) === 1 && Number(count) === 1 && already.length === 0) {
         const description = `اعتبار معرفی ${args.patientName ?? "مراجع"}: ${fa(settings.referralBonus)} تومان`;
         await creditWallet(tx, patient.referrerId, settings.referralBonus, "loyalty_referral", description, paymentId);
         await tx.insert(loyaltyTransactionsTable).values({
@@ -665,6 +682,13 @@ export async function applyProfitCashback(
     settings: LoyaltySettings;
     ratePercent: number;
     serviceName?: string | null;
+    /**
+     * وقتی اعتبار سودِ پرداخت‌های دیگرِ همین نوبت از هدف بیشتر است (مثلاً پرداخت بعدی هزینهٔ خدمت
+     * را بالا برده، یا ویرایشِ پرداختی که اصلاحیه داشته): «none» = کاری نکن (قدیمی)، «clamp» =
+     * مازاد تا حد موجودی کیف پول برگردانده شود (ثبت پرداخت هرگز به‌خاطر آن رد نمی‌شود)،
+     * «strict» = کل مازاد کم شود (ویرایش پرداخت؛ منفی‌شدن کیف پول در پایان بررسی می‌شود).
+     */
+    clawback?: "none" | "clamp" | "strict";
   },
 ): Promise<{ reward: number; profit: number }> {
   const { patientId, paymentId, appointmentId, settings } = args;
@@ -681,7 +705,20 @@ export async function applyProfitCashback(
   `);
   const profit = Number(paid) - cost;
   const target = computeProfitReward(profit, settings.profitRewardPercent, args.ratePercent);
-  const reward = Math.max(0, target - Number(rewarded));
+  const diff = target - Number(rewarded);
+  if (diff < 0 && args.clawback && args.clawback !== "none") {
+    let excess = -diff;
+    if (args.clawback === "clamp") excess = Math.min(excess, Math.max(0, await getWalletBalance(tx, patientId)));
+    if (excess > 0) {
+      const description = `اصلاح اعتبار سود${args.serviceName ? ` (${args.serviceName})` : ""}: ${fa(excess)} تومان (سود کل نوبت کمتر شد)`;
+      await creditWallet(tx, patientId, -excess, "loyalty_cashback", description, paymentId);
+      await tx.insert(loyaltyTransactionsTable).values({
+        patientId, paymentId, delta: 0, amount: -excess, type: "cashback", description,
+      });
+    }
+    return { reward: 0, profit };
+  }
+  const reward = Math.max(0, diff);
   if (reward <= 0) return { reward: 0, profit };
 
   const description =
@@ -727,16 +764,19 @@ export async function reconcileAppointmentCashback(
   // پاداش کل قبل از حذف ÷ سود کل قبل از حذف
   const paidAfter = Number(row.paid);
   const profitBefore = paidAfter + deleted.amount - cost;
-  if (!(profitBefore > 0)) return 0;
-  const rewardedBefore = rewarded + Math.max(0, deleted.cashback);
+  // اعتبار خالصِ پرداخت حذف‌شده (با اصلاحیه‌های منفی‌اش)؛ صفر کردنِ مقدار منفی، اعتبار کل قبلی را
+  // بیشتر از واقعیت نشان می‌داد و مازاد پس از حذف می‌ماند
+  const rewardedBefore = rewarded + deleted.cashback;
   const profitAfter = paidAfter - cost;
   // اگر تنظیمات فعلی همان پاداش قبلی را می‌دهند، همان قاعده (بدون خطای گرد کردن)؛
-  // وگرنه نرخ مؤثر قبلی
+  // وگرنه نرخ مؤثر قبلی. اگر سودِ پیش از حذف هم مثبت نبوده، هدف صفر است.
   const settings = await getLoyaltySettings();
   const tierPct = tierRate(await getMemberTier(tx, pid), settings);
-  const target = computeProfitReward(profitBefore, settings.profitRewardPercent, tierPct) === rewardedBefore
-    ? computeProfitReward(profitAfter, settings.profitRewardPercent, tierPct)
-    : profitAfter > 0 ? Math.floor((profitAfter * rewardedBefore) / profitBefore / 1000 + 1e-9) * 1000 : 0;
+  const target = !(profitBefore > 0) || !(rewardedBefore > 0) || !(profitAfter > 0)
+    ? 0
+    : computeProfitReward(profitBefore, settings.profitRewardPercent, tierPct) === rewardedBefore
+      ? computeProfitReward(profitAfter, settings.profitRewardPercent, tierPct)
+      : Math.floor((profitAfter * rewardedBefore) / profitBefore / 1000 + 1e-9) * 1000;
   const excess = rewarded - target;
   if (excess <= 0) return 0;
 

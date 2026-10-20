@@ -11,6 +11,7 @@ import {
   staffTable,
   patientAccountTransactionsTable,
   remindersTable,
+  loyaltyTransactionsTable,
 } from "@workspace/db";
 import {
   ListPaymentsQueryParams,
@@ -33,8 +34,7 @@ import {
   getWalletBalance,
   creditWallet,
   TIER_LABELS,
-  reconcileAppointmentCashback,
-  WALLET_NEGATIVE_ERROR,
+  unreversedLoyaltyRows,
   type MembershipUpdate,
 } from "../lib/loyalty";
 import { fireLoyaltyWelcomeSms, fireLoyaltyTierUpSms, fireLoyaltyReferralSms } from "../lib/loyalty-sms";
@@ -53,6 +53,7 @@ import {
 } from "../lib/payment-effects";
 import { tehranTodayIso } from "../lib/appointment-details";
 import { tehranInstant } from "../lib/scheduled-sms";
+import { requireAdmin } from "../lib/auth";
 
 const router: IRouter = Router();
 
@@ -92,6 +93,14 @@ router.get("/payments", async (req, res): Promise<void> => {
 
 type CreatePaymentInput = ReturnType<typeof CreatePaymentBody.parse>;
 type PaymentRow = typeof paymentsTable.$inferSelect;
+type CarriedCommission = {
+  recipientType: string;
+  recipientId: number;
+  amount: number;
+  rate: number | null;
+  description: string | null;
+  status: string;
+};
 type ManualDone = { amount: number; rate: number | null; recipientType: string; referrerPatientId: number | null };
 
 interface CreatePaymentOptions {
@@ -99,6 +108,12 @@ interface CreatePaymentOptions {
   paidAt: number;
   /** در ویرایش: همان شناسهٔ پرداخت قبلی حفظ می‌شود */
   id?: number;
+  /** در ویرایش: همان uuid پرداخت قبلی (تا ادغام پشتیبان آن را پرداخت تازه نبیند) */
+  uuid?: string;
+  /** در ویرایش: اعتبار سود دوباره حساب نمی‌شود (ردیف‌های قبلی عیناً برگردانده می‌شوند) */
+  skipCashback?: boolean;
+  /** در ویرایش: کمیسیون‌های غیرخودکارِ قبلیِ این پرداخت (کارمند/کمیسیون‌گیرنده) دوباره ثبت می‌شوند */
+  carryCommissions?: CarriedCommission[];
   /**
    * ویرایش پرداختِ موجود: تخفیفی که هنگام ثبت معتبر بوده دوباره اعتبارسنجی (فعال‌بودن، بازهٔ تاریخ،
    * حداقل مبلغ، ظرفیت) نمی‌شود؛ فقط مبلغش با مبلغ جدید دوباره حساب می‌شود.
@@ -198,10 +213,16 @@ async function createPaymentInTx(tx: Tx, input: CreatePaymentInput, opts: Create
   // ── یادآوری پیگیری ──
   let reminderDueAt: number | null = null;
   if (reminder) {
-    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(reminder.dueDate);
-    if (!m) throw new PaymentEffectError("تاریخ یادآوری نامعتبر است");
+    const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(String(reminder.dueDate ?? "").trim());
+    const y = m ? Number(m[1]) : NaN;
+    const mo = m ? Number(m[2]) : NaN;
+    const d = m ? Number(m[3]) : NaN;
+    // فقط تاریخ میلادی معتبر (YYYY-MM-DD)؛ سال شمسی (مثلاً ۱۴۰۵) یا میلی‌ثانیه پذیرفته نمی‌شود
+    const valid = !!m && y >= 1900 && y <= 2200 && mo >= 1 && mo <= 12 && d >= 1 &&
+      new Date(Date.UTC(y, mo - 1, d)).getUTCDate() === d;
+    if (!valid) throw new PaymentEffectError("تاریخ یادآوری نامعتبر است؛ تاریخ میلادی به شکل YYYY-MM-DD لازم است");
     // ظهر همان روز به وقت تهران (ثانیه)
-    reminderDueAt = Math.floor(tehranInstant(Number(m[1]), Number(m[2]), Number(m[3]), 12) / 1000);
+    reminderDueAt = Math.floor(tehranInstant(y, mo, d, 12) / 1000);
   }
 
   const isDeposit = isDepositPayment(paymentValues);
@@ -261,6 +282,7 @@ async function createPaymentInTx(tx: Tx, input: CreatePaymentInput, opts: Create
     ...paymentValues,
     ...discountFields,
     ...(opts.id ? { id: opts.id } : {}),
+    ...(opts.uuid ? { uuid: opts.uuid } : {}),
     paidAt,
     walletAmount: balanceToApply > 0 ? balanceToApply : null,
     pointsAmount: pointsToRedeem > 0 ? pointsToRedeem * loyaltySettings.redeemValue : null,
@@ -314,16 +336,20 @@ async function createPaymentInTx(tx: Tx, input: CreatePaymentInput, opts: Create
         nowSec: paidAt,
         patientName: created.patientName,
       });
-      // درصدی از سود خدمت (با ضریب سطح) به کیف پول مراجع
-      const cashback = await applyProfitCashback(tx, {
-        patientId: loyaltyPatientId,
-        paymentId: created.id,
-        appointmentId: created.appointmentId,
-        unitsUsed: created.unitsUsed,
-        settings: loyaltySettings,
-        ratePercent,
-        serviceName: created.serviceName,
-      });
+      // درصدی از سود خدمت (با ضریب سطح) به کیف پول مراجع؛ اعتبار کل نوبت همیشه به هدفش می‌رسد
+      // (اگر پرداخت‌های دیگر بیش از هدف گرفته‌اند، مازاد برگردانده می‌شود)
+      const cashback = opts.skipCashback
+        ? { reward: 0 }
+        : await applyProfitCashback(tx, {
+          patientId: loyaltyPatientId,
+          paymentId: created.id,
+          appointmentId: created.appointmentId,
+          unitsUsed: created.unitsUsed,
+          settings: loyaltySettings,
+          ratePercent,
+          serviceName: created.serviceName,
+          clawback: editing ? "strict" : "clamp",
+        });
       membership = { ...m, earned: cashback.reward };
     }
   }
@@ -371,6 +397,8 @@ async function createPaymentInTx(tx: Tx, input: CreatePaymentInput, opts: Create
           rate,
           description: manualCommission.description || `کمیسیون پرداخت ${fa(created.amount)} تومان`,
           status: "pending",
+          // حسابداری کمیسیون را با created_at در ماه حساب می‌کند: تاریخ همان پرداخت
+          createdAt: created.paidAt,
         });
       } catch (err) {
         if (err instanceof Error && /UNIQUE constraint failed|SQLITE_CONSTRAINT/i.test(err.message)) {
@@ -380,6 +408,22 @@ async function createPaymentInTx(tx: Tx, input: CreatePaymentInput, opts: Create
       }
       manualDone = { amount, rate, recipientType: manualCommission.recipientType, referrerPatientId: null };
     }
+  }
+
+  // ── کمیسیون‌های غیرخودکارِ قبلی (ویرایش پرداخت) ──
+  for (const c of opts.carryCommissions ?? []) {
+    if (!(c.amount > 0)) continue;
+    await tx.insert(commissionsTable).values({
+      recipientType: c.recipientType,
+      recipientId: c.recipientId,
+      appointmentId: created.appointmentId > 0 ? created.appointmentId : null,
+      paymentId: created.id,
+      amount: c.amount,
+      rate: c.rate,
+      description: c.description,
+      status: c.status,
+      createdAt: created.paidAt,
+    }).onConflictDoNothing();
   }
 
   // ── یادآوری پیگیری (با حذف پرداخت حذف می‌شود) ──
@@ -549,7 +593,9 @@ const UpdatePaymentBody = CreatePaymentBody.pick({
 
 const ADMIN_ONLY_EDIT = "فقط مدیر می‌تواند پرداخت را ویرایش کند";
 
-router.put("/payments/:id", async (req, res): Promise<void> => {
+// نقش از پایگاه داده خوانده می‌شود (requireAdmin)، نه فقط از توکن ۷ روزه؛ کاربرِ غیرفعال یا
+// تنزل‌یافته نمی‌تواند پرداخت را ویرایش کند.
+router.put("/payments/:id", requireAdmin, async (req, res): Promise<void> => {
   if (req.jwtUser?.role !== "admin") {
     res.status(403).json({ error: ADMIN_ONLY_EDIT });
     return;
@@ -574,7 +620,7 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
       const [old] = await tx.delete(paymentsTable).where(eq(paymentsTable.id, params.data.id)).returning();
       if (!old) throw new Error(PAYMENT_NOT_FOUND);
 
-      // ۲) آنچه باید پس از ساخت دوباره حفظ شود: کمیسیون/اعتبار معرفی دستی و یادآوری‌ها
+      // ۲) آنچه باید پس از ساخت دوباره حفظ شود: کمیسیون‌ها/اعتبار معرفی دستی، اعتبار سود و معرفی، یادآوری‌ها
       const appt = old.appointmentId > 0
         ? await tx.select().from(appointmentsTable).where(eq(appointmentsTable.id, old.appointmentId)).get()
         : undefined;
@@ -583,15 +629,17 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
         : null;
       const auto = automaticReferrerOf(patient);
       const linkedCommissions = await tx.select().from(commissionsTable).where(eq(commissionsTable.paymentId, old.id));
-      const manualCommissionRow = linkedCommissions.find((c) =>
+      // همهٔ کمیسیون‌های غیرخودکار (نه فقط یکی) دوباره ثبت می‌شوند
+      const manualCommissionRows = linkedCommissions.filter((c) =>
         !(auto && c.recipientType === auto.recipientType && c.recipientId === auto.recipientId) &&
         !(c.description ?? "").startsWith("پورسانت معرفی بیمار"));
-      const referralCredit = (await tx.select().from(patientAccountTransactionsTable)
-        .where(and(eq(patientAccountTransactionsTable.paymentId, old.id), eq(patientAccountTransactionsTable.type, "referral_credit"))))[0];
       // کیف پول‌های درگیر (مراجع و معرف‌ها) پیش از ویرایش — برای بررسی منفی‌نشدن در پایان
       const linkedWalletTxns = await tx.select().from(patientAccountTransactionsTable)
         .where(eq(patientAccountTransactionsTable.paymentId, old.id));
-      const oldCashback = linkedWalletTxns.filter((t) => t.type === "loyalty_cashback").reduce((s, t) => s + t.amount, 0);
+      const referralCredit = linkedWalletTxns.find((t) => t.type === "referral_credit");
+      const oldCashbackTxns = linkedWalletTxns.filter((t) => t.type === "loyalty_cashback");
+      const oldReferralTxns = linkedWalletTxns.filter((t) => t.type === "loyalty_referral");
+      const oldLoyaltyRows = await unreversedLoyaltyRows(tx, old.id);
       const walletPatientIds = [...new Set([...linkedWalletTxns.map((t) => t.patientId), ...(patient ? [patient.id] : [])])];
       const balancesBefore = new Map<number, number>();
       if (walletPatientIds.length > 0) {
@@ -599,15 +647,13 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
           .where(inArray(patientsTable.id, walletPatientIds));
         for (const r of rows) balancesBefore.set(r.id, r.balance);
       }
-      // یادآوری‌ها با برگرداندن پرداخت حذف می‌شوند؛ موقتاً جدا و بعد دوباره وصل می‌شوند
+      // یادآوری‌ها با برگرداندن پرداخت حذف می‌شوند؛ موقتاً جدا و بعد دوباره وصل می‌شوند (همان ردیف و uuid)
       const reminderIds = (await tx.update(remindersTable).set({ paymentId: null })
         .where(eq(remindersTable.paymentId, old.id)).returning({ id: remindersTable.id })).map((r) => r.id);
 
       // ۳) برگرداندن همهٔ آثار پرداخت قبلی (همان منطق حذف)؛ منفی‌شدن کیف پول در پایان بررسی
       // می‌شود (اعتبار سودی که برداشته می‌شود معمولاً با پرداخت جدید دوباره داده می‌شود)
       const newNotes = body.notes !== undefined ? (body.notes?.trim() || null) : old.notes;
-      const oldIsDeposit = isDepositPayment(old);
-      const newIsDeposit = isDepositPayment({ notes: newNotes });
       await reversePaymentEffects(tx, old, { skipWalletCheck: true, skipCashbackReconcile: true, skipAppointmentRecompute: true });
 
       // ۴) ساخت دوباره با مقادیر ادغام‌شده از همان مسیر «ثبت پرداخت»
@@ -615,19 +661,24 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
       const oldNegotiated = (old.discountName ?? "").includes(NEGOTIATED_DISCOUNT);
       const settleInFull = body.settleInFull ?? oldNegotiated;
       const amount = body.amount ?? old.amount;
+      const originalAmount = body.originalAmount ?? old.originalAmount;
+      const unitsUsed = (body.unitsUsed !== undefined ? body.unitsUsed : old.unitsUsed) ?? undefined;
+      const paidAt = body.paidAt ?? old.paidAt;
       const keepRawDiscount = !old.discountId && !oldNegotiated && old.discountAmount != null;
-      let manualCommission: CreatePaymentInput["manualCommission"];
-      if (manualCommissionRow) {
-        const rate = manualCommissionRow.rate != null && manualCommissionRow.rate > 0 ? manualCommissionRow.rate : undefined;
-        manualCommission = {
-          recipientType: manualCommissionRow.recipientType === "staff" ? "staff" : "external",
-          recipientId: manualCommissionRow.recipientId,
-          amount: rate ? Math.round((amount * rate) / 100) : manualCommissionRow.amount,
+      // کمیسیون‌های درصدی روی مبلغ جدید دوباره حساب می‌شوند؛ مبلغ ثابت همان می‌ماند
+      const carryCommissions: CarriedCommission[] = manualCommissionRows.map((c) => {
+        const rate = c.rate != null && c.rate > 0 ? c.rate : null;
+        return {
+          recipientType: c.recipientType,
+          recipientId: c.recipientId,
+          amount: rate ? Math.round((amount * rate) / 100) : c.amount,
           rate,
-          description: manualCommissionRow.description ?? undefined,
+          description: c.description,
+          status: c.status,
         };
-        if (!(manualCommission.amount > 0)) manualCommission = undefined;
-      } else if (referralCredit && referralCredit.amount > 0) {
+      });
+      let manualCommission: CreatePaymentInput["manualCommission"];
+      if (referralCredit && referralCredit.amount > 0) {
         manualCommission = {
           recipientType: "patient",
           recipientId: referralCredit.patientId,
@@ -635,14 +686,20 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
           description: referralCredit.description ?? undefined,
         };
       }
+      // اعتبار سود فقط وقتی دوباره حساب می‌شود که باشگاه روشن است و مبلغ/مبلغ اصلی/واحد عوض شده؛
+      // وگرنه (باشگاه خاموش، یا فقط روش/تاریخ/یادداشت عوض شده، یا درصد/سطح از آن زمان تغییر کرده)
+      // ردیف‌های قبلی (با اصلاحیه‌هایشان) عیناً برمی‌گردند
+      const amountsChanged = amount !== old.amount || originalAmount !== old.originalAmount ||
+        (unitsUsed ?? null) !== (old.unitsUsed ?? null);
+      const preserveCashback = !settings.enabled || !amountsChanged;
       const input: CreatePaymentInput = {
         appointmentId: old.appointmentId,
         discountId: old.discountId ?? undefined,
-        originalAmount: body.originalAmount ?? old.originalAmount,
+        originalAmount,
         amount,
         method: body.method ?? old.method,
         notes: newNotes ?? undefined,
-        unitsUsed: (body.unitsUsed !== undefined ? body.unitsUsed : old.unitsUsed) ?? undefined,
+        unitsUsed,
         patientName: old.patientName ?? undefined,
         serviceName: old.serviceName ?? undefined,
         sessionNumber: old.sessionNumber ?? undefined,
@@ -658,36 +715,76 @@ router.put("/payments/:id", async (req, res): Promise<void> => {
         manualCommission,
       };
       const created = await createPaymentInTx(tx, input, {
-        paidAt: body.paidAt ?? old.paidAt,
+        paidAt,
         id: old.id,
+        uuid: old.uuid,
         editing: true,
+        skipCashback: preserveCashback,
+        carryCommissions,
       });
+      const pid = created.payment.id;
 
       // ۵) یادآوری‌ها دوباره به پرداخت وصل می‌شوند
       if (reminderIds.length > 0) {
-        await tx.update(remindersTable).set({ paymentId: created.payment.id }).where(inArray(remindersTable.id, reminderIds));
+        await tx.update(remindersTable).set({ paymentId: pid }).where(inArray(remindersTable.id, reminderIds));
       }
-      // ۶) وضعیت نوبت: پرداخت تسویه‌ای خودش وضعیت را تنظیم کرده؛ اگر تسویه به بیعانه تبدیل شد، بازمحاسبه
-      if (!oldIsDeposit && newIsDeposit) {
-        await recomputeAppointmentAfterPaymentChange(tx, old.appointmentId);
-      }
-      // ۷) اعتبار سود تجمعیِ نوبت: اگر مبلغ کم شد، اعتبارِ اضافهٔ پرداخت‌های دیگرِ همین نوبت اصلاح می‌شود
-      if (old.amount > created.payment.amount && old.appointmentId > 0) {
-        const [{ cashback: newCashback }] = await tx.all<{ cashback: number }>(sql`
-          SELECT COALESCE(SUM(amount), 0) AS cashback FROM patient_account_transactions
-          WHERE payment_id = ${created.payment.id} AND type = 'loyalty_cashback'
-        `);
-        try {
-          await reconcileAppointmentCashback(tx, old.appointmentId, {
-            amount: old.amount - created.payment.amount,
-            cashback: oldCashback - Number(newCashback),
+
+      // ۶) اعتبارهای باشگاهی که نباید با ویرایش از بین بروند، عیناً برمی‌گردند (همان uuid و تاریخ)
+      const restoreWallet = async (rows: typeof linkedWalletTxns, loyaltyType: string) => {
+        for (const t of rows) {
+          await tx.insert(patientAccountTransactionsTable).values({
+            uuid: t.uuid, patientId: t.patientId, amount: t.amount, type: t.type,
+            description: t.description, paymentId: pid, createdAt: t.createdAt,
           });
-        } catch (err) {
-          if (err instanceof Error && err.message === WALLET_NEGATIVE_ERROR) throw new PaymentEffectError(EDIT_WALLET_NEGATIVE);
-          throw err;
+          await tx.update(patientsTable)
+            .set({ accountBalance: sql`${patientsTable.accountBalance} + ${t.amount}` })
+            .where(eq(patientsTable.id, t.patientId));
         }
+        for (const l of oldLoyaltyRows.filter((r) => r.type === loyaltyType)) {
+          await tx.insert(loyaltyTransactionsTable).values({
+            patientId: l.patientId, paymentId: pid, delta: l.delta, amount: l.amount,
+            type: l.type, description: l.description, createdAt: l.createdAt,
+          });
+        }
+      };
+      if (preserveCashback && oldCashbackTxns.length > 0) await restoreWallet(oldCashbackTxns, "cashback");
+      // اعتبار معرفی باشگاه: اگر پرداختِ دوباره‌ساخته خودش آن را نداد (پرداخت دیگری پس از آن ثبت
+      // شده، یا باشگاه خاموش است)، همان اعتبار قبلی به معرف برمی‌گردد
+      if (oldReferralTxns.length > 0) {
+        const [{ n }] = await tx.all<{ n: number }>(sql`
+          SELECT COUNT(*) AS n FROM patient_account_transactions WHERE payment_id = ${pid} AND type = 'loyalty_referral'
+        `);
+        if (Number(n) === 0) await restoreWallet(oldReferralTxns, "referral");
       }
-      // ۸) هیچ کیف پولی نباید به‌خاطر این ویرایش منفی شود (اعتباری که داده و خرج شده و حالا کمتر شده)
+
+      // ۷) شناسهٔ ثابت (uuid) ردیف‌های وابستهٔ دوباره‌ساخته: کمیسیون‌ها (و تاریخشان اگر تاریخ پرداخت
+      // عوض نشده) و تراکنش‌های کیف پول هم‌ارز، تا ادغام پشتیبان آن‌ها را ردیف تازه نبیند
+      const newCommissions = await tx.select().from(commissionsTable).where(eq(commissionsTable.paymentId, pid));
+      for (const c of newCommissions) {
+        const prev = linkedCommissions.find((o) => o.recipientType === c.recipientType && o.recipientId === c.recipientId);
+        if (!prev) continue;
+        await tx.update(commissionsTable).set({
+          uuid: prev.uuid,
+          createdAt: paidAt === old.paidAt ? prev.createdAt : paidAt,
+        }).where(eq(commissionsTable.id, c.id));
+      }
+      const newWalletTxns = await tx.select().from(patientAccountTransactionsTable)
+        .where(eq(patientAccountTransactionsTable.paymentId, pid));
+      const usedUuids = new Set(newWalletTxns.map((t) => t.uuid));
+      for (const t of newWalletTxns) {
+        if (linkedWalletTxns.some((o) => o.uuid === t.uuid)) continue;
+        const prev = linkedWalletTxns.find((o) => !usedUuids.has(o.uuid) &&
+          o.type === t.type && o.patientId === t.patientId && o.amount === t.amount);
+        if (!prev) continue;
+        usedUuids.add(prev.uuid);
+        await tx.update(patientAccountTransactionsTable).set({ uuid: prev.uuid })
+          .where(eq(patientAccountTransactionsTable.id, t.id));
+      }
+
+      // ۸) وضعیت نوبت: قیمت و واحد مصرفی از آخرین پرداخت تسویه‌ای (نه لزوماً همین پرداخت)
+      await recomputeAppointmentAfterPaymentChange(tx, old.appointmentId);
+
+      // ۹) هیچ کیف پولی نباید به‌خاطر این ویرایش منفی شود (اعتباری که داده و خرج شده و حالا کمتر شده)
       if (walletPatientIds.length > 0) {
         const after = await tx.select({ id: patientsTable.id, balance: patientsTable.accountBalance }).from(patientsTable)
           .where(inArray(patientsTable.id, walletPatientIds));
