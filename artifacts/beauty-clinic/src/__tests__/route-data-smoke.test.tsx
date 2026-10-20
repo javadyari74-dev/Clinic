@@ -16,6 +16,8 @@ import {
   USER_NAME,
   LASER_CLIENT_NAME,
   PAYMENT_BACKFILL_NOTE,
+  PURCHASE_PRODUCT_NAME,
+  CLIENT_ERROR_MESSAGE,
 } from "./api-fixtures";
 
 const TOKEN_KEY = "clinic_auth_token";
@@ -75,6 +77,14 @@ const routes: RouteCase[] = [
   { path: "/accounting", marker: /اجاره/ },
   { path: "/users", marker: USER_NAME },
   { path: "/backup", marker: "پشتیبان‌گیری", role: "heading" },
+  // باشگاه: تب پیش‌فرض «نمای کلی» آخرین تراکنش‌ها را با نام مراجع نشان می‌دهد
+  { path: "/loyalty", marker: PATIENT_ONE_NAME },
+  { path: "/purchases", marker: PURCHASE_PRODUCT_NAME },
+  // پیامک: تب پیش‌فرض «تنظیمات» فقط پس از رسیدن تنظیمات (به‌جای اسپینر) فرم را نشان می‌دهد
+  { path: "/sms", marker: "نام کاربری پنل" },
+  { path: "/surveys", marker: PATIENT_ONE_NAME },
+  { path: "/activity-log", marker: "مراجع جدید ثبت شد" },
+  { path: "/client-errors", marker: CLIENT_ERROR_MESSAGE },
 ];
 
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -182,6 +192,14 @@ const resilienceRoutes: ResilienceCase[] = [
   { path: "/reminders", emptyMarker: "یادآوری‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/accounting", emptyMarker: "حسابداری و سود و زیان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
   { path: "/users", emptyMarker: "مدیریت کاربران", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/loyalty", emptyMarker: "باشگاه مشتریان", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  { path: "/purchases", emptyMarker: "خریدها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  // پیامک: تب تنظیمات در خطا اسپینر می‌ماند و ErrorNotice ندارد؛ پوستهٔ صفحه سالم است
+  { path: "/sms", emptyMarker: "پنل پیامکی", errorMarker: "پنل پیامکی", by: "heading", errorBy: "heading" },
+  { path: "/surveys", emptyMarker: "نظرسنجی‌ها", errorMarker: ERROR_NOTICE_TITLE, by: "heading" },
+  // این دو صفحه خطای خودشان را به‌جای ErrorNotice مشترک نشان می‌دهند
+  { path: "/activity-log", emptyMarker: "تاریخچهٔ تغییرات", errorMarker: "خطا در دریافت تاریخچهٔ تغییرات", by: "heading" },
+  { path: "/client-errors", emptyMarker: "گزارش‌های خطا", errorMarker: "خطا در دریافت گزارش‌ها", by: "heading" },
   // backup loads no data on mount, so an all-500 backend produces no error
   // notice — it still renders its static heading.
   { path: "/backup", emptyMarker: "پشتیبان‌گیری", errorMarker: "پشتیبان‌گیری", by: "heading", errorBy: "heading" },

@@ -29,4 +29,7 @@ export interface ServiceUpdate {
   /** @nullable */
   description?: string | null;
   isActive?: boolean;
+  priceChangeNote?: string;
+  /** @nullable */
+  priceEffectiveDate?: string | null;
 }

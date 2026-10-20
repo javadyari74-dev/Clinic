@@ -1,5 +1,7 @@
+import { PageHeader } from "@/components/page-header";
+import { Scissors } from "lucide-react";
 import { useState, useMemo } from "react";
-import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, type Service } from "@workspace/api-client-react";
+import { useListServices, useCreateService, useUpdateService, useDeleteService, getListServicesQueryKey, getGetServicePriceHistoryQueryKey, type Service } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -9,16 +11,23 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Separator } from "@/components/ui/separator";
 import { formatCurrency, toPersianDigits } from "@/lib/format";
-import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff } from "lucide-react";
+import { Plus, Pencil, Trash2, TrendingUp, TrendingDown, UserCheck, Package, MoreHorizontal, Search, Eye, EyeOff, History, Copy, AlertTriangle } from "lucide-react";
+import { readMinMarginPct, writeMinMarginPct } from "@/hooks/use-accounting";
+import { ServicePriceHistoryDialog } from "@/components/service-price-history-dialog";
+import { PersianDatePicker } from "@/components/persian-date-picker";
+import { Label } from "@/components/ui/label";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { PriceInput } from "@/components/price-input";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 
 const formSchema = z.object({
   name: z.string().min(2, "نام الزامی است"),
@@ -65,6 +74,26 @@ function profitOf(s: {
     effective(s.materialCost, s.materialCostMode, uc) +
     effective(s.otherCost, s.otherCostMode, uc);
   return { price, cost, profit: price - cost, margin: price > 0 ? Math.round(((price - cost) / price) * 100) : 0 };
+}
+
+/** مقادیر فرم از روی یک خدمت ذخیره‌شده (برای ویرایش و کپی) */
+function formValuesOf(s: Service): FormValues {
+  return {
+    name: s.name,
+    category: s.category ?? "",
+    price: s.price,
+    durationMinutes: s.durationMinutes ?? 30,
+    doctorFee: s.doctorFee ?? 0,
+    materialCost: s.materialCost ?? 0,
+    otherCost: s.otherCost ?? 0,
+    unitCount: s.unitCount ?? 1,
+    unitLabel: s.unitLabel ?? "",
+    priceMode: (s.priceMode as Mode) ?? "total",
+    doctorFeeMode: (s.doctorFeeMode as Mode) ?? "total",
+    materialCostMode: (s.materialCostMode as Mode) ?? "total",
+    otherCostMode: (s.otherCostMode as Mode) ?? "total",
+    description: s.description ?? "",
+  };
 }
 
 function ModeToggle({ value, onChange }: { value: Mode; onChange: (v: Mode) => void }) {
@@ -334,6 +363,21 @@ export default function Services() {
   const [searchTerm, setSearchTerm] = useState("");
   const [activeCategory, setActiveCategory] = useState<string>("همه");
   const [showFinancials, setShowFinancials] = useState(true);
+  const [historyFor, setHistoryFor] = useState<{ id: number; name: string } | null>(null);
+  // توضیح و تاریخ اعمال تغییر قیمت/هزینه (فقط در ویرایش، وقتی قیمت یا هزینه‌ای عوض شده)
+  const [priceNote, setPriceNote] = useState("");
+  const [priceDate, setPriceDate] = useState("");
+  // حداقل حاشیهٔ سود مطلوب (٪) — در localStorage همین دستگاه
+  const [minMargin, setMinMargin] = useState<number>(() => readMinMarginPct());
+  const [minMarginText, setMinMarginText] = useState<string>(() => String(readMinMarginPct()));
+  function changeMinMargin(text: string) {
+    setMinMarginText(text);
+    const n = Number(text);
+    if (text.trim() !== "" && Number.isFinite(n)) {
+      setMinMargin(n);
+      writeMinMarginPct(n);
+    }
+  }
 
   // Derived: unique categories with counts
   const categories = useMemo(() => {
@@ -357,6 +401,23 @@ export default function Services() {
     });
   }, [services, searchTerm, activeCategory]);
 
+  const serviceSort = useTableSort(filteredServices, {
+    name: (s) => s.name,
+    category: (s) => s.category,
+    duration: (s) => s.durationMinutes ?? 0,
+    price: (s) => profitOf(s).price,
+    cost: (s) => { const { cost } = profitOf(s); return cost > 0 ? cost : null; },
+    profit: (s) => { const { cost, profit } = profitOf(s); return cost > 0 ? profit : null; },
+    margin: (s) => { const { cost, margin } = profitOf(s); return cost > 0 ? margin : null; },
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+  });
+
+  // خدمات (فیلترشده) با هزینهٔ ثبت‌شده که حاشیهٔ هر نوبتشان زیر حد مطلوب است
+  const lowMarginServices = useMemo(
+    () => filteredServices.filter((s) => { const { cost, margin } = profitOf(s); return cost > 0 && margin < minMargin; }),
+    [filteredServices, minMargin],
+  );
+
   const createService = useCreateService({
     mutation: {
       onSuccess: () => {
@@ -365,17 +426,20 @@ export default function Services() {
         toast({ title: "خدمت با موفقیت ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت خدمت ناموفق بود"),
     },
   });
 
   const updateService = useUpdateService({
     mutation: {
-      onSuccess: () => {
+      onSuccess: (_d, vars) => {
         queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetServicePriceHistoryQueryKey(vars.id) });
         setEditing(null);
         setIsOpen(false);
         toast({ title: "خدمت با موفقیت ویرایش شد" });
       },
+      onError: onApiError("ویرایش خدمت ناموفق بود"),
     },
   });
 
@@ -385,6 +449,8 @@ export default function Services() {
         queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
         toast({ title: "خدمت حذف شد" });
       },
+      // سرور خدمتِ استفاده‌شده را رد می‌کند و پیشنهاد غیرفعال‌سازی می‌دهد؛ همان پیام نشان داده می‌شود
+      onError: onApiError("حذف خدمت ناموفق بود"),
     },
   });
 
@@ -401,28 +467,44 @@ export default function Services() {
 
   function openEdit(s: Service) {
     setEditing(s);
-    form.reset({
-      name: s.name,
-      category: s.category ?? "",
-      price: s.price,
-      durationMinutes: s.durationMinutes ?? 30,
-      doctorFee: s.doctorFee ?? 0,
-      materialCost: s.materialCost ?? 0,
-      otherCost: s.otherCost ?? 0,
-      unitCount: s.unitCount ?? 1,
-      unitLabel: s.unitLabel ?? "",
-      priceMode: (s.priceMode as Mode) ?? "total",
-      doctorFeeMode: (s.doctorFeeMode as Mode) ?? "total",
-      materialCostMode: (s.materialCostMode as Mode) ?? "total",
-      otherCostMode: (s.otherCostMode as Mode) ?? "total",
-      description: s.description ?? "",
-    });
+    setPriceNote("");
+    setPriceDate("");
+    form.reset(formValuesOf(s));
     setIsOpen(true);
   }
 
+  // کپی خدمت: فرم «خدمت جدید» با همهٔ مقادیر همان خدمت؛ ذخیره یعنی ثبت خدمت تازه
+  function openDuplicate(s: Service) {
+    setEditing(null);
+    setPriceNote("");
+    setPriceDate("");
+    form.reset({ ...formValuesOf(s), name: `${s.name} (کپی)` });
+    setIsOpen(true);
+  }
+
+  // آیا قیمت یا هزینه‌ای نسبت به مقدار ذخیره‌شده تغییر کرده؟ (برای نمایش بخش «تغییر قیمت»)
+  const watched = useWatch({ control: form.control });
+  const pricingChanged = !!editing && (
+    Number(watched.price) !== editing.price ||
+    Number(watched.doctorFee ?? 0) !== (editing.doctorFee ?? 0) ||
+    Number(watched.materialCost ?? 0) !== (editing.materialCost ?? 0) ||
+    Number(watched.otherCost ?? 0) !== (editing.otherCost ?? 0) ||
+    Number(watched.unitCount ?? 1) !== (editing.unitCount ?? 1) ||
+    (watched.priceMode ?? "total") !== (editing.priceMode ?? "total") ||
+    (watched.doctorFeeMode ?? "total") !== (editing.doctorFeeMode ?? "total") ||
+    (watched.materialCostMode ?? "total") !== (editing.materialCostMode ?? "total") ||
+    (watched.otherCostMode ?? "total") !== (editing.otherCostMode ?? "total")
+  );
+
   function onSubmit(values: FormValues) {
     if (editing) {
-      updateService.mutate({ id: editing.id, data: values });
+      updateService.mutate({
+        id: editing.id,
+        data: {
+          ...values,
+          ...(pricingChanged ? { priceChangeNote: priceNote.trim() || undefined, priceEffectiveDate: priceDate || null } : {}),
+        },
+      });
     } else {
       createService.mutate({ data: values });
     }
@@ -433,22 +515,40 @@ export default function Services() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title={`حذف ${deleteTarget?.label ?? ''}`}
-        description={`آیا از حذف «${deleteTarget?.label ?? ''}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        description={`آیا از حذف «${deleteTarget?.label ?? ''}» مطمئن هستید؟ این عمل قابل بازگشت نیست. خدمتی که در نوبت‌ها یا لیست انتظار استفاده شده حذف نمی‌شود؛ آن را غیرفعال کنید.`}
         onConfirm={() => { deleteService.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">خدمات</h1>
-          <p className="text-muted-foreground mt-1">مدیریت خدمات، تعرفه‌ها، و هزینه‌های انجام</p>
-        </div>
-        <Button className="gap-2" onClick={openCreate}>
+      <PageHeader
+        icon={<Scissors />}
+        title="خدمات"
+        description="مدیریت خدمات، تعرفه‌ها، و هزینه‌های انجام"
+        actions={<>
+          <Button className="gap-2" onClick={openCreate}>
           <Plus className="h-4 w-4" />
           خدمت جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
+
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <Label htmlFor="min-margin" className="text-muted-foreground">حداقل حاشیهٔ سود مطلوب (٪)</Label>
+        <Input
+          id="min-margin"
+          type="number"
+          dir="ltr"
+          min={0}
+          max={100}
+          className="h-8 w-20"
+          value={minMarginText}
+          onChange={(e) => changeMinMargin(e.target.value)}
+          data-testid="min-margin-input"
+        />
+      </div>
+
+      <ServicePriceHistoryDialog service={historyFor} onOpenChange={(o) => !o && setHistoryFor(null)} />
 
       {/* Dialog */}
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -459,6 +559,27 @@ export default function Services() {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
               <ServiceFormBody form={form} />
+              {pricingChanged && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-3">
+                  <p className="text-sm text-amber-900">
+                    قیمت یا هزینهٔ این خدمت تغییر کرده است. تغییر در «تاریخچهٔ قیمت» ثبت می‌شود و سود نوبت‌های قبلی با قیمت قبلی می‌ماند.
+                  </p>
+                  <div>
+                    <Label className="text-sm mb-1.5 block">توضیح تغییر (اختیاری)</Label>
+                    <Input value={priceNote} onChange={(e) => setPriceNote(e.target.value)} placeholder="مثلاً گران شدن مواد مصرفی" />
+                  </div>
+                  <div>
+                    <Label className="text-sm mb-1.5 block">اعمال از تاریخ (اختیاری)</Label>
+                    <PersianDatePicker value={priceDate} onChange={setPriceDate} placeholder="از همین حالا" />
+                    <p className="text-xs text-muted-foreground mt-1">اگر تاریخ گذشته انتخاب کنید، سود نوبت‌های از آن روز به بعد هم با قیمت جدید حساب می‌شود.</p>
+                  </div>
+                </div>
+              )}
+              {editing && (
+                <Button type="button" variant="link" size="sm" className="px-0 gap-1" onClick={() => setHistoryFor({ id: editing.id, name: editing.name })}>
+                  <History className="h-3.5 w-3.5" /> مشاهدهٔ تاریخچهٔ قیمت
+                </Button>
+              )}
               <DialogFooter>
                 <Button variant="outline" type="button" onClick={() => setIsOpen(false)}>انصراف</Button>
                 <Button type="submit" disabled={createService.isPending || updateService.isPending}>
@@ -533,25 +654,36 @@ export default function Services() {
         </CardContent>
       </Card>
 
+      {showFinancials && lowMarginServices.length > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/20 dark:text-amber-200" data-testid="low-margin-notice">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            حاشیهٔ سود {toPersianDigits(lowMarginServices.length)} خدمت کمتر از {toPersianDigits(minMargin)}٪ است:
+            {" "}{lowMarginServices.slice(0, 5).map((s) => s.name).join("، ")}
+            {lowMarginServices.length > 5 && " و …"}
+          </span>
+        </div>
+      )}
+
       {/* Table */}
       <Card>
         <CardContent className="pt-2 pb-2">
           <Table>
             <TableHeader>
               <TableRow className="h-9">
-                <TableHead className="py-2">نام خدمت</TableHead>
-                <TableHead className="py-2">دسته‌بندی</TableHead>
-                <TableHead className="py-2">مدت</TableHead>
-                <TableHead className="py-2">قیمت</TableHead>
-                {showFinancials && <TableHead className="py-2">هزینه کل</TableHead>}
-                {showFinancials && <TableHead className="py-2">سود هر نوبت</TableHead>}
-                {showFinancials && <TableHead className="py-2">حاشیه</TableHead>}
-                <TableHead className="py-2">وضعیت</TableHead>
+                <SortableHead {...serviceSort.head("name")}>نام خدمت</SortableHead>
+                <SortableHead {...serviceSort.head("category")}>دسته‌بندی</SortableHead>
+                <SortableHead {...serviceSort.head("duration")}>مدت</SortableHead>
+                <SortableHead {...serviceSort.head("price")}>قیمت</SortableHead>
+                {showFinancials && <SortableHead {...serviceSort.head("cost")}>هزینه کل</SortableHead>}
+                {showFinancials && <SortableHead {...serviceSort.head("profit")}>سود هر نوبت</SortableHead>}
+                {showFinancials && <SortableHead {...serviceSort.head("margin")}>حاشیه</SortableHead>}
+                <SortableHead {...serviceSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="py-2 text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredServices.map((s) => {
+              {serviceSort.sorted.map((s) => {
                 const { price: effPrice, cost, profit, margin } = profitOf(s);
                 const hasCost = cost > 0;
                 const isPerUnit = [s.priceMode, s.doctorFeeMode, s.materialCostMode, s.otherCostMode].includes("per_unit");
@@ -586,9 +718,14 @@ export default function Services() {
                     {showFinancials && (
                       <TableCell className="py-1.5">
                         {hasCost
-                          ? <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
-                              {toPersianDigits(margin)}٪
-                            </Badge>
+                          ? <span className="inline-flex items-center gap-1">
+                              <Badge variant={margin >= 50 ? "default" : margin >= 20 ? "secondary" : "destructive"} className="text-xs">
+                                {toPersianDigits(margin)}٪
+                              </Badge>
+                              {margin < minMargin && (
+                                <Badge className="text-[10px] bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-100">حاشیهٔ کم</Badge>
+                              )}
+                            </span>
                           : <span className="text-xs text-muted-foreground">—</span>}
                       </TableCell>
                     )}
@@ -596,7 +733,9 @@ export default function Services() {
                       <Badge variant={s.isActive ? "default" : "outline"} className="text-xs">{s.isActive ? "فعال" : "غیرفعال"}</Badge>
                     </TableCell>
                     <TableCell className="py-1.5 text-left">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="تاریخچهٔ قیمت" aria-label="تاریخچهٔ قیمت" onClick={() => setHistoryFor({ id: s.id, name: s.name })}><History className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="ویرایش" aria-label="ویرایش" onClick={() => openEdit(s)}><Pencil className="h-3 w-3" /></Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="کپی" aria-label="کپی خدمت" onClick={() => openDuplicate(s)}><Copy className="h-3 w-3" /></Button>
                       {user?.role === "admin" && (
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => setDeleteTarget({ id: s.id, label: s.name })}>
                           <Trash2 className="h-3 w-3" />

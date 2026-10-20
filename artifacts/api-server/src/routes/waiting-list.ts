@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, sql } from "drizzle-orm";
-import { db, waitingListTable, patientsTable, servicesTable, appointmentsTable, staffTable, paymentsTable } from "@workspace/db";
+import { eq, desc, and, sql, isNull } from "drizzle-orm";
+import { db, waitingListTable, patientsTable, servicesTable, appointmentsTable, staffTable } from "@workspace/db";
 import {
   ListWaitingListQueryParams,
   CreateWaitingEntryBody,
@@ -14,6 +14,8 @@ import {
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
 import { sendSms, formatShamsiDateForSms, fireAppointmentSms } from "../lib/sms";
+import { nextSessionNumber, normalizeScheduledAt, assertPatientAndService, AppointmentInputError } from "../lib/appointment-details";
+import { recordDepositPayment, fireReferrerCommissionSms } from "../lib/payment-effects";
 
 const router: IRouter = Router();
 
@@ -75,6 +77,15 @@ router.post("/waiting-list", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  try {
+    await assertPatientAndService(db, parsed.data.patientId, parsed.data.serviceId);
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   const [created] = await db.insert(waitingListTable).values(parsed.data).returning();
   const detail = await selectEntry(created.id);
   await logActivity("create", "waiting_list", created.id, `«${detail?.patientName ?? ""}» به لیست انتظار اضافه شد`);
@@ -95,6 +106,29 @@ router.put("/waiting-list/:id", async (req, res): Promise<void> => {
   if (parsed.data.status && !["waiting", "fulfilled", "cancelled"].includes(parsed.data.status)) {
     res.status(400).json({ error: "وضعیت نامعتبر است" });
     return;
+  }
+  const [current] = await db.select().from(waitingListTable).where(eq(waitingListTable.id, params.data.id));
+  if (!current) {
+    res.status(404).json({ error: "مورد لیست انتظار یافت نشد" });
+    return;
+  }
+  // موردی که به نوبت تبدیل شده به «در انتظار» برنمی‌گردد (وگرنه دوباره تبدیل و نوبت تکراری ساخته می‌شود)
+  if (parsed.data.status === "waiting" && current.status !== "waiting" && current.appointmentId != null) {
+    res.status(400).json({ error: "این مورد به نوبت تبدیل شده است و به «در انتظار» برنمی‌گردد؛ در صورت نیاز نوبت را ویرایش یا لغو کنید" });
+    return;
+  }
+  try {
+    await assertPatientAndService(
+      db,
+      parsed.data.patientId !== undefined && parsed.data.patientId !== current.patientId ? parsed.data.patientId : null,
+      parsed.data.serviceId !== undefined && parsed.data.serviceId !== current.serviceId ? parsed.data.serviceId : null,
+    );
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
   const [updated] = await db
     .update(waitingListTable)
@@ -152,43 +186,77 @@ router.post("/waiting-list/:id/convert", async (req, res): Promise<void> => {
     res.status(404).json({ error: "مورد لیست انتظار یافت نشد" });
     return;
   }
-  if (entry.status !== "waiting") {
-    res.status(409).json({ error: "این مورد دیگر در وضعیت انتظار نیست" });
+  if (entry.status !== "waiting" || entry.appointmentId != null) {
+    res.status(409).json({ error: entry.appointmentId != null ? "این مورد قبلاً به نوبت تبدیل شده است" : "این مورد دیگر در وضعیت انتظار نیست" });
     return;
   }
 
   const serviceId = parsed.data.serviceId ?? entry.serviceId;
-
-  const existing = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(appointmentsTable)
-    .where(and(
-      eq(appointmentsTable.patientId, entry.patientId),
-      eq(appointmentsTable.serviceId, serviceId)
-    ));
-  const sessionNumber = Number(existing[0].count) + 1;
+  try {
+    await assertPatientAndService(db, entry.patientId, serviceId);
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   const appointmentCode = await generateUniqueAppointmentCode();
+  const ALREADY_CONVERTED = "ALREADY_CONVERTED";
 
-  // ساخت نوبت + برآورده‌شدن مورد لیست انتظار در یک تراکنش
-  const { appt } = await db.transaction(async (tx) => {
-    const [createdAppt] = await tx
-      .insert(appointmentsTable)
-      .values({
-        patientId: entry.patientId,
-        serviceId,
-        staffId: parsed.data.staffId ?? null,
-        scheduledAt: parsed.data.scheduledAt,
-        deposit: parsed.data.deposit ?? 0,
-        sessionNumber,
-        appointmentCode,
-      })
-      .returning();
-    await tx
-      .update(waitingListTable)
-      .set({ status: "fulfilled", appointmentId: createdAppt.id })
-      .where(eq(waitingListTable.id, entry.id));
-    return { appt: createdAppt };
-  });
+  // تصاحب اتمیکِ مورد (UPDATE ... WHERE status='waiting' RETURNING) + ساخت نوبت + بیعانه
+  // در یک تراکنش؛ دو درخواست هم‌زمان هرگز دو نوبت نمی‌سازند.
+  let appt: typeof appointmentsTable.$inferSelect;
+  let accrual: Awaited<ReturnType<typeof recordDepositPayment>> = null;
+  try {
+    ({ appt, deposit: accrual } = await db.transaction(async (tx) => {
+      const [claimed] = await tx
+        .update(waitingListTable)
+        .set({ status: "fulfilled" })
+        .where(and(eq(waitingListTable.id, entry.id), eq(waitingListTable.status, "waiting"), isNull(waitingListTable.appointmentId)))
+        .returning();
+      if (!claimed) throw new Error(ALREADY_CONVERTED);
+      const sessionNumber = await nextSessionNumber(tx, entry.patientId, serviceId);
+      const [createdAppt] = await tx
+        .insert(appointmentsTable)
+        .values({
+          patientId: entry.patientId,
+          serviceId,
+          staffId: parsed.data.staffId ?? null,
+          scheduledAt: normalizeScheduledAt(parsed.data.scheduledAt),
+          deposit: parsed.data.deposit ?? 0,
+          sessionNumber,
+          appointmentCode,
+        })
+        .returning();
+      await tx
+        .update(waitingListTable)
+        .set({ appointmentId: createdAppt.id })
+        .where(eq(waitingListTable.id, entry.id));
+      // بیعانه نیز یک تراکنش صندوق است — همان الگوی ثبت نوبت عادی (با پورسانت معرف)
+      let deposit: Awaited<ReturnType<typeof recordDepositPayment>> = null;
+      if (createdAppt.deposit && createdAppt.deposit > 0) {
+        const svc = await tx.select({ name: servicesTable.name, unitLabel: servicesTable.unitLabel })
+          .from(servicesTable).where(eq(servicesTable.id, createdAppt.serviceId)).get();
+        deposit = await recordDepositPayment(tx, {
+          appointmentId: createdAppt.id,
+          deposit: createdAppt.deposit,
+          patientId: createdAppt.patientId,
+          serviceName: svc?.name ?? null,
+          sessionNumber: createdAppt.sessionNumber,
+          unitLabel: svc?.unitLabel ?? null,
+        });
+      }
+      return { appt: createdAppt, deposit };
+    }));
+  } catch (err) {
+    if (err instanceof Error && err.message === ALREADY_CONVERTED) {
+      res.status(409).json({ error: "این مورد دیگر در وضعیت انتظار نیست" });
+      return;
+    }
+    throw err;
+  }
+  fireReferrerCommissionSms(accrual?.accrual ?? null);
 
   const [apptDetail] = await db
     .select({
@@ -215,22 +283,6 @@ router.post("/waiting-list/:id/convert", async (req, res): Promise<void> => {
     .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
     .leftJoin(staffTable, eq(appointmentsTable.staffId, staffTable.id))
     .where(eq(appointmentsTable.id, appt.id));
-
-  // بیعانه نیز یک تراکنش صندوق است — همان الگوی ثبت نوبت عادی
-  if (appt.deposit && appt.deposit > 0) {
-    await db.insert(paymentsTable).values({
-      appointmentId: appt.id,
-      amount: appt.deposit,
-      originalAmount: appt.deposit,
-      method: "cash",
-      notes: "بیعانه",
-      patientName: apptDetail?.patientName ?? null,
-      serviceName: apptDetail?.serviceName ?? null,
-      sessionNumber: apptDetail?.sessionNumber ?? null,
-      unitLabel: apptDetail?.unitLabel ?? null,
-      paidAt: Math.floor(Date.now() / 1000),
-    });
-  }
 
   await logActivity("create", "appointment", appt.id, `نوبت ${appointmentCode} از لیست انتظار برای «${apptDetail?.patientName ?? ""}» ثبت شد`);
 

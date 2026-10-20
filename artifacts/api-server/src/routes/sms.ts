@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { desc, sql, inArray, eq } from "drizzle-orm";
-import { db, smsLogTable, patientsTable, smsSavedPatternsTable } from "@workspace/db";
+import { db, smsLogTable, patientsTable, smsSavedPatternsTable, loyaltyMembersTable, appSettingsTable } from "@workspace/db";
+import { getWalletBalance, isLoyaltyTier, TIER_LABELS } from "../lib/loyalty";
 import {
   UpdateSmsSettingsBody,
   UpdateSmsTemplatesBody,
@@ -11,6 +12,7 @@ import {
   ListSmsLogsQueryParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { logger } from "../lib/logger";
 import {
   SMS_SETTING_KEYS,
   SMS_TEMPLATE_KEYS,
@@ -20,12 +22,18 @@ import {
   getSmsTemplates,
   setAppSetting,
   clampSurveyThrottleDays,
+  clampHour,
+  APPOINTMENT_REMINDER_DEFAULT_HOUR,
+  DAILY_AUTO_DEFAULT_HOUR,
   getPanelCredit,
   sendSms,
   renderTemplate,
   normalizePhone,
+  toPersianDigits,
+  formatToman,
 } from "../lib/sms";
 import { getUpcomingBirthdays } from "../lib/birthdays";
+import { birthdaySmsKey, markScheduledSms, upcomingBirthdayShamsiYear } from "../lib/scheduled-sms";
 
 const router: IRouter = Router();
 
@@ -50,6 +58,24 @@ function settingsResponse(s: Awaited<ReturnType<typeof getSmsSettings>>) {
     bodyIdBirthday: s.bodyIdBirthday,
     bodyIdSurvey: s.bodyIdSurvey,
     bodyIdRecipientWelcome: s.bodyIdRecipientWelcome,
+    enabledAppointmentReminder: s.enabledAppointmentReminder,
+    enabledFollowupReminder: s.enabledFollowupReminder,
+    enabledBirthdayAuto: s.enabledBirthdayAuto,
+    appointmentReminderHour: s.appointmentReminderHour,
+    dailyAutoHour: s.dailyAutoHour,
+    bodyIdAppointmentReminder: s.bodyIdAppointmentReminder,
+    bodyIdFollowupReminder: s.bodyIdFollowupReminder,
+    enabledLoyaltyWelcome: s.enabledLoyaltyWelcome,
+    enabledLoyaltyTierUp: s.enabledLoyaltyTierUp,
+    enabledLoyaltyExpiry: s.enabledLoyaltyExpiry,
+    enabledLoyaltyReferral: s.enabledLoyaltyReferral,
+    bodyIdLoyaltyWelcome: s.bodyIdLoyaltyWelcome,
+    bodyIdLoyaltyTierUp: s.bodyIdLoyaltyTierUp,
+    bodyIdLoyaltyExpiry: s.bodyIdLoyaltyExpiry,
+    bodyIdLoyaltyReferral: s.bodyIdLoyaltyReferral,
+    bodyIdPaymentLoyalty: s.bodyIdPaymentLoyalty,
+    bodyIdLoyaltyNotify: s.bodyIdLoyaltyNotify,
+    bodyIdLoyaltyBalance: s.bodyIdLoyaltyBalance,
   };
 }
 
@@ -65,19 +91,6 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     return;
   }
   const b = parsed.data;
-  if (b.username !== undefined) await setAppSetting(SMS_SETTING_KEYS.username, b.username.trim());
-  // رمز خالی یعنی «بدون تغییر»
-  if (b.password !== undefined && b.password !== "") await setAppSetting(SMS_SETTING_KEYS.password, b.password);
-  if (b.from !== undefined) await setAppSetting(SMS_SETTING_KEYS.from, b.from.trim());
-  if (b.enabledAppointment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointment, String(b.enabledAppointment));
-  if (b.enabledPayment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledPayment, String(b.enabledPayment));
-  if (b.enabledCommission !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledCommission, String(b.enabledCommission));
-  if (b.enabledRecipientWelcome !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledRecipientWelcome, String(b.enabledRecipientWelcome));
-  if (b.enabledSurvey !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledSurvey, String(b.enabledSurvey));
-  // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
-  if (b.surveyThrottleDays !== undefined) {
-    await setAppSetting(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
-  }
   // کد پترن باید فقط رقم باشد (یا خالی برای پاک کردن)
   const bodyIdFields = [
     ["bodyIdAppointment", SMS_SETTING_KEYS.bodyIdAppointment],
@@ -86,7 +99,18 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     ["bodyIdBirthday", SMS_SETTING_KEYS.bodyIdBirthday],
     ["bodyIdSurvey", SMS_SETTING_KEYS.bodyIdSurvey],
     ["bodyIdRecipientWelcome", SMS_SETTING_KEYS.bodyIdRecipientWelcome],
+    ["bodyIdAppointmentReminder", SMS_SETTING_KEYS.bodyIdAppointmentReminder],
+    ["bodyIdFollowupReminder", SMS_SETTING_KEYS.bodyIdFollowupReminder],
+    ["bodyIdLoyaltyWelcome", SMS_SETTING_KEYS.bodyIdLoyaltyWelcome],
+    ["bodyIdLoyaltyTierUp", SMS_SETTING_KEYS.bodyIdLoyaltyTierUp],
+    ["bodyIdLoyaltyExpiry", SMS_SETTING_KEYS.bodyIdLoyaltyExpiry],
+    ["bodyIdLoyaltyReferral", SMS_SETTING_KEYS.bodyIdLoyaltyReferral],
+    ["bodyIdPaymentLoyalty", SMS_SETTING_KEYS.bodyIdPaymentLoyalty],
+    ["bodyIdLoyaltyNotify", SMS_SETTING_KEYS.bodyIdLoyaltyNotify],
+    ["bodyIdLoyaltyBalance", SMS_SETTING_KEYS.bodyIdLoyaltyBalance],
   ] as const;
+  // اول همهٔ ورودی‌ها اعتبارسنجی می‌شود و فقط بعد همه با هم (در یک تراکنش) ذخیره می‌شوند؛
+  // ورودی نامعتبر هیچ فیلدی را نیمه‌کاره ذخیره نمی‌کند.
   for (const [field] of bodyIdFields) {
     const value = b[field];
     if (value !== undefined && value.trim() !== "" && !/^\d+$/.test(value.trim())) {
@@ -95,10 +119,46 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     }
   }
 
-  if (b.sendMode !== undefined) await setAppSetting(SMS_SETTING_KEYS.sendMode, b.sendMode);
+  const writes: Array<[string, string]> = [];
+  const put = (key: string, value: string) => writes.push([key, value]);
+  if (b.username !== undefined) put(SMS_SETTING_KEYS.username, b.username.trim());
+  // رمز خالی یعنی «بدون تغییر»
+  if (b.password !== undefined && b.password !== "") put(SMS_SETTING_KEYS.password, b.password);
+  if (b.from !== undefined) put(SMS_SETTING_KEYS.from, b.from.trim());
+  const boolFields = [
+    "enabledAppointment", "enabledPayment", "enabledCommission", "enabledRecipientWelcome", "enabledSurvey",
+    "enabledAppointmentReminder", "enabledFollowupReminder", "enabledBirthdayAuto",
+    "enabledLoyaltyWelcome", "enabledLoyaltyTierUp", "enabledLoyaltyExpiry", "enabledLoyaltyReferral",
+  ] as const;
+  for (const field of boolFields) {
+    if (b[field] !== undefined) put(SMS_SETTING_KEYS[field], String(b[field]));
+  }
+  // ساعت ارسال: عدد صحیح ۰ تا ۲۳
+  if (b.appointmentReminderHour !== undefined) {
+    put(SMS_SETTING_KEYS.appointmentReminderHour, String(clampHour(b.appointmentReminderHour, APPOINTMENT_REMINDER_DEFAULT_HOUR)));
+  }
+  if (b.dailyAutoHour !== undefined) {
+    put(SMS_SETTING_KEYS.dailyAutoHour, String(clampHour(b.dailyAutoHour, DAILY_AUTO_DEFAULT_HOUR)));
+  }
+  // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
+  if (b.surveyThrottleDays !== undefined) {
+    put(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
+  }
+  if (b.sendMode !== undefined) put(SMS_SETTING_KEYS.sendMode, b.sendMode);
   for (const [field, key] of bodyIdFields) {
     const value = b[field];
-    if (value !== undefined) await setAppSetting(key, value.trim());
+    if (value !== undefined) put(key, value.trim());
+  }
+
+  if (writes.length > 0) {
+    const now = Math.floor(Date.now() / 1000);
+    await db.transaction(async (tx) => {
+      for (const [key, value] of writes) {
+        await tx.insert(appSettingsTable)
+          .values({ key, value, updatedAt: now })
+          .onConflictDoUpdate({ target: appSettingsTable.key, set: { value, updatedAt: now } });
+      }
+    });
   }
 
   await logActivity("update", "settings", 0, "تنظیمات پنل پیامکی به‌روزرسانی شد");
@@ -146,17 +206,29 @@ router.post("/sms/send", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const { message, patientIds, birthdayDays } = parsed.data;
+  const { message, patientIds, birthdayDays, loyaltyTiers } = parsed.data;
   if (!message.trim()) {
     res.status(400).json({ error: "متن پیام خالی است" });
     return;
   }
 
-  const eventType = parsed.data.eventType === "birthday" ? "birthday" as const : "manual" as const;
+  const eventType =
+    parsed.data.eventType === "birthday" ? "birthday" as const
+    : loyaltyTiers !== undefined ? "loyalty_bulk" as const
+    : "manual" as const;
 
-  // گیرندگان: یا از روی شناسه بیماران، یا بیماران دارای تولد در N روز آینده
+  // گیرندگان: بیماران انتخابی، بیماران دارای تولد در N روز آینده، یا اعضای باشگاه
+  // (loyaltyTiers: فهرست سطح‌ها؛ آرایهٔ خالی = همهٔ اعضا)
   let recipients: { id: number; name: string; phone: string }[] = [];
-  if (birthdayDays !== undefined) {
+  if (loyaltyTiers !== undefined) {
+    const tiers = loyaltyTiers.filter(isLoyaltyTier);
+    const rows = await db
+      .select({ id: patientsTable.id, name: patientsTable.name, phone: patientsTable.phone })
+      .from(loyaltyMembersTable)
+      .innerJoin(patientsTable, eq(patientsTable.id, loyaltyMembersTable.patientId))
+      .where(tiers.length > 0 ? inArray(loyaltyMembersTable.tier, tiers) : undefined);
+    recipients = rows;
+  } else if (birthdayDays !== undefined) {
     const upcoming = await getUpcomingBirthdays(Math.min(Math.max(birthdayDays, 0), 90));
     recipients = upcoming.map((b) => ({ id: b.patientId, name: b.name, phone: b.phone }));
   } else if (patientIds && patientIds.length > 0) {
@@ -180,8 +252,28 @@ router.post("/sms/send", async (req, res): Promise<void> => {
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
+  const birthdaySent: number[] = [];
+  // متغیرهای باشگاه برای هر گیرنده: {اعتبار} (یا {امتیاز}) = موجودی کیف پول به تومان، {سطح}
+  const usesLoyaltyVars = /\{\s*(امتیاز|اعتبار|سطح)\s*\}/.test(message);
+  const memberTiers = new Map<number, string>();
+  if (usesLoyaltyVars) {
+    const rows = await db.select().from(loyaltyMembersTable)
+      .where(inArray(loyaltyMembersTable.patientId, recipients.map((r) => r.id)));
+    for (const m of rows) memberTiers.set(m.patientId, m.tier);
+  }
   for (const r of recipients) {
-    const text = renderTemplate(message, { "نام": r.name });
+    const tier = memberTiers.get(r.id);
+    const text = renderTemplate(message, {
+      "نام": r.name,
+      ...(usesLoyaltyVars ? await (async () => {
+        const wallet = formatToman(await getWalletBalance(db, r.id));
+        return { "اعتبار": wallet, "امتیاز": wallet };
+      })() : { "اعتبار": "", "امتیاز": "" }),
+      "سطح": tier && isLoyaltyTier(tier) ? TIER_LABELS[tier] : "",
+      // جای‌نگهدارهای پیامک‌های خودکار، در ارسال دستی خالی می‌شوند
+      "هدیه_باشگاه": "",
+      "باشگاه": "",
+    });
     const result = await sendSms({
       to: r.phone,
       text,
@@ -190,14 +282,36 @@ router.post("/sms/send", async (req, res): Promise<void> => {
       patientId: r.id,
       pattern: usePattern ? { bodyId: settings.bodyIdBirthday, args: [r.name] } : undefined,
     });
-    if (result.ok) sent++;
-    else {
+    if (result.ok) {
+      sent++;
+      if (eventType === "birthday") birthdaySent.push(r.id);
+    } else {
       failed++;
       if (result.error && errors.length < 5 && !errors.includes(result.error)) errors.push(result.error);
     }
   }
 
-  await logActivity("create", "sms", 0, `ارسال پیامک ${eventType === "birthday" ? "تبریک تولد" : "دستی"}: ${sent} موفق، ${failed} ناموفق`);
+  // تبریک تولد دستی همان پیامک خودکار روز تولد است؛ کلید scheduled_sms همان تولد
+  // (birthday:{شناسه}:{سال شمسی تولد پیش رو}) «ارسال‌شده» ثبت می‌شود تا خودکار دوباره نفرستد.
+  if (birthdaySent.length > 0) {
+    try {
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
+      const rows = await db
+        .select({ id: patientsTable.id, birthdate: patientsTable.birthdate })
+        .from(patientsTable)
+        .where(inArray(patientsTable.id, birthdaySent));
+      for (const p of rows) {
+        const year = upcomingBirthdayShamsiYear(p.birthdate, nowMs);
+        if (year != null) await markScheduledSms(birthdaySmsKey(p.id, year), "birthday", "sent", nowSec);
+      }
+    } catch (err) {
+      logger.warn({ err }, "marking manual birthday SMS failed");
+    }
+  }
+
+  const label = eventType === "birthday" ? "تبریک تولد" : eventType === "loyalty_bulk" ? "گروهی به اعضای باشگاه" : "دستی";
+  await logActivity("create", "sms", 0, `ارسال پیامک ${label}: ${sent} موفق، ${failed} ناموفق`);
   res.json({ total: recipients.length, sent, failed, errors });
 });
 

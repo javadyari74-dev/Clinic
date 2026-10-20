@@ -2,9 +2,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import app from "./app";
 import { logger } from "./lib/logger";
-import { runMigrations } from "@workspace/db";
+import { runMigrations, snapshotBeforeMigrations } from "@workspace/db";
 import { seedAdminUser } from "./lib/seed";
-import { backfillAppointmentCodes, backfillPaymentSnapshots } from "./lib/backfill";
+import { startSchedulers } from "./lib/scheduler";
+import { backfillAppointmentCodes, backfillPaymentSnapshots, repairShamsiReminderDates, fixOverstatedCashbackOnce, movePaymentsToServiceMonthOnce } from "./lib/backfill";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -24,18 +25,34 @@ if (Number.isNaN(port) || port <= 0) {
 
 const migrationsFolder = path.resolve(__dirname, "migrations");
 
-runMigrations(migrationsFolder)
+// پیش از مایگریشن/اصلاح‌های یک‌بارهٔ نسخهٔ تازه، یک نسخهٔ کامل از clinic.db کنار خودش
+// (clinic.pre-upgrade-<زمان>.db، سه نسخهٔ آخر) نگه داشته می‌شود؛ خطا در آن مانع شروع نمی‌شود.
+snapshotBeforeMigrations(migrationsFolder, 3)
+  .then((snap) => {
+    if (snap.path) logger.info({ path: snap.path }, "Saved a copy of the database before upgrading");
+    if (snap.error) logger.warn({ error: snap.error }, "Could not save a pre-upgrade copy of the database");
+  })
+  .then(() => runMigrations(migrationsFolder))
   .then(async () => {
     logger.info("Database migrations applied successfully");
     await seedAdminUser();
     await backfillAppointmentCodes();
     await backfillPaymentSnapshots();
+    const movedPayments = await movePaymentsToServiceMonthOnce();
+    if (movedPayments > 0) logger.info({ movedPayments }, "Moved payments recorded after the service month to the service date");
+    const fixedCashback = await fixOverstatedCashbackOnce();
+    if (fixedCashback > 0) logger.info({ fixedCashback }, "Corrected profit credits given before billed-quantity costs");
+    const repairedReminders = await repairShamsiReminderDates();
+    if (repairedReminders > 0) {
+      logger.info({ repairedReminders }, "Repaired reminder due dates saved with the Shamsi/Gregorian mix-up");
+    }
     app.listen(port, (err) => {
       if (err) {
         logger.error({ err }, "Error listening on port");
         process.exit(1);
       }
       logger.info({ port }, "Server listening");
+      startSchedulers();
     });
   })
   .catch((err) => {

@@ -1,13 +1,15 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, isNotNull } from "drizzle-orm";
-import { db, servicesTable } from "@workspace/db";
+import { db, servicesTable, servicePriceHistoryTable, appointmentsTable, waitingListTable } from "@workspace/db";
 import {
   CreateServiceBody,
   UpdateServiceParams,
   UpdateServiceBody,
   DeleteServiceParams,
+  GetServicePriceHistoryParams,
 } from "@workspace/api-zod";
 import { logActivity } from "../lib/activity";
+import { tehranInstant } from "../lib/tehran-time";
 
 const router: IRouter = Router();
 
@@ -26,6 +28,54 @@ async function generateServiceCode(): Promise<string> {
   return `SRV-${String(nextNum).padStart(4, "0")}`;
 }
 
+// ── تاریخچهٔ قیمت و هزینه ──────────────────────────────────────────────────────
+// فیلدهایی که در قیمت‌گذاری/سود اثر دارند؛ تغییر هر کدام یک نسخهٔ جدید می‌سازد.
+const PRICING_FIELDS = [
+  "price", "priceMode", "unitCount",
+  "doctorFee", "doctorFeeMode", "materialCost", "materialCostMode", "otherCost", "otherCostMode",
+] as const;
+type PricingField = (typeof PRICING_FIELDS)[number];
+type Service = typeof servicesTable.$inferSelect;
+
+function pricingSnapshot(s: Service) {
+  return {
+    price: s.price,
+    priceMode: s.priceMode ?? "total",
+    unitCount: s.unitCount ?? 1,
+    doctorFee: s.doctorFee ?? 0,
+    doctorFeeMode: s.doctorFeeMode ?? "total",
+    materialCost: s.materialCost ?? 0,
+    materialCostMode: s.materialCostMode ?? "total",
+    otherCost: s.otherCost ?? 0,
+    otherCostMode: s.otherCostMode ?? "total",
+  };
+}
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function insertPriceVersion(
+  tx: Tx | typeof db,
+  service: Service,
+  args: { effectiveFrom: number; changes: Array<{ field: PricingField; from: unknown; to: unknown }> | null; note?: string | null; changedBy?: string | null },
+) {
+  await tx.insert(servicePriceHistoryTable).values({
+    serviceId: service.id,
+    effectiveFrom: args.effectiveFrom,
+    ...pricingSnapshot(service),
+    changes: args.changes ? JSON.stringify(args.changes) : null,
+    note: args.note?.trim() || null,
+    changedBy: args.changedBy ?? null,
+  });
+}
+
+/** «YYYY-MM-DD» میلادی (روز تهران) → ابتدای آن روز به ثانیه؛ نامعتبر = null */
+function effectiveDateToSec(value: string | null | undefined): number | null | "invalid" {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return "invalid";
+  return Math.floor(tehranInstant(Number(m[1]), Number(m[2]), Number(m[3])) / 1000);
+}
+
 router.get("/services", async (_req, res): Promise<void> => {
   const rows = await db.select().from(servicesTable).orderBy(servicesTable.name);
   res.json(rows);
@@ -38,10 +88,15 @@ router.post("/services", async (req, res): Promise<void> => {
     return;
   }
   const serviceCode = await generateServiceCode();
-  const [service] = await db
-    .insert(servicesTable)
-    .values({ ...parsed.data, serviceCode })
-    .returning();
+  const service = await db.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(servicesTable)
+      .values({ ...parsed.data, serviceCode })
+      .returning();
+    // نسخهٔ اول قیمت: برای همهٔ تاریخ‌ها معتبر تا تغییر بعدی
+    await insertPriceVersion(tx, created, { effectiveFrom: 0, changes: null, note: "قیمت اولیه", changedBy: req.jwtUser?.username ?? null });
+    return created;
+  });
   await logActivity("create", "appointment", service.id, `خدمت جدید "${service.name}" (${serviceCode}) ثبت شد`);
   res.status(201).json(service);
 });
@@ -57,16 +112,59 @@ router.put("/services/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [service] = await db
-    .update(servicesTable)
-    .set(parsed.data)
-    .where(eq(servicesTable.id, params.data.id))
-    .returning();
-  if (!service) {
+  const { priceChangeNote, priceEffectiveDate, ...changes } = parsed.data;
+  const effective = effectiveDateToSec(priceEffectiveDate);
+  if (effective === "invalid") {
+    res.status(400).json({ error: "تاریخ اعمال تغییر قیمت نامعتبر است" });
+    return;
+  }
+  const result = await db.transaction(async (tx) => {
+    const before = await tx.select().from(servicesTable).where(eq(servicesTable.id, params.data.id)).get();
+    if (!before) return null;
+    const [updated] = Object.keys(changes).length > 0
+      ? await tx.update(servicesTable).set(changes).where(eq(servicesTable.id, params.data.id)).returning()
+      : [before];
+    // هر تغییر در قیمت یا هزینه‌ها یک نسخهٔ جدید در تاریخچه با جزئیات «از ← به»
+    const oldSnap = pricingSnapshot(before);
+    const newSnap = pricingSnapshot(updated);
+    const diff = PRICING_FIELDS
+      .filter((f) => oldSnap[f] !== newSnap[f])
+      .map((f) => ({ field: f, from: oldSnap[f], to: newSnap[f] }));
+    if (diff.length > 0) {
+      await insertPriceVersion(tx, updated, {
+        effectiveFrom: effective ?? Math.floor(Date.now() / 1000),
+        changes: diff,
+        note: priceChangeNote,
+        changedBy: req.jwtUser?.username ?? null,
+      });
+    }
+    return { service: updated, diff };
+  });
+  if (!result) {
     res.status(404).json({ error: "خدمت یافت نشد" });
     return;
   }
-  res.json(service);
+  if (result.diff.length > 0) {
+    await logActivity("update", "service", result.service.id, `قیمت/هزینهٔ خدمت «${result.service.name}» تغییر کرد`);
+  }
+  res.json(result.service);
+});
+
+router.get("/services/:id/price-history", async (req, res): Promise<void> => {
+  const params = GetServicePriceHistoryParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const rows = await db.select().from(servicePriceHistoryTable)
+    .where(eq(servicePriceHistoryTable.serviceId, params.data.id))
+    .orderBy(desc(servicePriceHistoryTable.effectiveFrom), desc(servicePriceHistoryTable.id));
+  res.json(rows.map((r) => {
+    let changes: unknown[] = [];
+    try { changes = r.changes ? JSON.parse(r.changes) : []; } catch { changes = []; }
+    const { uuid: _uuid, ...rest } = r;
+    return { ...rest, changes };
+  }));
 });
 
 router.delete("/services/:id", async (req, res): Promise<void> => {
@@ -75,10 +173,28 @@ router.delete("/services/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [service] = await db
-    .delete(servicesTable)
-    .where(eq(servicesTable.id, params.data.id))
-    .returning();
+  // خدمتی که در نوبت‌ها یا لیست انتظار استفاده شده حذف نمی‌شود (نام/قیمت/سود نوبت‌های گذشته
+  // به آن و به تاریخچهٔ قیمتش وابسته است)؛ به‌جای حذف باید غیرفعال شود.
+  const IN_USE = "IN_USE";
+  let service: Service | undefined;
+  try {
+    service = await db.transaction(async (tx) => {
+      const usedByAppt = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable)
+        .where(eq(appointmentsTable.serviceId, params.data.id)).limit(1);
+      const usedByWaiting = await tx.select({ id: waitingListTable.id }).from(waitingListTable)
+        .where(eq(waitingListTable.serviceId, params.data.id)).limit(1);
+      if (usedByAppt.length > 0 || usedByWaiting.length > 0) throw new Error(IN_USE);
+      const [deleted] = await tx.delete(servicesTable).where(eq(servicesTable.id, params.data.id)).returning();
+      if (deleted) await tx.delete(servicePriceHistoryTable).where(eq(servicePriceHistoryTable.serviceId, deleted.id));
+      return deleted;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === IN_USE) {
+      res.status(400).json({ error: "این خدمت در نوبت‌ها یا لیست انتظار استفاده شده و قابل حذف نیست؛ به‌جای حذف، آن را غیرفعال کنید" });
+      return;
+    }
+    throw err;
+  }
   if (!service) {
     res.status(404).json({ error: "خدمت یافت نشد" });
     return;

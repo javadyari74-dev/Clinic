@@ -1,5 +1,6 @@
 import { isNotNull } from "drizzle-orm";
 import { db, patientsTable } from "@workspace/db";
+import { tehranParts } from "./tehran-time";
 
 // ── محاسبه تولدهای پیش‌رو (شمسی) ─────────────────────────────────────────────
 // تاریخ تولد ممکن است میلادی (سال > 1700) یا شمسی ذخیره شده باشد.
@@ -43,8 +44,9 @@ export interface UpcomingBirthday {
 }
 
 export async function getUpcomingBirthdays(daysAhead: number): Promise<UpcomingBirthday[]> {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // «امروز» به وقت تهران (نه ساعت سرور)، به‌صورت تاریخ محلیِ همان روز
+  const t = tehranParts(Date.now());
+  const today = new Date(t.y, t.m - 1, t.d, 0, 0, 0, 0);
   const todayShamsi = getShamsiPartsServer(today);
 
   const patients = await db

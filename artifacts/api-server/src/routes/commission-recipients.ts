@@ -11,6 +11,10 @@ import { fireRecipientWelcomeSms } from "../lib/sms";
 
 const router: IRouter = Router();
 
+// نوع‌های معرفِ مراجع که به جدول کمیسیون‌گیرندگان اشاره می‌کنند
+// (مراجعین «recipient» یا «laser» ذخیره می‌شوند؛ «external» برای داده‌های قدیمی)
+const RECIPIENT_REFERRER_TYPES = ["recipient", "laser", "external"];
+
 router.get("/commission-recipients", async (_req, res): Promise<void> => {
   const rows = await db.select().from(commissionRecipientsTable).orderBy(commissionRecipientsTable.name);
   res.json(rows);
@@ -53,6 +57,19 @@ router.delete("/commission-recipients/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+  // گیرنده‌ای که معرفِ مراجعی است یا پورسانت تسویه‌نشده دارد حذف نمی‌شود
+  const referenced = await db.select({ id: patientsTable.id }).from(patientsTable)
+    .where(and(inArray(patientsTable.referrerType, RECIPIENT_REFERRER_TYPES), eq(patientsTable.referrerId, params.data.id))).limit(1);
+  if (referenced.length > 0) {
+    res.status(400).json({ error: "این گیرنده معرفِ یک یا چند مراجع است؛ ابتدا معرفِ آن مراجعین را تغییر دهید" });
+    return;
+  }
+  const unpaid = await db.select({ id: commissionsTable.id }).from(commissionsTable)
+    .where(and(eq(commissionsTable.recipientType, "external"), eq(commissionsTable.recipientId, params.data.id), eq(commissionsTable.isPaid, false))).limit(1);
+  if (unpaid.length > 0) {
+    res.status(400).json({ error: "این گیرنده پورسانت تسویه‌نشده دارد؛ ابتدا پورسانت‌ها را تسویه یا حذف کنید" });
+    return;
+  }
   const [recipient] = await db.delete(commissionRecipientsTable).where(eq(commissionRecipientsTable.id, params.data.id)).returning();
   if (!recipient) {
     res.status(404).json({ error: "گیرنده یافت نشد" });
@@ -73,7 +90,7 @@ router.get("/commission-recipients/:id/referrals", async (req, res): Promise<voi
     return;
   }
   const referredPatients = await db.select().from(patientsTable)
-    .where(and(eq(patientsTable.referrerType, "external"), eq(patientsTable.referrerId, id)));
+    .where(and(inArray(patientsTable.referrerType, RECIPIENT_REFERRER_TYPES), eq(patientsTable.referrerId, id)));
 
   const referrals: Array<{
     patientId: number;

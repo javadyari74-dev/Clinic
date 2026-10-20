@@ -27,7 +27,7 @@
 
 پس از پایان، فایل نصب‌کننده اینجا ساخته می‌شود:
 
-  desktop/release/DoctorYariClinic-Setup-1.0.0.exe
+  desktop/release/DoctorYariClinic-Setup-1.1.0.exe
 
 آن را اجرا کنید تا نرم‌افزار نصب شود.
 

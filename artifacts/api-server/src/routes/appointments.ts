@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, gte, lt, sql, isNull, inArray } from "drizzle-orm";
-import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable } from "@workspace/db";
+import { eq, desc, and, gte, lt, sql, inArray, like, isNull } from "drizzle-orm";
+import { db, appointmentsTable, patientsTable, servicesTable, staffTable, paymentsTable, scheduledSmsTable, waitingListTable, usersTable, commissionsTable } from "@workspace/db";
 import {
   ListAppointmentsQueryParams,
   CreateAppointmentBody,
@@ -12,43 +12,61 @@ import {
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
 import { fireAppointmentSms } from "../lib/sms";
+import {
+  appointmentWithDetails,
+  normalizeScheduledAt,
+  tehranDayRangeMs,
+  tehranDateRangeMs,
+  nextSessionNumber,
+  appointmentStatusLabel,
+  isAppointmentStatus,
+  assertPatientAndService,
+  AppointmentInputError,
+} from "../lib/appointment-details";
+import { recordDepositPayment, fireReferrerCommissionSms, reversePaymentEffects, PaymentEffectError, type Tx } from "../lib/payment-effects";
+
+const HAS_PAYMENTS_MESSAGE = "این نوبت پرداخت ثبت‌شده دارد؛ ابتدا پرداخت‌ها را از صندوق حذف کنید";
+const ADMIN_ONLY_MESSAGE = "حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است";
+const PAID_COMMISSION_MESSAGE = "برای این نوبت کمیسیون تسویه‌شده ثبت شده است؛ ابتدا تسویهٔ کمیسیون را برگردانید";
+const INVALID_STATUS_MESSAGE = "وضعیت نامعتبر است";
+const CHANGE_PAID_LINK_MESSAGE = "این نوبت پرداخت ثبت‌شده دارد و تغییر مراجع یا خدمت آن ممکن نیست؛ ابتدا پرداخت‌ها را از صندوق حذف یا ویرایش کنید";
+
+/**
+ * حذف پرداخت‌های یک نوبت با برگرداندن کامل همهٔ آثارشان (کیف پول و اعتبار سود، کمیسیون، تخفیف،
+ * امتیاز، یادآوری) ــ همان مسیر حذف پرداخت از صندوق؛ جدیدترین پرداخت اول (تا اعتبار تجمعی درست برگردد).
+ */
+async function deletePaymentsOf(tx: Tx, appointmentId: number): Promise<number> {
+  const pays = await tx.select({ id: paymentsTable.id }).from(paymentsTable)
+    .where(eq(paymentsTable.appointmentId, appointmentId)).orderBy(desc(paymentsTable.id));
+  for (const p of pays) {
+    const [claimed] = await tx.delete(paymentsTable).where(eq(paymentsTable.id, p.id)).returning();
+    if (claimed) await reversePaymentEffects(tx, claimed, { skipAppointmentRecompute: true });
+  }
+  return pays.length;
+}
+
+// پاک‌کردن داده‌های وابسته به نوبتِ در حال حذف (داخل تراکنش حذف):
+// پیامک‌های زمان‌بندی‌شدهٔ همین نوبت، ارجاع لیست انتظار به آن و کمیسیون‌های دستیِ نوبت
+// (appointmentId دارند ولی paymentId ندارند؛ کمیسیون‌های پرداخت با برگرداندن پرداخت پاک می‌شوند).
+// کمیسیون دستیِ تسویه‌شده حذف نمی‌شود و کل حذف لغو می‌شود.
+async function cleanupAppointmentLinks(tx: Tx, appointmentIds: number[]): Promise<void> {
+  if (appointmentIds.length === 0) return;
+  const manual = and(inArray(commissionsTable.appointmentId, appointmentIds), isNull(commissionsTable.paymentId));
+  const paid = await tx.select({ id: commissionsTable.id }).from(commissionsTable)
+    .where(and(manual, eq(commissionsTable.isPaid, true))).limit(1);
+  if (paid.length > 0) throw new PaymentEffectError(PAID_COMMISSION_MESSAGE);
+  await tx.delete(commissionsTable).where(manual);
+  for (const id of appointmentIds) {
+    await tx.delete(scheduledSmsTable).where(like(scheduledSmsTable.key, `appointment:${id}:%`));
+  }
+  await tx.update(waitingListTable).set({ appointmentId: null }).where(inArray(waitingListTable.appointmentId, appointmentIds));
+}
 
 const router: IRouter = Router();
 
-const appointmentWithDetails = {
-  id: appointmentsTable.id,
-  appointmentCode: appointmentsTable.appointmentCode,
-  patientId: appointmentsTable.patientId,
-  serviceId: appointmentsTable.serviceId,
-  staffId: appointmentsTable.staffId,
-  scheduledAt: appointmentsTable.scheduledAt,
-  status: appointmentsTable.status,
-  notes: appointmentsTable.notes,
-  price: appointmentsTable.price,
-  discountId: appointmentsTable.discountId,
-  originalPrice: appointmentsTable.originalPrice,
-  deposit: appointmentsTable.deposit,
-  sessionNumber: appointmentsTable.sessionNumber,
-  createdAt: appointmentsTable.createdAt,
-  patientName: patientsTable.name,
-  patientPhone: patientsTable.phone,
-  patientFileNumber: patientsTable.fileNumber,
-  patientTier: patientsTable.tier,
-  serviceName: servicesTable.name,
-  servicePrice: sql<number>`CASE WHEN ${servicesTable.priceMode} = 'per_unit' THEN ${servicesTable.price} * coalesce(${appointmentsTable.unitsUsed}, ${servicesTable.unitCount}, 1) ELSE ${servicesTable.price} END`,
-  serviceCode: servicesTable.serviceCode,
-  staffName: staffTable.name,
-  unitsUsed: appointmentsTable.unitsUsed,
-  priceMode: servicesTable.priceMode,
-  unitPrice: servicesTable.price,
-  unitLabel: servicesTable.unitLabel,
-  serviceUnitCount: servicesTable.unitCount,
-};
-
 router.get("/appointments/today/waiting-list", async (_req, res): Promise<void> => {
-  const now = Math.floor(Date.now() / 1000);
-  const startOfDay = now - (now % 86400);
-  const endOfDay = startOfDay + 86400;
+  // scheduled_at میلی‌ثانیه است؛ «امروز» = روز تهران
+  const { start: startOfDay, end: endOfDay } = tehranDayRangeMs(Date.now());
 
   const rows = await db
     .select(appointmentWithDetails)
@@ -79,11 +97,12 @@ router.get("/appointments", async (req, res): Promise<void> => {
   if (patientId) conditions.push(eq(appointmentsTable.patientId, patientId));
   if (staffId) conditions.push(eq(appointmentsTable.staffId, staffId));
   if (date) {
-    const d = new Date(date);
-    const start = Math.floor(d.getTime() / 1000);
-    const end = start + 86400;
-    conditions.push(gte(appointmentsTable.scheduledAt, start));
-    conditions.push(lt(appointmentsTable.scheduledAt, end));
+    // مرزهای روز تهران به میلی‌ثانیه (scheduled_at میلی‌ثانیه است)
+    const range = tehranDateRangeMs(String(date));
+    if (range) {
+      conditions.push(gte(appointmentsTable.scheduledAt, range.start));
+      conditions.push(lt(appointmentsTable.scheduledAt, range.end));
+    }
   }
 
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
@@ -114,21 +133,50 @@ router.post("/appointments", async (req, res): Promise<void> => {
     return;
   }
 
-  const existing = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(appointmentsTable)
-    .where(and(
-      eq(appointmentsTable.patientId, parsed.data.patientId),
-      eq(appointmentsTable.serviceId, parsed.data.serviceId)
-    ));
-  const sessionNumber = Number(existing[0].count) + 1;
+  if (parsed.data.status !== undefined && !isAppointmentStatus(parsed.data.status)) {
+    res.status(400).json({ error: INVALID_STATUS_MESSAGE });
+    return;
+  }
 
+  const scheduledAt = normalizeScheduledAt(parsed.data.scheduledAt);
   const appointmentCode = await generateUniqueAppointmentCode();
 
-  const [appt] = await db
-    .insert(appointmentsTable)
-    .values({ ...parsed.data, sessionNumber, appointmentCode })
-    .returning();
+  // ساخت نوبت + ردیف بیعانه (و پورسانت معرف روی بیعانه) در یک تراکنش
+  let appt: typeof appointmentsTable.$inferSelect;
+  let accrual: Parameters<typeof fireReferrerCommissionSms>[0];
+  try {
+  ({ appt, accrual } = await db.transaction(async (tx) => {
+    await assertPatientAndService(tx, parsed.data.patientId, parsed.data.serviceId);
+    const sessionNumber = await nextSessionNumber(tx, parsed.data.patientId, parsed.data.serviceId);
+    const [created] = await tx
+      .insert(appointmentsTable)
+      .values({ ...parsed.data, scheduledAt, sessionNumber, appointmentCode })
+      .returning();
+    let accrual = null;
+    // بیعانه نیز یک تراکنش صندوق است — با جزئیات کامل تا در رسید/صندوق و پشتیبان‌گیری بماند
+    if (created.deposit && created.deposit > 0) {
+      const svc = await tx.select({ name: servicesTable.name, unitLabel: servicesTable.unitLabel })
+        .from(servicesTable).where(eq(servicesTable.id, created.serviceId)).get();
+      const dep = await recordDepositPayment(tx, {
+        appointmentId: created.id,
+        deposit: created.deposit,
+        patientId: created.patientId,
+        serviceName: svc?.name ?? null,
+        sessionNumber: created.sessionNumber,
+        unitLabel: svc?.unitLabel ?? null,
+      });
+      accrual = dep?.accrual ?? null;
+    }
+    return { appt: created, accrual };
+  }));
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+  fireReferrerCommissionSms(accrual);
 
   const [detail] = await db
     .select(appointmentWithDetails)
@@ -137,23 +185,6 @@ router.post("/appointments", async (req, res): Promise<void> => {
     .leftJoin(servicesTable, eq(appointmentsTable.serviceId, servicesTable.id))
     .leftJoin(staffTable, eq(appointmentsTable.staffId, staffTable.id))
     .where(eq(appointmentsTable.id, appt.id));
-
-  // بیعانه نیز یک تراکنش صندوق است — با جزئیات کامل تا در رسید/صندوق و پشتیبان‌گیری بماند
-  if (appt.deposit && appt.deposit > 0) {
-    const paidAt = Math.floor(Date.now() / 1000);
-    await db.insert(paymentsTable).values({
-      appointmentId: appt.id,
-      amount: appt.deposit,
-      originalAmount: appt.deposit,
-      method: "cash",
-      notes: "بیعانه",
-      patientName: detail?.patientName ?? null,
-      serviceName: detail?.serviceName ?? null,
-      sessionNumber: detail?.sessionNumber ?? null,
-      unitLabel: detail?.unitLabel ?? null,
-      paidAt,
-    });
-  }
 
   await logActivity("create", "appointment", appt.id, `نوبت جدید ${appointmentCode} برای "${detail?.patientName ?? ''}" ثبت شد`);
 
@@ -199,9 +230,165 @@ router.delete("/appointments/bulk", async (req, res): Promise<void> => {
     res.status(400).json({ error: "آرایه‌ای از شناسه‌های معتبر ارسال کنید" });
     return;
   }
-  const deleted = await db.delete(appointmentsTable).where(inArray(appointmentsTable.id, ids)).returning({ id: appointmentsTable.id });
-  await logActivity("delete", "appointment", 0, `${deleted.length} نوبت به‌صورت دسته‌جمعی حذف شدند`);
-  res.json({ deleted: deleted.length });
+  // نوبت‌هایی که پرداخت دارند حذف نمی‌شوند (تا پرداخت/کمیسیون/کیف پول یتیم نماند)، مگر مدیر
+  // «حذف همراه با پرداخت‌ها» را بخواهد: آن‌وقت پرداخت‌ها با همهٔ آثارشان برگردانده می‌شوند.
+  const withPaymentsAllowed = (req.body as { withPayments?: unknown })?.withPayments === true;
+  if (withPaymentsAllowed && !(await isAdmin(req))) {
+    res.status(403).json({ error: ADMIN_ONLY_MESSAGE });
+    return;
+  }
+  let result: { deleted: number; skipped: number[] };
+  try {
+  result = await db.transaction(async (tx) => {
+    const withPayments = await tx.selectDistinct({ id: paymentsTable.appointmentId }).from(paymentsTable)
+      .where(inArray(paymentsTable.appointmentId, ids));
+    const paidIds = withPayments.map((r) => r.id).filter((x): x is number => x != null);
+    if (withPaymentsAllowed) for (const id of paidIds) await deletePaymentsOf(tx, id);
+    const skipped = withPaymentsAllowed ? [] : paidIds;
+    const deletable = ids.filter((id) => !skipped.includes(id));
+    const deleted = deletable.length > 0
+      ? await tx.delete(appointmentsTable).where(inArray(appointmentsTable.id, deletable)).returning({ id: appointmentsTable.id })
+      : [];
+    await cleanupAppointmentLinks(tx, deleted.map((d) => d.id));
+    return { deleted: deleted.length, skipped };
+  });
+  } catch (err) {
+    if (err instanceof PaymentEffectError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+  if (result.deleted === 0 && result.skipped.length > 0) {
+    res.status(400).json({ error: `${HAS_PAYMENTS_MESSAGE} (${result.skipped.length} نوبت)`, deleted: 0, skipped: result.skipped });
+    return;
+  }
+  await logActivity("delete", "appointment", 0, `${result.deleted} نوبت به‌صورت دسته‌جمعی حذف شدند`);
+  res.json({
+    deleted: result.deleted,
+    skipped: result.skipped,
+    ...(result.skipped.length > 0 ? { message: `${result.skipped.length} نوبت به‌دلیل داشتن پرداخت حذف نشد` } : {}),
+  });
+});
+
+// ── تغییر وضعیت گروهی ─────────────────────────────────────────────────────────
+// zod مستقیماً وابستگی این پکیج نیست؛ طرح‌ها از طرح‌های تولیدشدهٔ api-zod ساخته می‌شوند (همان نمونهٔ zod).
+const BULK_STATUSES = ["scheduled", "confirmed", "completed", "cancelled"] as const;
+type BulkStatus = (typeof BULK_STATUSES)[number];
+const BulkStatusBody = CreateAppointmentBody.pick({}).extend({
+  ids: GetAppointmentParams.shape.id.int().positive().array().min(1).max(1000),
+  status: UpdateAppointmentBody.shape.status.unwrap().refine(
+    (s): s is BulkStatus => (BULK_STATUSES as readonly string[]).includes(s ?? ""),
+    { message: "وضعیت نامعتبر است" },
+  ),
+});
+const CANCEL_PAID_MESSAGE = "نوبت پرداخت ثبت‌شده دارد و لغو نمی‌شود؛ ابتدا پرداخت را از صندوق برگردانید";
+const BULK_NOT_FOUND_MESSAGE = "نوبت یافت نشد";
+
+type ReqWithUser = { jwtUser?: { sub: number; role: string; permissions?: string[] } };
+
+/** نقش و دسترسی‌های کاربر از پایگاه داده (توکن ممکن است کهنه باشد)؛ نبودِ ردیف = همان توکن */
+async function effectiveUser(req: ReqWithUser): Promise<{ role: string; perms: string[] } | null> {
+  const u = req.jwtUser;
+  if (!u) return null;
+  const row = await db.select({ role: usersTable.role, permissions: usersTable.permissions })
+    .from(usersTable).where(eq(usersTable.id, u.sub)).get();
+  let role = u.role;
+  let perms = u.permissions ?? [];
+  if (row) {
+    role = row.role;
+    try {
+      const parsed = JSON.parse(row.permissions ?? "[]");
+      perms = Array.isArray(parsed) ? parsed.map(String) : [];
+    } catch {
+      perms = [];
+    }
+  }
+  return { role, perms };
+}
+
+/** تغییر وضعیت فقط برای مدیر یا کاربر دارای دسترسی «نوبت‌ها» (نه صرفاً بیماران/صندوق) */
+async function canChangeAppointments(req: ReqWithUser): Promise<boolean> {
+  const u = await effectiveUser(req);
+  if (!u) return false;
+  return u.role === "admin" || (u.role !== "laser_operator" && u.perms.includes("appointments"));
+}
+
+/** نقش مدیر طبق پایگاه داده (نه توکن) */
+async function isAdmin(req: ReqWithUser): Promise<boolean> {
+  return (await effectiveUser(req))?.role === "admin";
+}
+
+router.post("/appointments/bulk-status", async (req, res): Promise<void> => {
+  const parsed = BulkStatusBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "شناسه‌های نوبت یا وضعیت نامعتبر است" });
+    return;
+  }
+  if (!(await canChangeAppointments(req))) {
+    res.status(403).json({ error: "برای تغییر وضعیت نوبت‌ها دسترسی «نوبت‌ها» لازم است" });
+    return;
+  }
+  const status = parsed.data.status as BulkStatus;
+  const ids = [...new Set(parsed.data.ids)];
+
+  const result = await db.transaction(async (tx) => {
+    const existing = await tx.select({ id: appointmentsTable.id, status: appointmentsTable.status })
+      .from(appointmentsTable).where(inArray(appointmentsTable.id, ids));
+    const found = new Map(existing.map((a) => [a.id, a.status]));
+    const skipped: { id: number; reason: string }[] = ids
+      .filter((id) => !found.has(id))
+      .map((id) => ({ id, reason: BULK_NOT_FOUND_MESSAGE }));
+
+    let candidates = existing.filter((a) => a.status !== status).map((a) => a.id);
+    const unchanged = existing.length - candidates.length;
+
+    if (status === "cancelled" && candidates.length > 0) {
+      const paid = await tx.selectDistinct({ id: paymentsTable.appointmentId }).from(paymentsTable)
+        .where(inArray(paymentsTable.appointmentId, candidates));
+      const paidIds = new Set(paid.map((r) => r.id).filter((x): x is number => x != null));
+      for (const id of paidIds) skipped.push({ id, reason: CANCEL_PAID_MESSAGE });
+      candidates = candidates.filter((id) => !paidIds.has(id));
+    }
+
+    // برگرداندن نوبت لغوشده: شمارهٔ جلسه دوباره حساب می‌شود (ممکن است در این فاصله تکراری شده باشد)
+    const reinstated = status !== "cancelled"
+      ? existing.filter((a) => a.status === "cancelled" && candidates.includes(a.id)).map((a) => a.id)
+      : [];
+    const plain = candidates.filter((id) => !reinstated.includes(id));
+    const updated = plain.length > 0
+      ? await tx.update(appointmentsTable).set({ status })
+        .where(inArray(appointmentsTable.id, plain)).returning({ id: appointmentsTable.id })
+      : [];
+    for (const id of reinstated) {
+      const cur = await tx.select({ patientId: appointmentsTable.patientId, serviceId: appointmentsTable.serviceId })
+        .from(appointmentsTable).where(eq(appointmentsTable.id, id)).get();
+      if (!cur) continue;
+      const sessionNumber = await nextSessionNumber(tx, cur.patientId, cur.serviceId, id);
+      await tx.update(appointmentsTable).set({ status, sessionNumber }).where(eq(appointmentsTable.id, id));
+      updated.push({ id });
+    }
+    return { changed: updated.map((u) => u.id), skipped, unchanged };
+  });
+
+  if (result.changed.length > 0) {
+    await logActivity("update", "appointment", result.changed.length === 1 ? result.changed[0] : 0,
+      `وضعیت ${result.changed.length} نوبت به‌صورت گروهی به «${appointmentStatusLabel(status)}» تغییر کرد`);
+  }
+  const parts: string[] = [`${result.changed.length} نوبت به «${appointmentStatusLabel(status)}» تغییر کرد`];
+  const paidSkipped = result.skipped.filter((s) => s.reason === CANCEL_PAID_MESSAGE).length;
+  const missing = result.skipped.length - paidSkipped;
+  if (paidSkipped > 0) parts.push(`${paidSkipped} نوبت به‌دلیل داشتن پرداخت لغو نشد`);
+  if (missing > 0) parts.push(`${missing} نوبت یافت نشد`);
+  if (result.unchanged > 0) parts.push(`${result.unchanged} نوبت از قبل همین وضعیت را داشت`);
+  res.json({
+    status,
+    changed: result.changed.length,
+    changedIds: result.changed,
+    unchanged: result.unchanged,
+    skipped: result.skipped,
+    message: parts.join("؛ "),
+  });
 });
 
 router.put("/appointments/:id", async (req, res): Promise<void> => {
@@ -215,17 +402,70 @@ router.put("/appointments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [appt] = await db
-    .update(appointmentsTable)
-    .set(parsed.data)
-    .where(eq(appointmentsTable.id, params.data.id))
-    .returning();
+  if (parsed.data.status !== undefined && !isAppointmentStatus(parsed.data.status)) {
+    res.status(400).json({ error: INVALID_STATUS_MESSAGE });
+    return;
+  }
+  // قاعدهٔ routes/index.ts کاربر «صندوق» را هم راه می‌دهد (تا صندوقدار نوبت را «انجام‌شده» کند)؛
+  // چنین کاربری فقط همین کار را می‌تواند بکند، نه ویرایش یا تغییر وضعیت دیگر.
+  // (بدون jwtUser این مسیر در برنامه نمی‌رسد: قاعدهٔ routes/index.ts احراز هویت را الزامی می‌کند.)
+  if (req.jwtUser && !(await canChangeAppointments(req))) {
+    const keys = Object.entries(parsed.data).filter(([, v]) => v !== undefined).map(([k]) => k);
+    if (!(keys.length === 1 && keys[0] === "status" && parsed.data.status === "completed")) {
+      res.status(403).json({ error: "برای ویرایش نوبت دسترسی «نوبت‌ها» لازم است؛ صندوق فقط می‌تواند نوبت را «انجام‌شده» کند" });
+      return;
+    }
+  }
+  const changes: typeof parsed.data & { sessionNumber?: number } = { ...parsed.data };
+  if (typeof changes.scheduledAt === "number") changes.scheduledAt = normalizeScheduledAt(changes.scheduledAt);
+  let appt: typeof appointmentsTable.$inferSelect | null;
+  try {
+  appt = await db.transaction(async (tx) => {
+    const current = await tx.select().from(appointmentsTable).where(eq(appointmentsTable.id, params.data.id)).get();
+    if (!current) return null;
+    const patientId = changes.patientId ?? current.patientId;
+    const serviceId = changes.serviceId ?? current.serviceId;
+    const linkChanged = patientId !== current.patientId || serviceId !== current.serviceId;
+    const cancelling = changes.status === "cancelled" && current.status !== "cancelled";
+    if (linkChanged || cancelling) {
+      const hasPayments = (await tx.select({ id: paymentsTable.id }).from(paymentsTable)
+        .where(eq(paymentsTable.appointmentId, current.id)).limit(1)).length > 0;
+      if (hasPayments) throw new AppointmentInputError(cancelling ? CANCEL_PAID_MESSAGE : CHANGE_PAID_LINK_MESSAGE);
+    }
+    if (linkChanged) {
+      await assertPatientAndService(
+        tx,
+        patientId !== current.patientId ? patientId : null,
+        serviceId !== current.serviceId ? serviceId : null,
+      );
+    }
+    // تغییر خدمت/مراجع، یا برگرداندن نوبت لغوشده → شمارهٔ جلسه دوباره حساب می‌شود
+    // (نوبت لغوشده در شمارش نیست، پس ممکن است شماره‌اش در این فاصله به نوبت دیگری رسیده باشد)
+    const reinstating = current.status === "cancelled" && changes.status !== undefined && changes.status !== "cancelled";
+    if (linkChanged || reinstating) {
+      changes.sessionNumber = await nextSessionNumber(tx, patientId, serviceId, current.id);
+    }
+    if (Object.keys(changes).length === 0) return current;
+    const [updated] = await tx
+      .update(appointmentsTable)
+      .set(changes)
+      .where(eq(appointmentsTable.id, params.data.id))
+      .returning();
+    return updated;
+  });
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   if (!appt) {
     res.status(404).json({ error: "نوبت یافت نشد" });
     return;
   }
   if (parsed.data.status) {
-    await logActivity("update", "appointment", appt.id, `وضعیت نوبت به "${parsed.data.status}" تغییر کرد`);
+    await logActivity("update", "appointment", appt.id, `وضعیت نوبت به «${appointmentStatusLabel(parsed.data.status)}» تغییر کرد`);
   }
   const [detail] = await db
     .select(appointmentWithDetails)
@@ -243,14 +483,43 @@ router.delete("/appointments/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [appt] = await db
-    .delete(appointmentsTable)
-    .where(eq(appointmentsTable.id, params.data.id))
-    .returning();
-  if (!appt) {
-    res.status(404).json({ error: "نوبت یافت نشد" });
+  // نوبتی که پرداخت (بیعانه/تسویه) دارد حذف نمی‌شود تا پرداخت، کمیسیون و کیف پول یتیم نماند؛
+  // مگر مدیر با ?withPayments=1 بخواهد: پرداخت‌ها هم با برگرداندن کامل آثارشان حذف می‌شوند.
+  const NOT_FOUND = "NOT_FOUND";
+  const HAS_PAYMENTS = "HAS_PAYMENTS";
+  const withPayments = req.query.withPayments === "1" || req.query.withPayments === "true";
+  if (withPayments && !(await isAdmin(req))) {
+    res.status(403).json({ error: ADMIN_ONLY_MESSAGE });
     return;
   }
+  let removedPayments = 0;
+  try {
+    await db.transaction(async (tx) => {
+      const pays = await tx.select({ id: paymentsTable.id }).from(paymentsTable)
+        .where(eq(paymentsTable.appointmentId, params.data.id)).limit(1);
+      if (pays.length > 0 && !withPayments) throw new Error(HAS_PAYMENTS);
+      if (pays.length > 0) removedPayments = await deletePaymentsOf(tx, params.data.id);
+      const [deleted] = await tx.delete(appointmentsTable).where(eq(appointmentsTable.id, params.data.id)).returning();
+      if (!deleted) throw new Error(NOT_FOUND);
+      await cleanupAppointmentLinks(tx, [deleted.id]);
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === NOT_FOUND) {
+      res.status(404).json({ error: "نوبت یافت نشد" });
+      return;
+    }
+    if (err instanceof Error && err.message === HAS_PAYMENTS) {
+      res.status(400).json({ error: HAS_PAYMENTS_MESSAGE, hasPayments: true });
+      return;
+    }
+    if (err instanceof PaymentEffectError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
+  await logActivity("delete", "appointment", params.data.id,
+    removedPayments > 0 ? `نوبت همراه با ${removedPayments} پرداخت حذف شد` : `نوبت حذف شد`);
   res.sendStatus(204);
 });
 

@@ -29,8 +29,9 @@ export const db = drizzle(client, { schema });
 //
 // To make startup robust we run migrations ourselves, statement by statement,
 // skipping the benign "already exists" / "duplicate column" errors. Every
-// migration's DML in this project is naturally idempotent (`INSERT OR IGNORE`,
-// `UPDATE ... WHERE col IS NULL`), so replaying is safe. A fresh database runs
+// migration's DML in this project must be naturally idempotent (`INSERT OR
+// IGNORE`, `UPDATE ... WHERE col IS NULL`), so replaying is safe. Data fixes
+// that are NOT idempotent go in ONE_TIME_DATA_FIXES below, never in a .sql file. A fresh database runs
 // everything in order; a drifted database self-heals instead of crashing.
 
 // Only the specific SQLite "object already present" errors are treated as
@@ -101,6 +102,14 @@ export async function runMigrations(migrationsFolder: string) {
     sql`CREATE TABLE IF NOT EXISTS __drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at numeric)`,
   );
 
+  // Which migrations had already been recorded *before* this startup — used to
+  // tell whether a one-time data fix already ran as part of an older migration.
+  const recordedBefore = new Set(
+    (await db.all<{ created_at: number }>(sql`SELECT "created_at" FROM __drizzle_migrations`)).map((r) =>
+      Number(r.created_at),
+    ),
+  );
+
   for (const entry of entries) {
     const sqlPath = path.join(migrationsFolder, `${entry.tag}.sql`);
     if (!fs.existsSync(sqlPath)) {
@@ -127,6 +136,168 @@ export async function runMigrations(migrationsFolder: string) {
 
     const hash = crypto.createHash("sha256").update(migrationSql).digest("hex");
     await recordMigration(entry.when, hash);
+  }
+
+  await runOneTimeDataFixes(recordedBefore);
+}
+
+// app_settings keys used as "already applied" markers for one-time data fixes.
+// They are device-local bookkeeping and are excluded from backups.
+export const DATA_FIX_KEY_PREFIX = "data_fix_";
+
+// Data fixes that must run exactly ONCE per database. Because every migration
+// file is replayed on every startup (see runMigrations), a non-idempotent data
+// UPDATE must not live in a migration file — e.g. the loyalty "adjust" sign fix
+// that used to be in 0023 was re-applied on every start and flipped legitimate
+// new +X adjustments to −X. Each fix is guarded by an app_settings flag.
+//
+// `alreadyAppliedBy`: the journal `when` of the migration that used to contain
+// this fix. If that migration was recorded before this startup, the fix has
+// already run on this database, so we only set the flag (running it again
+// would harm rows created since).
+const ONE_TIME_DATA_FIXES: Array<{ key: string; alreadyAppliedBy?: number; statement: string }> = [
+  {
+    key: `${DATA_FIX_KEY_PREFIX}historic_shortfall_settled`,
+    // Before the debt feature (released 2026-10-09 15:00 UTC = 1791558000) a checkout
+    // amount below the list price was simply the agreed price. Migration 0025 filled
+    // appointments.price from those payments, which made old visits look like debts.
+    // For visits whose payments are all older than the release, the agreed price is
+    // what was actually paid. Newer shortfalls stay real debts.
+    statement: `UPDATE \`appointments\` SET \`price\` = (
+  SELECT SUM(p.\`amount\` + COALESCE(p.\`wallet_amount\`, 0) + COALESCE(p.\`points_amount\`, 0))
+  FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\`
+)
+WHERE \`price\` IS NOT NULL
+  AND \`price\` > (
+    SELECT COALESCE(SUM(p.\`amount\` + COALESCE(p.\`wallet_amount\`, 0) + COALESCE(p.\`points_amount\`, 0)), 0)
+    FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\`
+  )
+  AND EXISTS (SELECT 1 FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND COALESCE(p.\`notes\`, '') <> 'بیعانه')
+  AND NOT EXISTS (SELECT 1 FROM \`payments\` p WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND p.\`paid_at\` >= 1791558000)`,
+  },
+  {
+    key: `${DATA_FIX_KEY_PREFIX}paid_appointments_completed`,
+    // Earlier versions kept a visit whose checkout payment was less than its price
+    // "scheduled/confirmed", so it stayed in the active appointments list. A visit
+    // with a checkout (non-deposit) payment is done; any unpaid rest is a debt.
+    statement: `UPDATE \`appointments\` SET \`status\` = 'completed'
+WHERE \`status\` IN ('scheduled', 'confirmed', 'arrived', 'in_progress') AND EXISTS (
+  SELECT 1 FROM \`payments\` p
+  WHERE p.\`appointment_id\` = \`appointments\`.\`id\` AND COALESCE(p.\`notes\`, '') <> 'بیعانه'
+)`,
+  },
+  {
+    key: `${DATA_FIX_KEY_PREFIX}adjust_sign_done`,
+    alreadyAppliedBy: 1791500000000, // 0023_add_payment_credit_amounts
+    // Old code stored the loyalty side of a manual wallet/points adjustment with
+    // the wrong sign: flip +X loyalty 'adjust' rows that were written together
+    // (within 5s) with a −X 'loyalty_adjust' wallet row for the same patient.
+    statement: `UPDATE \`loyalty_transactions\` SET \`amount\` = -\`amount\`
+WHERE \`type\` = 'adjust' AND \`amount\` > 0 AND EXISTS (
+  SELECT 1 FROM \`patient_account_transactions\` w
+  WHERE w.\`patient_id\` = \`loyalty_transactions\`.\`patient_id\` AND w.\`type\` = 'loyalty_adjust'
+    AND w.\`amount\` = -\`loyalty_transactions\`.\`amount\`
+    AND ABS(w.\`created_at\` - \`loyalty_transactions\`.\`created_at\`) <= 5
+)`,
+  },
+];
+
+// Keys of the one-time fixes above, so backup restore can tell which of them the
+// restored data has already had (see artifacts/api-server backup-service).
+export const ONE_TIME_DATA_FIX_KEYS: readonly string[] = ONE_TIME_DATA_FIXES.map((f) => f.key);
+
+/**
+ * Runs every one-time data fix whose "already applied" flag is missing. Used after
+ * a full backup restore: the restore resets the flags to what the restored data
+ * had, so only fixes that data never got run (each still exactly once).
+ */
+export async function runPendingDataFixes(): Promise<void> {
+  await runOneTimeDataFixes(new Set());
+}
+
+/**
+ * Before migrations / one-time data fixes touch an existing database, keep a
+ * consistent copy of it next to the database file (`<name>.pre-upgrade-<time>.db`,
+ * newest `keep` copies kept). Only when something is pending — a journal entry
+ * not yet recorded or a one-time fix not yet applied — so ordinary restarts do
+ * not rotate out the copy taken before the last real upgrade. Never throws:
+ * a failed copy is reported to the caller but must not block startup.
+ */
+export async function snapshotBeforeMigrations(
+  migrationsFolder: string,
+  keep = 3,
+): Promise<{ path: string | null; error?: string }> {
+  try {
+    if (!fs.existsSync(DB_PATH) || fs.statSync(DB_PATH).size === 0) return { path: null };
+    const journalPath = path.join(migrationsFolder, "meta", "_journal.json");
+    if (!fs.existsSync(journalPath)) return { path: null };
+    const journal = JSON.parse(fs.readFileSync(journalPath, "utf-8")) as { entries: { when: number }[] };
+    const tables = new Set(
+      (await db.all<{ name: string }>(sql`SELECT name FROM sqlite_master WHERE type = 'table'`)).map((r) => r.name),
+    );
+    if (!tables.has("__drizzle_migrations")) {
+      // No journal table: a brand-new (empty) database has nothing worth copying.
+      if (![...tables].some((t) => !t.startsWith("sqlite_"))) return { path: null };
+    } else {
+      const recorded = new Set(
+        (await db.all<{ created_at: number }>(sql`SELECT "created_at" FROM __drizzle_migrations`)).map((r) =>
+          Number(r.created_at),
+        ),
+      );
+      const migrationsPending = journal.entries.some((e) => !recorded.has(Number(e.when)));
+      let fixesPending = false;
+      if (tables.has("app_settings")) {
+        const flags = new Set(
+          (await db.all<{ key: string }>(sql`SELECT "key" FROM app_settings WHERE "key" LIKE 'data_fix_%'`)).map(
+            (r) => r.key,
+          ),
+        );
+        fixesPending = ONE_TIME_DATA_FIX_KEYS.some((k) => !flags.has(k));
+      }
+      if (!migrationsPending && !fixesPending) return { path: null };
+    }
+
+    const dir = path.dirname(DB_PATH);
+    const base = path.basename(DB_PATH).replace(/\.db$/i, "");
+    const p = (n: number) => String(n).padStart(2, "0");
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}`;
+    const target = path.join(dir, `${base}.pre-upgrade-${stamp}.db`);
+    if (fs.existsSync(target)) fs.unlinkSync(target);
+    // VACUUM INTO writes a consistent copy (including anything still in the WAL)
+    await db.run(sql.raw(`VACUUM INTO '${target.replace(/'/g, "''")}'`));
+
+    const prefix = `${base}.pre-upgrade-`;
+    const copies = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith(prefix) && f.endsWith(".db"))
+      .sort()
+      .reverse();
+    for (const f of copies.slice(keep)) {
+      try {
+        fs.unlinkSync(path.join(dir, f));
+      } catch {
+        /* ignore */
+      }
+    }
+    return { path: target };
+  } catch (err) {
+    return { path: null, error: String(err) };
+  }
+}
+
+async function runOneTimeDataFixes(recordedBefore: Set<number>): Promise<void> {
+  for (const fix of ONE_TIME_DATA_FIXES) {
+    const done = await db.all<{ key: string }>(sql`SELECT "key" FROM app_settings WHERE "key" = ${fix.key}`);
+    if (done.length > 0) continue;
+    const ranViaOldMigration = fix.alreadyAppliedBy != null && recordedBefore.has(fix.alreadyAppliedBy);
+    await db.transaction(async (tx) => {
+      if (!ranViaOldMigration) await tx.run(sql.raw(fix.statement));
+      await tx.run(
+        sql`INSERT OR IGNORE INTO app_settings ("key", "value", "updated_at")
+            VALUES (${fix.key}, ${new Date().toISOString()}, ${Math.floor(Date.now() / 1000)})`,
+      );
+    });
   }
 }
 

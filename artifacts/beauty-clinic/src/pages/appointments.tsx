@@ -1,7 +1,9 @@
+import { PageHeader } from "@/components/page-header";
+import { CalendarDays } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
-  getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
+  getListAppointmentsQueryKey, useListServices, useListStaff,
   getGetAppointmentQueryOptions,
   useListWaitingList, useCreateWaitingEntry, useUpdateWaitingEntry, useDeleteWaitingEntry,
   useConvertWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
@@ -28,23 +30,48 @@ import { Check, ChevronsUpDown, Plus, Pencil, Trash2, CalendarCheck, BellRing } 
 import { Textarea } from "@/components/ui/textarea";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { TierBadge } from "@/components/tier-badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 import { AppointmentCalendar } from "@/components/appointment-calendar";
 import { cn } from "@/lib/utils";
+import { PatientSearchSelect } from "@/components/patient-search-select";
 import { useToast } from "@/hooks/use-toast";
+import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/hooks/use-auth";
 
-const ACTIVE_STATUSES = ["scheduled", "confirmed"];
+// Statuses the server's dashboard counts as "still open" (arrived/in_progress
+// can come from older data or other clients, so keep them visible here too).
+const ACTIVE_STATUSES = ["scheduled", "confirmed", "arrived", "in_progress"];
 
+// Display labels for every status the backend may hold (kept in sync with
+// dashboard / patient-detail labels) — never show a raw English enum value.
 const statuses: Record<string, { label: string; color: string }> = {
-  scheduled:   { label: "رزرو شده",   color: "bg-blue-100 text-blue-700 border-blue-200" },
-  confirmed:   { label: "تایید شده",  color: "bg-cyan-100 text-cyan-700 border-cyan-200" },
-  completed:   { label: "تکمیل شده", color: "bg-green-100 text-green-700 border-green-200" },
-  cancelled:   { label: "لغو شده",   color: "bg-red-100 text-red-700 border-red-200" },
+  scheduled:   { label: "رزرو شده",     color: "bg-blue-100 text-blue-700 border-blue-200" },
+  confirmed:   { label: "تایید شده",    color: "bg-cyan-100 text-cyan-700 border-cyan-200" },
+  arrived:     { label: "حاضر شده",     color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  in_progress: { label: "در حال انجام", color: "bg-purple-100 text-purple-700 border-purple-200" },
+  completed:   { label: "تکمیل شده",   color: "bg-green-100 text-green-700 border-green-200" },
+  cancelled:   { label: "لغو شده",     color: "bg-red-100 text-red-700 border-red-200" },
+  no_show:     { label: "غیبت",         color: "bg-orange-100 text-orange-700 border-orange-200" },
 };
+
+// Statuses staff may set by hand on this page. arrived/in_progress are not
+// offered: the cashier only lists scheduled/confirmed appointments, so moving
+// an appointment into them would hide it from payment.
+const SETTABLE_STATUSES = ["scheduled", "confirmed", "completed", "cancelled", "no_show"];
+
+/** Settable statuses, plus the current one if it is display-only. */
+function statusOptions(current?: string): string[] {
+  return current && !SETTABLE_STATUSES.includes(current)
+    ? [current, ...SETTABLE_STATUSES]
+    : SETTABLE_STATUSES;
+}
+
+const COMPLETED_HINT = "تکمیل نهایی و تسویه پرداخت نوبت از بخش صندوق انجام می‌شود.";
 
 const formSchema = z.object({
   patientId: z.coerce.number().min(1, "مراجع را انتخاب کنید"),
@@ -123,15 +150,57 @@ function tsToTimeStr(ts: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-async function bulkDeleteAppointments(ids: number[]): Promise<void> {
+const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+async function bulkDeleteAppointments(ids: number[], withPayments = false): Promise<{ deleted: number; skipped: number[] }> {
   const token = localStorage.getItem("clinic_auth_token");
-  const res = await fetch("/api/appointments/bulk", {
+  const res = await fetch(`${API_BASE}/api/appointments/bulk`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ids }),
+    body: JSON.stringify(withPayments ? { ids, withPayments: true } : { ids }),
   });
-  if (!res.ok) throw new Error("خطا در حذف دسته‌جمعی");
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    // Mirror ApiError's shape so the shared toast helper can read `.data.error`.
+    throw Object.assign(new Error("خطا در حذف دسته‌جمعی"), { data });
+  }
+  const data = await res.json().catch(() => null) as { deleted?: number; skipped?: number[] } | null;
+  return { deleted: Number(data?.deleted ?? ids.length), skipped: Array.isArray(data?.skipped) ? data!.skipped! : [] };
 }
+
+type BulkStatus = "scheduled" | "confirmed" | "completed" | "cancelled";
+type BulkStatusResult = {
+  changed: number;
+  unchanged: number;
+  skipped: { id: number; reason: string }[];
+  message?: string;
+};
+
+/** تغییر وضعیت گروهی: نوبت‌های دارای پرداخت لغو نمی‌شوند و در skipped برمی‌گردند */
+async function bulkSetAppointmentStatus(ids: number[], status: BulkStatus): Promise<BulkStatusResult> {
+  const token = localStorage.getItem("clinic_auth_token");
+  const res = await fetch(`${API_BASE}/api/appointments/bulk-status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ ids, status }),
+  });
+  const data = await res.json().catch(() => null) as Partial<BulkStatusResult> & { error?: string } | null;
+  if (!res.ok) {
+    throw Object.assign(new Error("خطا در تغییر وضعیت گروهی"), { data });
+  }
+  return {
+    changed: Number(data?.changed ?? 0),
+    unchanged: Number(data?.unchanged ?? 0),
+    skipped: Array.isArray(data?.skipped) ? data!.skipped! : [],
+    message: data?.message,
+  };
+}
+
+const BULK_STATUS_ACTIONS: { status: BulkStatus; label: string; className: string }[] = [
+  { status: "confirmed", label: "تأیید", className: "text-blue-700 border-blue-200 hover:bg-blue-50" },
+  { status: "completed", label: "انجام‌شده", className: "text-green-700 border-green-200 hover:bg-green-50" },
+  { status: "cancelled", label: "لغو", className: "text-red-700 border-red-200 hover:bg-red-50" },
+];
 
 type AppRow = {
   id: number;
@@ -150,6 +219,8 @@ type AppRow = {
 type RowProps = {
   app: AppRow;
   isAdmin: boolean;
+  /** ستون انتخاب (تغییر وضعیت گروهی برای دسترسی «نوبت‌ها»، حذف گروهی فقط مدیر) */
+  canSelect: boolean;
   selected: Set<number>;
   onToggle: (id: number) => void;
   onEdit: (app: AppRow) => void;
@@ -158,14 +229,14 @@ type RowProps = {
   onPrefetch: (id: number) => void;
 };
 
-function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
+function AppointmentRow({ app, isAdmin, canSelect, selected, onToggle, onEdit, onDelete, onStatusChange, onPrefetch }: RowProps) {
   return (
     <TableRow
       className={selected.has(app.id) ? "bg-muted/50" : undefined}
       onMouseEnter={() => onPrefetch(app.id)}
       onFocus={() => onPrefetch(app.id)}
     >
-      {isAdmin && (
+      {canSelect && (
         <TableCell className="w-10 pr-4">
           <Checkbox checked={selected.has(app.id)} onCheckedChange={() => onToggle(app.id)} aria-label="انتخاب" />
         </TableCell>
@@ -196,11 +267,12 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
             </Badge>
           </SelectTrigger>
           <SelectContent>
-            {Object.entries(statuses).map(([key, { label, color }]) => (
-              <SelectItem key={key} value={key}>
-                <span className={`inline-block px-2 py-0.5 rounded text-xs ${color}`}>{label}</span>
+            {statusOptions(app.status).map((key) => (
+              <SelectItem key={key} value={key} disabled={!SETTABLE_STATUSES.includes(key)}>
+                <span className={`inline-block px-2 py-0.5 rounded text-xs ${statuses[key]?.color ?? "bg-gray-100 text-gray-600"}`}>{statuses[key]?.label ?? key}</span>
               </SelectItem>
             ))}
+            <p className="px-2 pt-1 pb-1.5 text-[11px] leading-5 text-muted-foreground max-w-[14rem]">{COMPLETED_HINT}</p>
           </SelectContent>
         </Select>
       </TableCell>
@@ -208,10 +280,10 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
       {isAdmin && (
         <TableCell>
           <div className="flex gap-1">
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => onEdit(app)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-foreground" aria-label="ویرایش نوبت" onClick={() => onEdit(app)}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
-            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => onDelete(app.id)}>
+            <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-destructive" aria-label="حذف نوبت" onClick={() => onDelete(app.id)}>
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           </div>
@@ -221,31 +293,52 @@ function AppointmentRow({ app, isAdmin, selected, onToggle, onEdit, onDelete, on
   );
 }
 
-type HeaderProps = { ids: number[]; isAdmin: boolean; selected: Set<number>; onToggleAll: (ids: number[]) => void };
+const appSortAccessors = {
+  time: (a: AppRow) => a.scheduledAt,
+  patient: (a: AppRow) => a.patientName,
+  service: (a: AppRow) => a.serviceName,
+  session: (a: AppRow) => a.sessionNumber,
+  deposit: (a: AppRow) => (a.deposit && a.deposit > 0 ? a.deposit : null),
+  status: (a: AppRow) => statuses[a.status]?.label ?? a.status,
+  staff: (a: AppRow) => a.staffName,
+};
 
-function AppTableHeader({ ids, isAdmin, selected, onToggleAll }: HeaderProps) {
+type AppTableProps = Omit<RowProps, "app"> & { rows: AppRow[]; emptyText: string; onToggleAll: (ids: number[]) => void };
+
+function AppointmentTable({ rows, emptyText, onToggleAll, ...rowProps }: AppTableProps) {
+  const { isAdmin, canSelect, selected } = rowProps;
+  const sort = useTableSort(rows, appSortAccessors);
+  const ids = rows.map(a => a.id);
   return (
-    <TableHeader>
-      <TableRow>
-        {isAdmin && (
-          <TableHead className="w-10 pr-4">
-            <Checkbox
-              checked={ids.length > 0 && ids.every(id => selected.has(id))}
-              onCheckedChange={() => onToggleAll(ids)}
-              aria-label="انتخاب همه"
-            />
-          </TableHead>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          {canSelect && (
+            <TableHead className="w-10 pr-4">
+              <Checkbox
+                checked={ids.length > 0 && ids.every(id => selected.has(id))}
+                onCheckedChange={() => onToggleAll(ids)}
+                aria-label="انتخاب همه"
+              />
+            </TableHead>
+          )}
+          <SortableHead {...sort.head("time")}>زمان</SortableHead>
+          <SortableHead {...sort.head("patient")}>مراجع</SortableHead>
+          <SortableHead {...sort.head("service")}>خدمت</SortableHead>
+          <SortableHead {...sort.head("session")}>جلسه</SortableHead>
+          <SortableHead {...sort.head("deposit")}>بیعانه</SortableHead>
+          <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
+          <SortableHead {...sort.head("staff")}>پرسنل</SortableHead>
+          {isAdmin && <TableHead />}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sort.sorted.map(app => <AppointmentRow key={app.id} app={app} {...rowProps} />)}
+        {!rows.length && (
+          <TableRow><TableCell colSpan={7 + (canSelect ? 1 : 0) + (isAdmin ? 1 : 0)} className="text-center py-8 text-muted-foreground">{emptyText}</TableCell></TableRow>
         )}
-        <TableHead>زمان</TableHead>
-        <TableHead>مراجع</TableHead>
-        <TableHead>خدمت</TableHead>
-        <TableHead>جلسه</TableHead>
-        <TableHead>بیعانه</TableHead>
-        <TableHead>وضعیت</TableHead>
-        <TableHead>پرسنل</TableHead>
-        {isAdmin && <TableHead />}
-      </TableRow>
-    </TableHeader>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -254,7 +347,6 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<WaitingEntry | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [patientComboOpen, setPatientComboOpen] = useState(false);
   const [serviceComboOpen, setServiceComboOpen] = useState(false);
   const [notifyingId, setNotifyingId] = useState<number | null>(null);
   const { toast } = useToast();
@@ -264,25 +356,24 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   }, [queryClient]);
 
   const { data: list, isError, refetch } = useListWaitingList(statusFilter === "all" ? undefined : { status: statusFilter });
-  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
 
   const createEntry = useCreateWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setDialogOpen(false); toast({ title: "به لیست انتظار اضافه شد" }); },
-      onError: () => toast({ title: "افزودن به لیست انتظار ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "افزودن به لیست انتظار ناموفق بود"),
     },
   });
   const updateEntry = useUpdateWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setEditEntry(null); setDialogOpen(false); toast({ title: "لیست انتظار به‌روزرسانی شد" }); },
-      onError: () => toast({ title: "به‌روزرسانی ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "به‌روزرسانی ناموفق بود"),
     },
   });
   const deleteEntry = useDeleteWaitingEntry({
     mutation: {
       onSuccess: () => { invalidate(); setDeleteId(null); toast({ title: "از لیست انتظار حذف شد" }); },
-      onError: () => toast({ title: "حذف ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "حذف ناموفق بود"),
     },
   });
   const notifyEntry = useNotifyWaitingEntry({
@@ -292,7 +383,7 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
           ? toast({ title: "پیامک اطلاع‌رسانی جای خالی ارسال شد" })
           : toast({ title: "ارسال پیامک ناموفق بود", description: res.error ?? undefined, variant: "destructive" });
       },
-      onError: () => toast({ title: "ارسال پیامک ناموفق بود", variant: "destructive" }),
+      onError: (e) => toastApiError(e, "ارسال پیامک ناموفق بود"),
       onSettled: () => setNotifyingId(null),
     },
   });
@@ -344,6 +435,14 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   }
 
   const entries = list?.data ?? [];
+  const sort = useTableSort(entries, {
+    patient: (e: WaitingEntry) => e.patientName,
+    service: (e: WaitingEntry) => e.serviceName,
+    range: (e: WaitingEntry) => e.preferredFrom || e.preferredTo || null,
+    note: (e: WaitingEntry) => e.note,
+    createdAt: (e: WaitingEntry) => e.createdAt,
+    status: (e: WaitingEntry) => waitingStatuses[e.status]?.label ?? e.status,
+  });
 
   return (
     <Card>
@@ -367,17 +466,17 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>مراجع</TableHead>
-              <TableHead>خدمت</TableHead>
-              <TableHead>بازه تاریخ دلخواه</TableHead>
-              <TableHead>یادداشت</TableHead>
-              <TableHead>تاریخ ثبت</TableHead>
-              <TableHead>وضعیت</TableHead>
+              <SortableHead {...sort.head("patient")}>مراجع</SortableHead>
+              <SortableHead {...sort.head("service")}>خدمت</SortableHead>
+              <SortableHead {...sort.head("range")}>بازه تاریخ دلخواه</SortableHead>
+              <SortableHead {...sort.head("note")}>یادداشت</SortableHead>
+              <SortableHead {...sort.head("createdAt")}>تاریخ ثبت</SortableHead>
+              <SortableHead {...sort.head("status")}>وضعیت</SortableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {entries.map(entry => (
+            {sort.sorted.map(entry => (
               <TableRow key={entry.id}>
                 <TableCell className="font-medium">
                   <span className="flex items-center gap-1.5">
@@ -438,57 +537,15 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
           <DialogHeader><DialogTitle>{editEntry ? "ویرایش مورد لیست انتظار" : "افزودن به لیست انتظار"}</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="patientId" render={({ field }) => {
-                const sel = patients?.data.find(p => p.id === field.value);
-                return (
-                  <FormItem>
-                    <FormLabel>مراجع</FormLabel>
-                    <Popover open={patientComboOpen} onOpenChange={setPatientComboOpen} modal>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
-                            {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجو با نام، شماره پرونده یا تماس..."}
-                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[380px] p-0" align="start">
-                        <Command filter={(value, search) => {
-                          const p = patients?.data.find(p => String(p.id) === value);
-                          if (!p) return 0;
-                          return `${p.name} ${p.fileNumber} ${p.phone}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                        }}>
-                          <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
-                          <CommandList>
-                            {patientsLoading ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
-                            ) : patientsError ? (
-                              <div className="py-6 px-4 text-center text-sm space-y-2">
-                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
-                              </div>
-                            ) : (patients?.data.length ?? 0) === 0 ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
-                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
-                            <CommandGroup>
-                              {patients?.data.map(p => (
-                                <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
-                                  <Check className={cn("ml-2 h-4 w-4", field.value === p.id ? "opacity-100" : "opacity-0")} />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }} />
+              <FormField control={form.control} name="patientId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>مراجع</FormLabel>
+                  <FormControl>
+                    <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id ?? 0)} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <FormField control={form.control} name="serviceId" render={({ field }) => {
                 const sel = services?.find(s => s.id === field.value);
@@ -596,12 +653,14 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
 }
 
 export default function Appointments() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const isAdmin = user?.role === "admin";
+  // انتخاب ردیف‌ها برای تغییر وضعیت گروهی؛ حذف گروهی همچنان فقط مدیر
+  const canSelect = isAdmin || hasPermission("appointments");
+  const [bulkStatusBusy, setBulkStatusBusy] = useState<BulkStatus | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [isOpen, setIsOpen] = useState(false);
-  const [patientComboOpen, setPatientComboOpen] = useState(false);
   const [serviceComboOpen, setServiceComboOpen] = useState(false);
   const [editServiceComboOpen, setEditServiceComboOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -620,8 +679,6 @@ export default function Appointments() {
   const historyList = [...(allAppointments?.data ?? [])].sort((a, b) =>
     (b.scheduledAt ?? 0) - (a.scheduledAt ?? 0)
   );
-
-  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { data: waitingList } = useListWaitingList({ status: "waiting" });
@@ -678,6 +735,15 @@ export default function Appointments() {
           toast({ title: `وضعیت نوبت به «${statuses[newStatus]?.label ?? newStatus}» تغییر کرد` });
         }
       },
+      onError: (error, vars) => {
+        const d = vars.data as { scheduledAt?: number; serviceId?: number; status?: string };
+        const title = d.scheduledAt && !d.serviceId
+          ? "جابه‌جایی نوبت ناموفق بود"
+          : d.scheduledAt || d.serviceId
+            ? "ویرایش نوبت ناموفق بود"
+            : "تغییر وضعیت نوبت ناموفق بود";
+        toastApiError(error, title);
+      },
     },
   });
 
@@ -689,6 +755,8 @@ export default function Appointments() {
         toast({ title: "نوبت حذف شد" });
         setConfirmDeleteIds(null);
       },
+      // e.g. the server refuses to delete an appointment that has payments.
+      onError: (error) => toastApiError(error, "حذف نوبت ناموفق بود"),
     },
   });
 
@@ -824,7 +892,9 @@ export default function Appointments() {
     if (!moveTarget) return;
     updateAppointment.mutate(
       { id: moveTarget.app.id, data: { scheduledAt: dateTimeToMs(moveTarget.date, moveTarget.time) } },
-      { onSettled: () => setMoveTarget(null) },
+      // On failure the hook-level onError toasts the server message and the
+      // dialog stays open so the user can retry or cancel.
+      { onSuccess: () => setMoveTarget(null) },
     );
   }
 
@@ -841,49 +911,104 @@ export default function Appointments() {
     });
   }, []);
 
-  async function handleBulkDelete(ids: number[]) {
+  async function handleBulkDelete(ids: number[], withPayments = false) {
     setIsBulkDeleting(true);
     try {
-      await bulkDeleteAppointments(ids);
-      setSelected(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s; });
+      const result = await bulkDeleteAppointments(ids, withPayments);
+      setSelected(prev => { const s = new Set(prev); ids.filter(id => !result.skipped.includes(id)).forEach(id => s.delete(id)); return s; });
       invalidate();
-      toast({ title: `${toPersianDigits(ids.length)} نوبت حذف شدند` });
-    } catch {
-      toast({ title: "خطا در حذف دسته‌جمعی", variant: "destructive" });
+      // فقط تعدادی که واقعاً حذف شد؛ نوبت‌های دارای پرداخت (بدون اجازهٔ حذف پرداخت) جدا گفته می‌شوند
+      toast(result.skipped.length > 0
+        ? {
+            title: `${toPersianDigits(result.deleted)} نوبت حذف شد؛ ${toPersianDigits(result.skipped.length)} نوبت به‌دلیل داشتن پرداخت حذف نشد`,
+            description: isAdmin ? "برای حذف آن‌ها همراه با پرداخت‌ها، دوباره حذف را بزنید و «حذف همراه با پرداخت‌ها» را تأیید کنید." : "حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است.",
+            variant: "destructive",
+          }
+        : { title: `${toPersianDigits(result.deleted)} نوبت حذف شد${withPayments ? " (همراه با پرداخت‌ها)" : ""}` });
+    } catch (err) {
+      toastApiError(err, "خطا در حذف دسته‌جمعی");
     } finally {
       setIsBulkDeleting(false);
       setConfirmDeleteIds(null);
     }
   }
 
-  const rowProps = { isAdmin, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
-  const activeIds = (appointmentsList?.data ?? []).map(a => a.id);
-  const historyIds = historyList.map(a => a.id);
+  async function handleBulkStatus(status: BulkStatus) {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    setBulkStatusBusy(status);
+    try {
+      const r = await bulkSetAppointmentStatus(ids, status);
+      const label = statuses[status]?.label ?? status;
+      const skippedIds = new Set(r.skipped.map((x) => x.id));
+      // نوبت‌های ردشده انتخاب‌شده می‌مانند تا کاربر ببیند کدام‌ها تغییر نکردند
+      setSelected(new Set(ids.filter((id) => skippedIds.has(id))));
+      invalidate();
+      const reasons = [...new Set(r.skipped.map((x) => x.reason))];
+      const extra = [
+        r.skipped.length > 0 ? `${toPersianDigits(r.skipped.length)} نوبت تغییر نکرد` : "",
+        r.unchanged > 0 ? `${toPersianDigits(r.unchanged)} نوبت از قبل «${label}» بود` : "",
+      ].filter(Boolean).join("؛ ");
+      toast({
+        title: `${toPersianDigits(r.changed)} نوبت «${label}» شد${extra ? `؛ ${extra}` : ""}`,
+        description: reasons.length > 0 ? reasons.join(" — ") : undefined,
+        variant: r.skipped.length > 0 && r.changed === 0 ? "destructive" : undefined,
+      });
+    } catch (err) {
+      toastApiError(err, "تغییر وضعیت گروهی ناموفق بود");
+    } finally {
+      setBulkStatusBusy(null);
+    }
+  }
+
+  // نوبت‌های در حال حذف که پرداخت دارند (حذفشان پرداخت‌ها و اعتبار سود را هم برمی‌گرداند)
+  const paidToDelete = (confirmDeleteIds ?? [])
+    .map((id) => (allAppointments?.data ?? []).find((a) => a.id === id) ?? (rawList?.data ?? []).find((a) => a.id === id))
+    .filter((a): a is NonNullable<typeof a> => !!a && (a.paidTotal ?? 0) > 0);
+  const paidToDeleteTotal = paidToDelete.reduce((t, a) => t + (a.paidTotal ?? 0), 0);
+
+  const rowProps = { isAdmin, canSelect, selected, onToggle: toggleSelect, onEdit: openEdit, onDelete: (id: number) => setConfirmDeleteIds([id]), onStatusChange: handleStatusChange, onPrefetch: prefetchAppointment };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">نوبت‌ها</h1>
-          <p className="text-muted-foreground mt-1">مدیریت نوبت‌های مطب</p>
-        </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+      <PageHeader
+        icon={<CalendarDays />}
+        title="نوبت‌ها"
+        description="مدیریت نوبت‌های مطب"
+        actions={<>
+          <Button className="gap-2" onClick={() => setIsOpen(true)}>
           <Plus className="h-4 w-4" />
           نوبت جدید
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
-      {/* Admin bulk action bar */}
-      {isAdmin && selected.size > 0 && (
-        <div className="flex items-center gap-3 rounded-lg border bg-muted/60 px-4 py-2.5">
-          <span className="text-sm font-medium">{toPersianDigits(selected.size)} نوبت انتخاب‌شده</span>
-          <Button size="sm" variant="destructive" className="gap-1.5 h-8" disabled={isBulkDeleting}
-            onClick={() => setConfirmDeleteIds([...selected])}>
-            <Trash2 className="h-3.5 w-3.5" />
-            حذف انتخاب‌شده‌ها
-          </Button>
+      {/* نوار عملیات گروهی: تغییر وضعیت (دسترسی نوبت‌ها) + حذف (فقط مدیر) */}
+      {canSelect && selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/60 px-4 py-2.5" data-testid="appointments-bulk-bar">
+          <span className="text-sm font-medium ml-1">{toPersianDigits(selected.size)} نوبت انتخاب‌شده</span>
+          {BULK_STATUS_ACTIONS.map((a) => (
+            <Button
+              key={a.status}
+              size="sm"
+              variant="outline"
+              className={cn("h-8 bg-background", a.className)}
+              disabled={bulkStatusBusy !== null || isBulkDeleting}
+              onClick={() => void handleBulkStatus(a.status)}
+              data-testid={`bulk-status-${a.status}`}
+            >
+              {bulkStatusBusy === a.status ? "در حال ثبت..." : a.label}
+            </Button>
+          ))}
+          {isAdmin && (
+            <Button size="sm" variant="destructive" className="gap-1.5 h-8" disabled={isBulkDeleting || bulkStatusBusy !== null}
+              onClick={() => setConfirmDeleteIds([...selected])}>
+              <Trash2 className="h-3.5 w-3.5" />
+              حذف انتخاب‌شده‌ها
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelected(new Set())}>لغو انتخاب</Button>
         </div>
       )}
@@ -894,57 +1019,15 @@ export default function Appointments() {
           <DialogHeader><DialogTitle>ثبت نوبت جدید</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="patientId" render={({ field }) => {
-                const sel = patients?.data.find(p => p.id === field.value);
-                return (
-                  <FormItem>
-                    <FormLabel>مراجع</FormLabel>
-                    <Popover open={patientComboOpen} onOpenChange={setPatientComboOpen} modal>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
-                            {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجو با نام، شماره پرونده یا تماس..."}
-                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[380px] p-0" align="start">
-                        <Command filter={(value, search) => {
-                          const p = patients?.data.find(p => String(p.id) === value);
-                          if (!p) return 0;
-                          return `${p.name} ${p.fileNumber} ${p.phone}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                        }}>
-                          <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
-                          <CommandList>
-                            {patientsLoading ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
-                            ) : patientsError ? (
-                              <div className="py-6 px-4 text-center text-sm space-y-2">
-                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
-                              </div>
-                            ) : (patients?.data.length ?? 0) === 0 ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
-                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
-                            <CommandGroup>
-                              {patients?.data.map(p => (
-                                <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
-                                  <Check className={cn("ml-2 h-4 w-4", field.value === p.id ? "opacity-100" : "opacity-0")} />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }} />
+              <FormField control={form.control} name="patientId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>مراجع</FormLabel>
+                  <FormControl>
+                    <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id ?? 0)} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <FormField control={form.control} name="serviceId" render={({ field }) => {
                 const sel = services?.find(s => s.id === field.value);
@@ -1126,11 +1209,14 @@ export default function Appointments() {
                   <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl><SelectTrigger><SelectValue placeholder="انتخاب وضعیت" /></SelectTrigger></FormControl>
                     <SelectContent>
-                      {Object.entries(statuses).map(([key, { label }]) => (
-                        <SelectItem key={key} value={key}>{label}</SelectItem>
+                      {statusOptions(editAppt?.status).map((key) => (
+                        <SelectItem key={key} value={key} disabled={!SETTABLE_STATUSES.includes(key)}>{statuses[key]?.label ?? key}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {field.value === "completed" && (
+                    <p className="text-xs text-muted-foreground">{COMPLETED_HINT}</p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )} />
@@ -1156,6 +1242,18 @@ export default function Appointments() {
                 ? "آیا مطمئن هستید که می‌خواهید این نوبت را حذف کنید؟ این عملیات قابل بازگشت نیست."
                 : `آیا مطمئن هستید که می‌خواهید ${toPersianDigits(confirmDeleteIds?.length ?? 0)} نوبت انتخاب‌شده را حذف کنید؟ این عملیات قابل بازگشت نیست.`}
             </AlertDialogDescription>
+            {paidToDelete.length > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 space-y-1" data-testid="delete-paid-warning">
+                <p className="font-semibold">
+                  {paidToDelete.length === 1 ? "این نوبت" : `${toPersianDigits(paidToDelete.length)} نوبت`} پرداخت ثبت‌شده دارد ({formatCurrency(paidToDeleteTotal)}).
+                </p>
+                {isAdmin ? (
+                  <p>با حذف، پرداخت‌ها هم حذف و از درآمد کم می‌شوند و اعتبار سود کیف پول، کمیسیون و امتیازِ آن‌ها کامل برگردانده می‌شود.</p>
+                ) : (
+                  <p>حذف نوبتِ دارای پرداخت فقط برای مدیر مجاز است.</p>
+                )}
+              </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>انصراف</AlertDialogCancel>
@@ -1164,11 +1262,15 @@ export default function Appointments() {
               disabled={deleteAppointment.isPending || isBulkDeleting}
               onClick={() => {
                 if (!confirmDeleteIds) return;
-                if (confirmDeleteIds.length === 1) deleteAppointment.mutate({ id: confirmDeleteIds[0] });
+                // نوبت دارای پرداخت: مدیر همراه با پرداخت‌ها حذف می‌کند (سرور همهٔ آثار مالی را برمی‌گرداند)
+                if (paidToDelete.length > 0 && isAdmin) handleBulkDelete(confirmDeleteIds, true);
+                else if (confirmDeleteIds.length === 1) deleteAppointment.mutate({ id: confirmDeleteIds[0] });
                 else handleBulkDelete(confirmDeleteIds);
               }}
             >
-              {(deleteAppointment.isPending || isBulkDeleting) ? "در حال حذف..." : "حذف"}
+              {(deleteAppointment.isPending || isBulkDeleting)
+                ? "در حال حذف..."
+                : paidToDelete.length > 0 && isAdmin ? "حذف همراه با پرداخت‌ها" : "حذف"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1244,15 +1346,7 @@ export default function Appointments() {
               </Select>
             </CardHeader>
             <CardContent className="p-0">
-              <Table>
-                <AppTableHeader ids={activeIds} isAdmin={isAdmin} selected={selected} onToggleAll={toggleSelectAll} />
-                <TableBody>
-                  {(appointmentsList?.data ?? []).map(app => <AppointmentRow key={app.id} app={app as AppRow} {...rowProps} />)}
-                  {!appointmentsList?.data?.length && (
-                    <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">نوبتی یافت نشد</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <AppointmentTable rows={(appointmentsList?.data ?? []) as AppRow[]} emptyText="نوبتی یافت نشد" onToggleAll={toggleSelectAll} {...rowProps} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -1260,15 +1354,7 @@ export default function Appointments() {
         <TabsContent value="history">
           <Card>
             <CardContent className="p-0">
-              <Table>
-                <AppTableHeader ids={historyIds} isAdmin={isAdmin} selected={selected} onToggleAll={toggleSelectAll} />
-                <TableBody>
-                  {historyList.map(app => <AppointmentRow key={app.id} app={app as AppRow} {...rowProps} />)}
-                  {!historyList.length && (
-                    <TableRow><TableCell colSpan={isAdmin ? 9 : 7} className="text-center py-8 text-muted-foreground">تاریخچه‌ای یافت نشد</TableCell></TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <AppointmentTable rows={historyList as AppRow[]} emptyText="تاریخچه‌ای یافت نشد" onToggleAll={toggleSelectAll} {...rowProps} />
             </CardContent>
           </Card>
         </TabsContent>

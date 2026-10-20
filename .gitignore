@@ -48,3 +48,14 @@ Thumbs.db
 .cache/
 .local/
 clinic.db
+
+# Local database & data — never commit (contains patient data / password hashes)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+backups/
+
+# Build outputs / packaged installers — publish via GitHub Releases instead
+*.zip
+dist-packages/

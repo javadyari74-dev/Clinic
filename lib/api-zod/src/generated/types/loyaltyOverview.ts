@@ -5,14 +5,19 @@
  * Beauty Clinic Management API
  * OpenAPI spec version: 0.1.0
  */
-import type { LoyaltyOverviewTopPatientsItem } from './loyaltyOverviewTopPatientsItem';
+import type { LoyaltyOverviewMembersByTier } from './loyaltyOverviewMembersByTier';
 import type { LoyaltyTransaction } from './loyaltyTransaction';
 
 export interface LoyaltyOverview {
   totalMembers: number;
+  membersByTier: LoyaltyOverviewMembersByTier;
   totalEarned: number;
   totalRedeemed: number;
+  totalExpired: number;
   totalOutstanding: number;
-  topPatients: LoyaltyOverviewTopPatientsItem[];
+  totalRewards: number;
+  walletTotal: number;
+  expiringSoonAmount: number;
+  expiringSoonMembers: number;
   recent: LoyaltyTransaction[];
 }

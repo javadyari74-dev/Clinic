@@ -11,14 +11,27 @@ import { ErrorNotice } from "@/components/error-notice";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
+import { tehranNowHHMM, tehranTodayISO } from "@/lib/tehran-date";
 import {
   Users, CalendarDays, Wallet, CheckCircle, Activity,
-  Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone,
+  Bell, ChevronLeft, ChevronRight, Calendar, Gift, Phone, Plus,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartsTooltip, ResponsiveContainer,
 } from "recharts";
+
+/** سلام بر اساس ساعت تهران */
+function greeting(): string {
+  const h = Number(tehranNowHHMM().slice(0, 2));
+  if (h >= 5 && h < 12) return "صبح بخیر";
+  if (h >= 12 && h < 17) return "ظهر بخیر";
+  if (h >= 17 && h < 20) return "عصر بخیر";
+  return "شب بخیر";
+}
 
 // ─── Shamsi Calendar Helpers ─────────────────────────────────────────────────
 
@@ -90,6 +103,7 @@ const METHOD_MAP: Record<string, string> = {
   card:     "کارت",
   transfer: "انتقال",
   online:   "آنلاین",
+  insurance: "بیمه",
 };
 
 // ─── Birthday Types & Hook ────────────────────────────────────────────────────
@@ -111,6 +125,26 @@ function useUpcomingBirthdays(days = 10) {
     queryFn: () => customFetch<BirthdayAlert[]>(`/api/patients/upcoming-birthdays?days=${days}`),
     staleTime: 5 * 60 * 1000,
   });
+}
+
+/**
+ * درآمد ۷ روز اخیر تهران (قدیمی‌ترین اول) برای نمودار کوچک کارت درآمد. سری نمودار فقط روزهای
+ * دارای پرداخت را دارد؛ slice(-7) آن ممکن بود هفته‌ها را بپوشاند. روزهای بی‌پرداخت صفرند.
+ */
+export function lastTehranDaysRevenue(
+  series: ReadonlyArray<{ date: string; revenue: number }>,
+  days = 7,
+  now: number = Date.now(),
+): number[] {
+  const byDay = new Map<string, number>();
+  for (const p of series) byDay.set(p.date, (byDay.get(p.date) ?? 0) + (Number(p.revenue) || 0));
+  const today = tehranTodayISO(now);
+  const base = Date.parse(`${today}T12:00:00Z`);
+  const out: number[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    out.push(byDay.get(new Date(base - i * 86_400_000).toISOString().slice(0, 10)) ?? 0);
+  }
+  return out;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -247,58 +281,53 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">داشبورد</h1>
-        <p className="text-muted-foreground mt-1">خلاصه وضعیت مطب در یک نگاه</p>
-      </div>
+      <h2 className="sr-only">داشبورد</h2>
+      <PageHeader
+        title={`سلام دکتر، ${greeting()} 🌸`}
+        description={
+          summary
+            ? `امروز ${toPersianDigits(summary.appointmentsToday || 0)} نوبت دارید · ${toPersianDigits(summary.pendingAppointments || 0)} در انتظار`
+            : "خلاصه وضعیت مطب در یک نگاه"
+        }
+        actions={
+          <Link href="/appointments">
+            <Button className="gap-1"><Plus className="h-4 w-4" /> ثبت نوبت جدید</Button>
+          </Link>
+        }
+      />
 
       {isError && <ErrorNotice onRetry={retry} />}
 
       {/* ── Stats ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">درآمد این ماه</CardTitle>
-            <Wallet className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(summary?.monthlyRevenue)}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">نوبت‌های امروز</CardTitle>
-            <CalendarDays className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.appointmentsToday || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {summary?.pendingAppointments || 0} در انتظار
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">کل مراجعین</CardTitle>
-            <Users className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.totalPatients || 0}</div>
-          </CardContent>
-        </Card>
-
-        <Card className="shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">نوبت‌های تکمیل شده</CardTitle>
-            <CheckCircle className="h-4 w-4 text-emerald-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{summary?.completedThisMonth || 0}</div>
-            <p className="text-xs text-muted-foreground mt-1">در ماه جاری</p>
-          </CardContent>
-        </Card>
+        <StatCard
+          tone="rose"
+          title="درآمد این ماه"
+          value={formatCurrency(summary?.monthlyRevenue)}
+          sub="ماه شمسی جاری · بدون لیزر"
+          icon={<Wallet />}
+          spark={chartData ? lastTehranDaysRevenue(chartData) : undefined}
+        />
+        <StatCard
+          tone="wine"
+          title="نوبت‌های امروز"
+          value={toPersianDigits(summary?.appointmentsToday || 0)}
+          sub={`${toPersianDigits(summary?.pendingAppointments || 0)} در انتظار`}
+          icon={<CalendarDays />}
+        />
+        <StatCard
+          tone="pink"
+          title="کل مراجعین"
+          value={toPersianDigits(summary?.totalPatients || 0)}
+          icon={<Users />}
+        />
+        <StatCard
+          tone="crimson"
+          title="نوبت‌های تکمیل شده"
+          value={toPersianDigits(summary?.completedThisMonth || 0)}
+          sub="در ماه جاری"
+          icon={<CheckCircle />}
+        />
       </div>
 
       {/* ── Birthday Alerts ── */}
@@ -633,7 +662,7 @@ export default function Dashboard() {
         {/* Revenue Chart */}
         <Card className="md:col-span-4 shadow-sm">
           <CardHeader>
-            <CardTitle>نمودار درآمد (۳۰ روز گذشته)</CardTitle>
+            <CardTitle>نمودار درآمد (۳۰ روز گذشته، بدون لیزر)</CardTitle>
           </CardHeader>
           <CardContent className="h-[300px] w-full">
             {chartData && chartData.length > 0 ? (
@@ -643,9 +672,10 @@ export default function Dashboard() {
                   <XAxis
                     dataKey="date"
                     tickFormatter={(v) =>
+                      // v روز تهران است (YYYY-MM-DD)؛ ظهر UTC تا در هر منطقهٔ زمانی همان روز بماند
                       new Intl.DateTimeFormat("fa-IR", {
-                        day: "numeric", month: "short",
-                      }).format(new Date(v))
+                        calendar: "persian", day: "numeric", month: "short",
+                      }).format(new Date(`${v}T12:00:00Z`))
                     }
                     stroke="#888888"
                     fontSize={12}
@@ -665,8 +695,8 @@ export default function Dashboard() {
                   <RechartsTooltip
                     formatter={(v: number) => [formatCurrency(v), "درآمد"]}
                     labelFormatter={(l) =>
-                      new Intl.DateTimeFormat("fa-IR", { dateStyle: "full" }).format(
-                        new Date(l),
+                      new Intl.DateTimeFormat("fa-IR", { calendar: "persian", dateStyle: "full" }).format(
+                        new Date(`${l}T12:00:00Z`),
                       )
                     }
                   />

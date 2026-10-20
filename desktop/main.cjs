@@ -24,6 +24,11 @@ let serverProcess = null;
 let mainWindow = null;
 let activePort = PREFERRED_PORT;
 
+// Shared secret for the internal /api/backup/auto endpoint: generated fresh on
+// every launch and handed only to the server process, so a web page open in a
+// browser on this machine cannot trigger backups through 127.0.0.1.
+const BACKUP_TRIGGER_TOKEN = crypto.randomBytes(32).toString("hex");
+
 // Rolling buffer of the most recent server output, used to surface the real
 // error to the user (and to a log file) when the server fails to start.
 let serverOutput = "";
@@ -231,6 +236,7 @@ function startServer(port) {
         SQLITE_DB_PATH: dbPath,
         SERVE_STATIC_DIR: PUBLIC_DIR,
         SESSION_SECRET: getSessionSecret(),
+        BACKUP_TRIGGER_TOKEN,
       },
       stdio: "pipe",
     });
@@ -415,7 +421,50 @@ if (!gotLock) {
   });
 }
 
-app.on("before-quit", () => {
+// هنگام بستن برنامه، پیش از خاموش کردن سرور یک بکاپ خودکار گرفته می‌شود.
+// حداکثر SHUTDOWN_BACKUP_TIMEOUT_MS صبر می‌کنیم تا بستن برنامه هرگز گیر نکند.
+const SHUTDOWN_BACKUP_TIMEOUT_MS = 20000;
+let shutdownBackupDone = false;
+
+function requestShutdownBackup(port) {
+  return new Promise((resolve) => {
+    const body = JSON.stringify({ reason: "shutdown" });
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: "/api/backup/auto",
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(body),
+          "X-Backup-Trigger-Token": BACKUP_TRIGGER_TOKEN,
+        },
+        timeout: SHUTDOWN_BACKUP_TIMEOUT_MS,
+      },
+      (res) => {
+        res.resume();
+        res.on("end", resolve);
+        res.on("error", resolve);
+      },
+    );
+    req.on("timeout", () => {
+      req.destroy();
+      resolve();
+    });
+    req.on("error", resolve);
+    req.end(body);
+  });
+}
+
+app.on("before-quit", (event) => {
+  if (!shutdownBackupDone && serverProcess) {
+    shutdownBackupDone = true;
+    event.preventDefault();
+    for (const win of BrowserWindow.getAllWindows()) win.hide();
+    requestShutdownBackup(activePort).finally(() => app.quit());
+    return;
+  }
   app.isQuitting = true;
   if (serverProcess) {
     try {

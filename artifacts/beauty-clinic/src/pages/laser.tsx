@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { PriceInput } from "@/components/price-input";
 import { useAuth } from "@/hooks/use-auth";
@@ -13,6 +15,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
 import { ErrorNotice } from "@/components/error-notice";
+import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
+import { tehranTodayISO, tehranNowHHMM } from "@/lib/tehran-date";
+import { useTableSort } from "@/hooks/use-table-sort";
+import { SortableHead } from "@/components/sortable-head";
 import {
   Plus, Edit2, Trash2, Zap, User, CalendarDays, CreditCard, Scissors,
   CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight, BellRing, Phone,
@@ -32,7 +38,7 @@ async function api(path: string, method = "GET", body?: unknown) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ message: "خطای سرور" }));
-    throw new Error(err.message || "خطا");
+    throw new Error(err?.message || err?.error || "خطا");
   }
   if (res.status === 204) return null;
   return res.json();
@@ -304,6 +310,10 @@ function AppointmentSearchPicker({
   );
 }
 
+const TH = "px-3 py-2.5 text-right font-medium";
+const SORT_TH = "px-1 text-right font-medium";
+const tsValue = (ts: number | string | null | undefined) => (ts ? Number(ts) : null);
+
 function formatDateTime(ts: number | string | null | undefined) {
   if (!ts) return "—";
   const n = Number(ts);
@@ -344,9 +354,9 @@ function ClientsTab() {
     } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
   const del = async (id: number) => {
-    if (!confirm("مراجع حذف شود؟")) return;
-    try { await api(`/laser/clients/${id}`, "DELETE"); load(); } catch (e: any) {
+    try { await api(`/laser/clients/${id}`, "DELETE"); toast({ title: "مراجع حذف شد" }); load(); } catch (e: any) {
       toast({ title: "خطا", description: e.message, variant: "destructive" });
     }
   };
@@ -354,9 +364,24 @@ function ClientsTab() {
   const filtered = clients.filter(c =>
     c.name.includes(search) || c.phone.includes(search) || c.fileNumber.includes(search)
   );
+  const sort = useTableSort(filtered, {
+    fileNumber: (c) => c.fileNumber,
+    name: (c) => c.name,
+    gender: (c) => GENDER_LABEL[c.gender],
+    phone: (c) => c.phone,
+    skinType: (c) => c.skinType,
+    hairColor: (c) => c.hairColor,
+  });
 
   return (
     <div className="space-y-4">
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="حذف مراجع"
+        description={`آیا از حذف «${deleteTarget?.name ?? ""}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        onConfirm={() => { if (deleteTarget) del(deleteTarget.id); setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <div className="flex gap-3 items-center">
         <Input placeholder="جستجو نام، تلفن، پرونده..." value={search} onChange={e => setSearch(e.target.value)} className="max-w-xs" />
         <Button onClick={openNew} className="mr-auto bg-rose-700 hover:bg-rose-800 text-white">
@@ -374,13 +399,17 @@ function ClientsTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["پرونده", "نام", "جنسیت", "تلفن", "نوع پوست", "رنگ مو", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("fileNumber")} className={SORT_TH}>پرونده</SortableHead>
+                <SortableHead {...sort.head("name")} className={SORT_TH}>نام</SortableHead>
+                <SortableHead {...sort.head("gender")} className={SORT_TH}>جنسیت</SortableHead>
+                <SortableHead {...sort.head("phone")} className={SORT_TH}>تلفن</SortableHead>
+                <SortableHead {...sort.head("skinType")} className={SORT_TH}>نوع پوست</SortableHead>
+                <SortableHead {...sort.head("hairColor")} className={SORT_TH}>رنگ مو</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map(c => (
+              {sort.sorted.map(c => (
                 <tr key={c.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground">{toPersianDigits(c.fileNumber)}</td>
                   <td className="px-3 py-2.5 font-medium">{c.name}</td>
@@ -396,7 +425,7 @@ function ClientsTab() {
                     <div className="flex gap-1 justify-end">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(c)}><Edit2 className="h-3.5 w-3.5" /></Button>
                       {user?.role === "admin" && (
-                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => del(c.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(c)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       )}
                     </div>
                   </td>
@@ -464,6 +493,14 @@ function ServicesTab() {
   useEffect(() => { load(); }, [load]);
 
   const filtered = services.filter(s => s.genderCategory === genderTab);
+  const sort = useTableSort(filtered, {
+    code: (s) => s.code,
+    name: (s) => s.name,
+    price: (s) => s.price,
+    commissionRate: (s) => s.commissionRate,
+    status: (s) => (s.isActive ? "فعال" : "غیرفعال"),
+    description: (s) => s.description,
+  });
 
   const openNew = () => { setEditing(null); setForm({ genderCategory: genderTab, commissionRate: globalRate, isActive: true }); setOpen(true); };
   const openEdit = (s: Service) => { setEditing(s); setForm({ ...s, commissionRate: globalRate }); setOpen(true); };
@@ -481,15 +518,22 @@ function ServicesTab() {
     } catch (e: any) { toast({ title: "خطا", description: e.message, variant: "destructive" }); }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<Service | null>(null);
   const del = async (id: number) => {
-    if (!confirm("این خدمت حذف شود؟")) return;
-    try { await api(`/laser/services/${id}`, "DELETE"); load(); } catch (e: any) {
+    try { await api(`/laser/services/${id}`, "DELETE"); toast({ title: "خدمت حذف شد" }); load(); } catch (e: any) {
       toast({ title: "خطا", description: e.message, variant: "destructive" });
     }
   };
 
   return (
     <div className="space-y-4">
+      <ConfirmDeleteDialog
+        open={!!deleteTarget}
+        title="حذف خدمت"
+        description={`آیا از حذف خدمت «${deleteTarget?.name ?? ""}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        onConfirm={() => { if (deleteTarget) del(deleteTarget.id); setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
+      />
       <div className="flex items-center gap-3">
         <div className="flex rounded-lg overflow-hidden border">
           <button onClick={() => setGenderTab("female")} className={`px-4 py-2 text-sm font-medium transition-colors ${genderTab === "female" ? "bg-rose-700 text-white" : "hover:bg-muted"}`}>
@@ -514,13 +558,17 @@ function ServicesTab() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["کد خدمت", "نام خدمت", "قیمت", "نرخ کمیسیون", "وضعیت", "توضیح", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("code")} className={SORT_TH}>کد خدمت</SortableHead>
+                <SortableHead {...sort.head("name")} className={SORT_TH}>نام خدمت</SortableHead>
+                <SortableHead {...sort.head("price")} className={SORT_TH}>قیمت</SortableHead>
+                <SortableHead {...sort.head("commissionRate")} className={SORT_TH}>نرخ کمیسیون</SortableHead>
+                <SortableHead {...sort.head("status")} className={SORT_TH}>وضعیت</SortableHead>
+                <SortableHead {...sort.head("description")} className={SORT_TH}>توضیح</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map(s => (
+              {sort.sorted.map(s => (
                 <tr key={s.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5">
                     <span className="font-mono text-xs bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded">
@@ -542,7 +590,7 @@ function ServicesTab() {
                     <div className="flex gap-1 justify-end">
                       <Button size="icon" variant="ghost" onClick={() => openEdit(s)}><Edit2 className="h-3.5 w-3.5" /></Button>
                       {user?.role === "admin" && (
-                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => del(s.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+                        <Button size="icon" variant="ghost" className="text-red-500 hover:text-red-700" onClick={() => setDeleteTarget(s)}><Trash2 className="h-3.5 w-3.5" /></Button>
                       )}
                     </div>
                   </td>
@@ -627,12 +675,22 @@ function AppointmentsTab({ refreshKey }: { refreshKey?: number }) {
   const active = appointments.filter(a => a.status === "scheduled");
   const history = appointments.filter(a => a.status !== "scheduled");
   const shown = statusTab === "scheduled" ? active : history;
+  const sort = useTableSort(shown, {
+    code: (a) => a.appointmentCode,
+    client: (a) => a.client?.name,
+    fileNumber: (a) => a.client?.fileNumber,
+    gender: (a) => (a.client?.gender ? GENDER_LABEL[a.client.gender] : null),
+    service: (a) => a.service?.name,
+    operator: (a) => a.operatorName,
+    scheduledAt: (a) => tsValue(a.scheduledAt),
+    session: (a) => a.sessionNumber || null,
+    price: (a) => a.price || a.service?.price || null,
+    status: (a) => STATUS_LABEL[a.status],
+  });
 
   const openNew = () => {
-    const now = new Date();
-    const gregDate = now.toISOString().split("T")[0];
-    const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
-    setForm({ scheduledDate: gregDate, scheduledTime: time });
+    // Tehran calendar date (UTC date is "yesterday" between 00:00 and 03:30).
+    setForm({ scheduledDate: tehranTodayISO(), scheduledTime: tehranNowHHMM() });
     setOpen(true);
   };
 
@@ -693,13 +751,21 @@ function AppointmentsTab({ refreshKey }: { refreshKey?: number }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["کد نوبت", "مراجع", "پرونده", "جنسیت", "خدمت", "اپراتور", "تاریخ نوبت", "جلسه", "قیمت", "وضعیت", ""].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("code")} className={SORT_TH}>کد نوبت</SortableHead>
+                <SortableHead {...sort.head("client")} className={SORT_TH}>مراجع</SortableHead>
+                <SortableHead {...sort.head("fileNumber")} className={SORT_TH}>پرونده</SortableHead>
+                <SortableHead {...sort.head("gender")} className={SORT_TH}>جنسیت</SortableHead>
+                <SortableHead {...sort.head("service")} className={SORT_TH}>خدمت</SortableHead>
+                <SortableHead {...sort.head("operator")} className={SORT_TH}>اپراتور</SortableHead>
+                <SortableHead {...sort.head("scheduledAt")} className={SORT_TH}>تاریخ نوبت</SortableHead>
+                <SortableHead {...sort.head("session")} className={SORT_TH}>جلسه</SortableHead>
+                <SortableHead {...sort.head("price")} className={SORT_TH}>قیمت</SortableHead>
+                <SortableHead {...sort.head("status")} className={SORT_TH}>وضعیت</SortableHead>
+                <th className={TH}></th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {shown.map(a => (
+              {sort.sorted.map(a => (
                 <tr key={a.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5">
                     <span className="font-mono text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded whitespace-nowrap">
@@ -866,21 +932,25 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
 
   const totalAmount = payments.reduce((s, p) => s + p.amount, 0);
   const totalCommission = payments.reduce((s, p) => s + p.commissionAmount, 0);
+  const sort = useTableSort(payments, {
+    client: (p) => p.client?.name,
+    service: (p) => p.service?.name,
+    amount: (p) => p.amount,
+    method: (p) => METHOD_LABEL[p.method] || p.method,
+    operator: (p) => p.operatorName,
+    commission: (p) => (p.commissionAmount > 0 ? p.commissionAmount : null),
+    paidAt: (p) => tsValue(p.paidAt),
+    notes: (p) => p.notes,
+  });
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
         <div className="grid grid-cols-2 gap-3 flex-1">
-          <div className="rounded-lg border bg-green-50 px-4 py-3">
-            <p className="text-xs text-muted-foreground">جمع دریافتی</p>
-            <p className="text-lg font-bold text-green-700">{formatCurrency(totalAmount)}</p>
-          </div>
-          <div className="rounded-lg border bg-amber-50 px-4 py-3">
-            <p className="text-xs text-muted-foreground">جمع کمیسیون‌ها</p>
-            <p className="text-lg font-bold text-amber-700">{formatCurrency(totalCommission)}</p>
-          </div>
+          <StatCard tone="teal" title="جمع دریافتی" value={formatCurrency(totalAmount)} />
+          <StatCard tone="amber" title="جمع کمیسیون‌ها" value={formatCurrency(totalCommission)} />
         </div>
-        <Button onClick={openNew} className="bg-rose-700 hover:bg-rose-800 text-white self-center">
+        <Button onClick={openNew} className="self-center">
           <Plus className="h-4 w-4 ml-1" /> ثبت پرداخت
         </Button>
       </div>
@@ -895,13 +965,18 @@ function PaymentsTab({ onPaymentSaved }: { onPaymentSaved?: () => void }) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                {["مراجع", "خدمت", "مبلغ", "روش", "اپراتور", "کمیسیون", "تاریخ پرداخت", "یادداشت"].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-right font-medium">{h}</th>
-                ))}
+                <SortableHead {...sort.head("client")} className={SORT_TH}>مراجع</SortableHead>
+                <SortableHead {...sort.head("service")} className={SORT_TH}>خدمت</SortableHead>
+                <SortableHead {...sort.head("amount")} className={SORT_TH}>مبلغ</SortableHead>
+                <SortableHead {...sort.head("method")} className={SORT_TH}>روش</SortableHead>
+                <SortableHead {...sort.head("operator")} className={SORT_TH}>اپراتور</SortableHead>
+                <SortableHead {...sort.head("commission")} className={SORT_TH}>کمیسیون</SortableHead>
+                <SortableHead {...sort.head("paidAt")} className={SORT_TH}>تاریخ پرداخت</SortableHead>
+                <SortableHead {...sort.head("notes")} className={SORT_TH}>یادداشت</SortableHead>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {payments.map(p => (
+              {sort.sorted.map(p => (
                 <tr key={p.id} className="hover:bg-muted/30">
                   <td className="px-3 py-2.5 font-medium">{p.client?.name || "—"}</td>
                   <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.service?.name || "—"}</td>
@@ -1033,7 +1108,7 @@ function RemindersTab() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = tehranTodayISO();
 
   function diffDays(dateStr: string) {
     const d = new Date(dateStr).getTime() - new Date(today).getTime();
@@ -1101,13 +1176,11 @@ export default function LaserPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2 bg-rose-100 rounded-lg"><Zap className="h-6 w-6 text-rose-700" /></div>
-        <div>
-          <h1 className="text-2xl font-bold">بخش لیزر</h1>
-          <p className="text-sm text-muted-foreground">مدیریت مراجعین، نوبت‌ها، خدمات و صندوق لیزر</p>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Zap />}
+        title="بخش لیزر"
+        description="مدیریت مراجعین، نوبت‌ها، خدمات و صندوق لیزر"
+      />
 
       <Tabs defaultValue="clients" className="space-y-4">
         <TabsList className="grid grid-cols-5 w-full max-w-2xl">

@@ -1,3 +1,6 @@
+import { PageHeader } from "@/components/page-header";
+import { StatCard } from "@/components/stat-card";
+import { HandCoins } from "lucide-react";
 import { useState } from "react";
 import { useListCommissions, useCreateCommission, useUpdateCommission, useDeleteCommission, getListCommissionsQueryKey, useListStaff, useListCommissionRecipients } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,14 +12,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { formatCurrency, formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { Plus, CheckCircle, Trash2, Clock } from "lucide-react";
+import { Plus, CheckCircle, Trash2, Clock, FileSpreadsheet } from "lucide-react";
+import { exportCsv, csvDate } from "@/lib/export-csv";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { ErrorNotice } from "@/components/error-notice";
 import { useToast } from "@/hooks/use-toast";
+import { onApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Badge } from "@/components/ui/badge";
+import { SortableHead } from "@/components/sortable-head";
+import { useTableSort } from "@/hooks/use-table-sort";
 
 const formSchema = z.object({
   recipientType: z.enum(["staff", "external"]),
@@ -44,6 +51,7 @@ export default function Commissions() {
         toast({ title: "کمیسیون ثبت شد" });
         form.reset();
       },
+      onError: onApiError("ثبت کمیسیون ناموفق بود"),
     },
   });
 
@@ -53,6 +61,7 @@ export default function Commissions() {
         queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         toast({ title: "کمیسیون تسویه شد" });
       },
+      onError: onApiError("تسویه کمیسیون ناموفق بود"),
     },
   });
 
@@ -62,6 +71,7 @@ export default function Commissions() {
         queryClient.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         toast({ title: "کمیسیون حذف شد" });
       },
+      onError: onApiError("حذف کمیسیون ناموفق بود"),
     },
   });
 
@@ -76,6 +86,27 @@ export default function Commissions() {
 
   const totalUnpaid = commissions?.filter(c => !c.isPaid).reduce((s, c) => s + c.amount, 0) ?? 0;
   const totalPaid = commissions?.filter(c => c.isPaid).reduce((s, c) => s + c.amount, 0) ?? 0;
+
+  const commissionSort = useTableSort(commissions as any[] | undefined, {
+    amount: (c: any) => c.amount,
+    recipient: (c: any) => c.recipientName || "",
+    date: (c: any) => c.createdAt,
+    status: (c: any) => (c.isPaid ? "تسویه‌شده" : "پرداخت‌نشده"),
+  });
+
+  // خروجی اکسل با همان ترتیب جدول؛ مبلغ خام (بدون «تومان»)
+  function handleExport() {
+    const today = csvDate(Math.floor(Date.now() / 1000)).replace(/\//g, "-");
+    exportCsv(`کمیسیون‌ها-${today}`, [
+      { header: "مبلغ", value: (c: any) => c.amount },
+      { header: "نرخ٪", value: (c: any) => c.rate ?? "" },
+      { header: "توضیح", value: (c: any) => c.description ?? "" },
+      { header: "دریافت‌کننده", value: (c: any) => c.recipientName ?? "" },
+      { header: "نوع", value: (c: any) => (c.recipientType === "staff" ? "پرسنل" : "خارجی") },
+      { header: "تاریخ", value: (c: any) => csvDate(c.createdAt) },
+      { header: "وضعیت", value: (c: any) => (c.isPaid ? "تسویه‌شده" : "پرداخت‌نشده") },
+    ], commissionSort.sorted);
+  }
 
   function buildSummary(c: any) {
     const parts: string[] = [];
@@ -97,44 +128,24 @@ export default function Commissions() {
         onConfirm={() => { deleteCommission.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">کمیسیون</h1>
-          <p className="text-muted-foreground mt-1">مدیریت پرداخت‌های کمیسیونی</p>
-        </div>
-        <Button className="gap-2" onClick={() => setIsOpen(true)}>
+      <PageHeader
+        icon={<HandCoins />}
+        title="کمیسیون"
+        description="مدیریت پرداخت‌های کمیسیونی"
+        actions={<>
+          <Button className="gap-2" onClick={() => setIsOpen(true)}>
           <Plus className="h-4 w-4" />
           ثبت کمیسیون
-        </Button>
-      </div>
+          </Button>
+        </>}
+      />
 
       {isError && <ErrorNotice onRetry={() => refetch()} />}
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">پرداخت‌نشده</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-orange-600">{formatCurrency(totalUnpaid)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">تسویه‌شده</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{formatCurrency(totalPaid)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">تعداد کل</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{toPersianDigits(commissions?.length ?? 0)} رکورد</div>
-          </CardContent>
-        </Card>
+        <StatCard tone="amber" title="پرداخت‌نشده" value={formatCurrency(totalUnpaid)} />
+        <StatCard tone="wine" title="تسویه‌شده" value={formatCurrency(totalPaid)} />
+        <StatCard tone="pink" title="تعداد کل" value={<>{toPersianDigits(commissions?.length ?? 0)} رکورد</>} />
       </div>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -205,18 +216,24 @@ export default function Commissions() {
 
       <Card>
         <CardContent className="pt-4">
+          <div className="flex justify-end mb-2">
+            <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExport} disabled={!commissions?.length} data-testid="export-commissions">
+              <FileSpreadsheet className="h-4 w-4" />
+              خروجی اکسل
+            </Button>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>خلاصه تراکنش</TableHead>
-                <TableHead>دریافت‌کننده</TableHead>
-                <TableHead>تاریخ</TableHead>
-                <TableHead>وضعیت</TableHead>
+                <SortableHead {...commissionSort.head("amount")}>خلاصه تراکنش</SortableHead>
+                <SortableHead {...commissionSort.head("recipient")}>دریافت‌کننده</SortableHead>
+                <SortableHead {...commissionSort.head("date")}>تاریخ</SortableHead>
+                <SortableHead {...commissionSort.head("status")}>وضعیت</SortableHead>
                 <TableHead className="text-left">عملیات</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(commissions as any[])?.map((c) => (
+              {commissionSort.sorted.map((c) => (
                 <TableRow key={c.id}>
                   <TableCell className="max-w-xs">
                     <div className="text-sm font-medium leading-relaxed">
@@ -245,6 +262,7 @@ export default function Commissions() {
                           variant="outline"
                           size="sm"
                           className="text-green-700 border-green-300 hover:bg-green-50 text-xs"
+                          disabled={updateCommission.isPending}
                           onClick={() => updateCommission.mutate({ id: c.id, data: { isPaid: true } })}
                         >
                           <CheckCircle className="h-3 w-3 ml-1" />

@@ -22,6 +22,9 @@ export const paymentsTable = sqliteTable("payments", {
   discountName: text("discount_name"),
   discountAmount: integer("discount_amount"),
   depositAmount: integer("deposit_amount"),
+  // بخشی از مبلغ که از کیف پول مراجع / امتیاز باشگاه پرداخت شد (تومان)؛ «amount» فقط نقدی است
+  walletAmount: integer("wallet_amount"),
+  pointsAmount: integer("points_amount"),
 }, (table) => [
   index("payments_paid_at_idx").on(table.paidAt),
   index("payments_appt_paid_idx").on(table.appointmentId, table.paidAt),
