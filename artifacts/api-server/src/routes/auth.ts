@@ -1,6 +1,6 @@
 import { Router } from "express";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { signToken, requireAuth, requireAdmin } from "../lib/auth";
 
@@ -96,13 +96,30 @@ router.put("/users/:id", requireAdmin, async (req, res) => {
     return;
   }
   const updates: Partial<typeof usersTable.$inferInsert> = {};
-  if (username !== undefined) updates.username = String(username).toLowerCase();
+  if (username !== undefined) {
+    const normalizedUsername = String(username).toLowerCase();
+    if (!normalizedUsername.trim()) { res.status(400).json({ message: "نام کاربری نمی‌تواند خالی باشد" }); return; }
+    const taken = await db.select({ id: usersTable.id }).from(usersTable)
+      .where(and(eq(usersTable.username, normalizedUsername), ne(usersTable.id, id))).get();
+    if (taken) { res.status(409).json({ message: "این نام کاربری قبلاً استفاده شده است" }); return; }
+    updates.username = normalizedUsername;
+  }
   if (role !== undefined) updates.role = role;
   if (staffId !== undefined) updates.staffId = staffId;
   if (permissions !== undefined) updates.permissions = JSON.stringify(permissions);
   if (isActive !== undefined) updates.isActive = isActive;
   if (password) updates.password = await bcrypt.hash(password, 10);
-  const [user] = await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();
+  let user: typeof usersTable.$inferSelect;
+  try {
+    [user] = await db.update(usersTable).set(updates).where(eq(usersTable.id, id)).returning();
+  } catch (err) {
+    const text = err instanceof Error ? `${err.message} ${(err as { cause?: Error }).cause?.message ?? ""}` : "";
+    if (/UNIQUE constraint failed: users\.username/.test(text)) {
+      res.status(409).json({ message: "این نام کاربری قبلاً استفاده شده است" });
+      return;
+    }
+    throw err;
+  }
   res.json({ id: user.id, username: user.username, role: user.role, permissions: JSON.parse(user.permissions ?? "[]"), isActive: user.isActive });
 });
 

@@ -65,6 +65,7 @@ vi.mock("drizzle-orm", () => ({
   desc: () => ({}),
   and: () => ({}),
   sql: () => ({}),
+  isNull: () => ({}),
 }));
 
 const { sendSmsMock, fireAppointmentSmsMock, logActivityMock } = vi.hoisted(() => ({
@@ -83,6 +84,9 @@ vi.mock("../src/lib/activity", () => ({ logActivity: logActivityMock }));
 vi.mock("../src/lib/appointment-details", () => ({
   nextSessionNumber: vi.fn(() => Promise.resolve(1)),
   normalizeScheduledAt: (ts: number) => (ts > 0 && ts < 1e11 ? ts * 1000 : ts),
+  // وجود مراجع/خدمت در ops-fixes.test.ts با پایگاه دادهٔ واقعی پوشش داده شده است
+  assertPatientAndService: vi.fn(() => Promise.resolve()),
+  AppointmentInputError: class AppointmentInputError extends Error {},
 }));
 vi.mock("../src/lib/payment-effects", () => ({
   recordDepositPayment: vi.fn(() => Promise.resolve(null)),
@@ -193,6 +197,7 @@ describe("PUT /waiting-list/:id", () => {
   });
 
   it("404s when the entry does not exist", async () => {
+    state.selectResults = [[]];
     state.updateResult = [];
     const res = await request("PUT", "/waiting-list/999", { note: "x" });
     expect(res.status).toBe(404);
@@ -200,11 +205,20 @@ describe("PUT /waiting-list/:id", () => {
 
   it("updates and returns the joined detail", async () => {
     state.updateResult = [{ id: 7 }];
-    state.selectResults = [[{ ...sampleEntry, status: "fulfilled", appointmentId: 42 }]];
+    state.selectResults = [[{ ...sampleEntry }], [{ ...sampleEntry, status: "fulfilled", appointmentId: 42 }]];
     const res = await request("PUT", "/waiting-list/7", { status: "fulfilled", appointmentId: 42 });
     expect(res.status).toBe(200);
     expect(res.json.status).toBe("fulfilled");
     expect(res.json.appointmentId).toBe(42);
+  });
+});
+
+describe("PUT /waiting-list/:id — one-way conversion", () => {
+  it("refuses moving a converted entry back to waiting", async () => {
+    state.selectResults = [[{ ...sampleEntry, status: "fulfilled", appointmentId: 42 }]];
+    state.updateResult = [{ id: 7 }];
+    const res = await request("PUT", "/waiting-list/7", { status: "waiting" });
+    expect(res.status).toBe(400);
   });
 });
 
@@ -244,6 +258,13 @@ describe("POST /waiting-list/:id/convert", () => {
     state.selectResults = [[]];
     const res = await request("POST", "/waiting-list/999/convert", { scheduledAt: 1_783_950_000_000 });
     expect(res.status).toBe(404);
+  });
+
+  it("409s when the entry already has an appointment even if its status says waiting", async () => {
+    state.selectResults = [[{ ...rawEntry, appointmentId: 42 }]];
+    const res = await request("POST", "/waiting-list/7/convert", { scheduledAt: 1_783_950_000_000 });
+    expect(res.status).toBe(409);
+    expect(state.txUpdateCalls).toBe(0);
   });
 
   it("409s when the entry is no longer waiting", async () => {

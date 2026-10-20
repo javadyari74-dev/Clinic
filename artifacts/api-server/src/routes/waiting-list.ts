@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, isNull } from "drizzle-orm";
 import { db, waitingListTable, patientsTable, servicesTable, appointmentsTable, staffTable } from "@workspace/db";
 import {
   ListWaitingListQueryParams,
@@ -14,7 +14,7 @@ import {
 import { logActivity } from "../lib/activity";
 import { generateUniqueAppointmentCode } from "../lib/appointment-code";
 import { sendSms, formatShamsiDateForSms, fireAppointmentSms } from "../lib/sms";
-import { nextSessionNumber, normalizeScheduledAt } from "../lib/appointment-details";
+import { nextSessionNumber, normalizeScheduledAt, assertPatientAndService, AppointmentInputError } from "../lib/appointment-details";
 import { recordDepositPayment, fireReferrerCommissionSms } from "../lib/payment-effects";
 
 const router: IRouter = Router();
@@ -77,6 +77,15 @@ router.post("/waiting-list", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  try {
+    await assertPatientAndService(db, parsed.data.patientId, parsed.data.serviceId);
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   const [created] = await db.insert(waitingListTable).values(parsed.data).returning();
   const detail = await selectEntry(created.id);
   await logActivity("create", "waiting_list", created.id, `«${detail?.patientName ?? ""}» به لیست انتظار اضافه شد`);
@@ -97,6 +106,29 @@ router.put("/waiting-list/:id", async (req, res): Promise<void> => {
   if (parsed.data.status && !["waiting", "fulfilled", "cancelled"].includes(parsed.data.status)) {
     res.status(400).json({ error: "وضعیت نامعتبر است" });
     return;
+  }
+  const [current] = await db.select().from(waitingListTable).where(eq(waitingListTable.id, params.data.id));
+  if (!current) {
+    res.status(404).json({ error: "مورد لیست انتظار یافت نشد" });
+    return;
+  }
+  // موردی که به نوبت تبدیل شده به «در انتظار» برنمی‌گردد (وگرنه دوباره تبدیل و نوبت تکراری ساخته می‌شود)
+  if (parsed.data.status === "waiting" && current.status !== "waiting" && current.appointmentId != null) {
+    res.status(400).json({ error: "این مورد به نوبت تبدیل شده است و به «در انتظار» برنمی‌گردد؛ در صورت نیاز نوبت را ویرایش یا لغو کنید" });
+    return;
+  }
+  try {
+    await assertPatientAndService(
+      db,
+      parsed.data.patientId !== undefined && parsed.data.patientId !== current.patientId ? parsed.data.patientId : null,
+      parsed.data.serviceId !== undefined && parsed.data.serviceId !== current.serviceId ? parsed.data.serviceId : null,
+    );
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
   }
   const [updated] = await db
     .update(waitingListTable)
@@ -154,12 +186,21 @@ router.post("/waiting-list/:id/convert", async (req, res): Promise<void> => {
     res.status(404).json({ error: "مورد لیست انتظار یافت نشد" });
     return;
   }
-  if (entry.status !== "waiting") {
-    res.status(409).json({ error: "این مورد دیگر در وضعیت انتظار نیست" });
+  if (entry.status !== "waiting" || entry.appointmentId != null) {
+    res.status(409).json({ error: entry.appointmentId != null ? "این مورد قبلاً به نوبت تبدیل شده است" : "این مورد دیگر در وضعیت انتظار نیست" });
     return;
   }
 
   const serviceId = parsed.data.serviceId ?? entry.serviceId;
+  try {
+    await assertPatientAndService(db, entry.patientId, serviceId);
+  } catch (err) {
+    if (err instanceof AppointmentInputError) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
   const appointmentCode = await generateUniqueAppointmentCode();
   const ALREADY_CONVERTED = "ALREADY_CONVERTED";
 
@@ -172,7 +213,7 @@ router.post("/waiting-list/:id/convert", async (req, res): Promise<void> => {
       const [claimed] = await tx
         .update(waitingListTable)
         .set({ status: "fulfilled" })
-        .where(and(eq(waitingListTable.id, entry.id), eq(waitingListTable.status, "waiting")))
+        .where(and(eq(waitingListTable.id, entry.id), eq(waitingListTable.status, "waiting"), isNull(waitingListTable.appointmentId)))
         .returning();
       if (!claimed) throw new Error(ALREADY_CONVERTED);
       const sessionNumber = await nextSessionNumber(tx, entry.patientId, serviceId);

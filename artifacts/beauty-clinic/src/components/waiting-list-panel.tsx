@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   useListWaitingList, useCreateWaitingEntry, useUpdateWaitingEntry, useDeleteWaitingEntry,
-  useNotifyWaitingEntry, getListWaitingListQueryKey, useListPatients, useListServices,
+  useNotifyWaitingEntry, getListWaitingListQueryKey, useListServices,
   type WaitingEntry,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -11,8 +11,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ErrorNotice } from "@/components/error-notice";
@@ -21,14 +19,14 @@ import { SortableHead } from "@/components/sortable-head";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { formatShamsiDate, toPersianDigits } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { PatientSearchSelect } from "@/components/patient-search-select";
 import { useToast } from "@/hooks/use-toast";
 import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Check, ChevronsUpDown, Plus, Pencil, Trash2, MessageSquare, CalendarPlus } from "lucide-react";
+import { Plus, Pencil, Trash2, MessageSquare, CalendarPlus } from "lucide-react";
 
 // وضعیت‌های لیست انتظار
 export const waitingStatuses: Record<string, { label: string; color: string }> = {
@@ -76,7 +74,6 @@ export function WaitingListPanel({ onConvert }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<WaitingEntry | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
-  const [patientComboOpen, setPatientComboOpen] = useState(false);
   const [notifyingId, setNotifyingId] = useState<number | null>(null);
 
   const { toast } = useToast();
@@ -86,7 +83,6 @@ export function WaitingListPanel({ onConvert }: Props) {
   const { data: list, isError, refetch } = useListWaitingList(
     statusFilter === "all" ? undefined : { status: statusFilter },
   );
-  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
 
   const createEntry = useCreateWaitingEntry({
@@ -296,57 +292,15 @@ export function WaitingListPanel({ onConvert }: Props) {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="patientId" render={({ field }) => {
-                const sel = patients?.data.find(p => p.id === field.value);
-                return (
-                  <FormItem>
-                    <FormLabel>مراجع</FormLabel>
-                    <Popover open={patientComboOpen} onOpenChange={setPatientComboOpen} modal>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
-                            {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجو با نام، شماره پرونده یا تماس..."}
-                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[380px] p-0" align="start">
-                        <Command filter={(value, search) => {
-                          const p = patients?.data.find(p => String(p.id) === value);
-                          if (!p) return 0;
-                          return `${p.name} ${p.fileNumber} ${p.phone}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                        }}>
-                          <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
-                          <CommandList>
-                            {patientsLoading ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
-                            ) : patientsError ? (
-                              <div className="py-6 px-4 text-center text-sm space-y-2">
-                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
-                              </div>
-                            ) : (patients?.data.length ?? 0) === 0 ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
-                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
-                            <CommandGroup>
-                              {patients?.data.map(p => (
-                                <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
-                                  <Check className={cn("ml-2 h-4 w-4", field.value === p.id ? "opacity-100" : "opacity-0")} />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }} />
+              <FormField control={form.control} name="patientId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>مراجع</FormLabel>
+                  <FormControl>
+                    <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id ?? 0)} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <FormField control={form.control} name="serviceId" render={({ field }) => (
                 <FormItem>

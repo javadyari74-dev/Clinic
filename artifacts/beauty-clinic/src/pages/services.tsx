@@ -449,6 +449,7 @@ export default function Services() {
         queryClient.invalidateQueries({ queryKey: getListServicesQueryKey() });
         toast({ title: "خدمت حذف شد" });
       },
+      // سرور خدمتِ استفاده‌شده را رد می‌کند و پیشنهاد غیرفعال‌سازی می‌دهد؛ همان پیام نشان داده می‌شود
       onError: onApiError("حذف خدمت ناموفق بود"),
     },
   });
@@ -514,7 +515,7 @@ export default function Services() {
       <ConfirmDeleteDialog
         open={!!deleteTarget}
         title={`حذف ${deleteTarget?.label ?? ''}`}
-        description={`آیا از حذف «${deleteTarget?.label ?? ''}» مطمئن هستید؟ این عمل قابل بازگشت نیست.`}
+        description={`آیا از حذف «${deleteTarget?.label ?? ''}» مطمئن هستید؟ این عمل قابل بازگشت نیست. خدمتی که در نوبت‌ها یا لیست انتظار استفاده شده حذف نمی‌شود؛ آن را غیرفعال کنید.`}
         onConfirm={() => { deleteService.mutate({ id: deleteTarget!.id }); setDeleteTarget(null); }}
         onCancel={() => setDeleteTarget(null)}
       />

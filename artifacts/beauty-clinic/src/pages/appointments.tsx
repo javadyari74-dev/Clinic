@@ -3,7 +3,7 @@ import { CalendarDays } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
 import {
   useListAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment,
-  getListAppointmentsQueryKey, useListPatients, useListServices, useListStaff,
+  getListAppointmentsQueryKey, useListServices, useListStaff,
   getGetAppointmentQueryOptions,
   useListWaitingList, useCreateWaitingEntry, useUpdateWaitingEntry, useDeleteWaitingEntry,
   useConvertWaitingEntry, useNotifyWaitingEntry, getListWaitingListQueryKey,
@@ -34,6 +34,7 @@ import { SortableHead } from "@/components/sortable-head";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { AppointmentCalendar } from "@/components/appointment-calendar";
 import { cn } from "@/lib/utils";
+import { PatientSearchSelect } from "@/components/patient-search-select";
 import { useToast } from "@/hooks/use-toast";
 import { toastApiError } from "@/lib/api-error";
 import { useForm } from "react-hook-form";
@@ -346,7 +347,6 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editEntry, setEditEntry] = useState<WaitingEntry | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
-  const [patientComboOpen, setPatientComboOpen] = useState(false);
   const [serviceComboOpen, setServiceComboOpen] = useState(false);
   const [notifyingId, setNotifyingId] = useState<number | null>(null);
   const { toast } = useToast();
@@ -356,7 +356,6 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
   }, [queryClient]);
 
   const { data: list, isError, refetch } = useListWaitingList(statusFilter === "all" ? undefined : { status: statusFilter });
-  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
 
   const createEntry = useCreateWaitingEntry({
@@ -538,57 +537,15 @@ function WaitingListSection({ onConvert }: { onConvert: (entry: WaitingEntry, da
           <DialogHeader><DialogTitle>{editEntry ? "ویرایش مورد لیست انتظار" : "افزودن به لیست انتظار"}</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="patientId" render={({ field }) => {
-                const sel = patients?.data.find(p => p.id === field.value);
-                return (
-                  <FormItem>
-                    <FormLabel>مراجع</FormLabel>
-                    <Popover open={patientComboOpen} onOpenChange={setPatientComboOpen} modal>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
-                            {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجو با نام، شماره پرونده یا تماس..."}
-                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[380px] p-0" align="start">
-                        <Command filter={(value, search) => {
-                          const p = patients?.data.find(p => String(p.id) === value);
-                          if (!p) return 0;
-                          return `${p.name} ${p.fileNumber} ${p.phone}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                        }}>
-                          <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
-                          <CommandList>
-                            {patientsLoading ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
-                            ) : patientsError ? (
-                              <div className="py-6 px-4 text-center text-sm space-y-2">
-                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
-                              </div>
-                            ) : (patients?.data.length ?? 0) === 0 ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
-                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
-                            <CommandGroup>
-                              {patients?.data.map(p => (
-                                <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
-                                  <Check className={cn("ml-2 h-4 w-4", field.value === p.id ? "opacity-100" : "opacity-0")} />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }} />
+              <FormField control={form.control} name="patientId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>مراجع</FormLabel>
+                  <FormControl>
+                    <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id ?? 0)} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <FormField control={form.control} name="serviceId" render={({ field }) => {
                 const sel = services?.find(s => s.id === field.value);
@@ -704,7 +661,6 @@ export default function Appointments() {
 
   const [statusFilter, setStatusFilter] = useState<string>("active");
   const [isOpen, setIsOpen] = useState(false);
-  const [patientComboOpen, setPatientComboOpen] = useState(false);
   const [serviceComboOpen, setServiceComboOpen] = useState(false);
   const [editServiceComboOpen, setEditServiceComboOpen] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -723,8 +679,6 @@ export default function Appointments() {
   const historyList = [...(allAppointments?.data ?? [])].sort((a, b) =>
     (b.scheduledAt ?? 0) - (a.scheduledAt ?? 0)
   );
-
-  const { data: patients, isLoading: patientsLoading, isError: patientsError, refetch: refetchPatients } = useListPatients();
   const { data: services } = useListServices();
   const { data: staff } = useListStaff();
   const { data: waitingList } = useListWaitingList({ status: "waiting" });
@@ -1065,57 +1019,15 @@ export default function Appointments() {
           <DialogHeader><DialogTitle>ثبت نوبت جدید</DialogTitle></DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField control={form.control} name="patientId" render={({ field }) => {
-                const sel = patients?.data.find(p => p.id === field.value);
-                return (
-                  <FormItem>
-                    <FormLabel>مراجع</FormLabel>
-                    <Popover open={patientComboOpen} onOpenChange={setPatientComboOpen} modal>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button variant="outline" role="combobox" className={cn("w-full justify-between font-normal", !sel && "text-muted-foreground")}>
-                            {sel ? <span>{sel.name} <span className="text-muted-foreground text-xs mr-1">({sel.fileNumber})</span></span> : "جستجو با نام، شماره پرونده یا تماس..."}
-                            <ChevronsUpDown className="mr-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[380px] p-0" align="start">
-                        <Command filter={(value, search) => {
-                          const p = patients?.data.find(p => String(p.id) === value);
-                          if (!p) return 0;
-                          return `${p.name} ${p.fileNumber} ${p.phone}`.toLowerCase().includes(search.toLowerCase()) ? 1 : 0;
-                        }}>
-                          <CommandInput placeholder="نام، شماره پرونده یا تماس..." />
-                          <CommandList>
-                            {patientsLoading ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">در حال بارگذاری مراجعین...</div>
-                            ) : patientsError ? (
-                              <div className="py-6 px-4 text-center text-sm space-y-2">
-                                <p className="text-destructive">خطا در بارگذاری مراجعین</p>
-                                <Button type="button" size="sm" variant="outline" onClick={() => refetchPatients()}>تلاش مجدد</Button>
-                              </div>
-                            ) : (patients?.data.length ?? 0) === 0 ? (
-                              <div className="py-6 text-center text-sm text-muted-foreground">هنوز مراجعی ثبت نشده است</div>
-                            ) : <CommandEmpty>مراجعی یافت نشد</CommandEmpty>}
-                            <CommandGroup>
-                              {patients?.data.map(p => (
-                                <CommandItem key={p.id} value={String(p.id)} onSelect={(val) => { field.onChange(Number(val)); setPatientComboOpen(false); }}>
-                                  <Check className={cn("ml-2 h-4 w-4", field.value === p.id ? "opacity-100" : "opacity-0")} />
-                                  <div className="flex flex-col">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-xs text-muted-foreground">پرونده: {p.fileNumber} | {p.phone}</span>
-                                  </div>
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
-                    <FormMessage />
-                  </FormItem>
-                );
-              }} />
+              <FormField control={form.control} name="patientId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>مراجع</FormLabel>
+                  <FormControl>
+                    <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id ?? 0)} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
 
               <FormField control={form.control} name="serviceId" render={({ field }) => {
                 const sel = services?.find(s => s.id === field.value);

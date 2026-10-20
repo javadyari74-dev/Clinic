@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, isNotNull } from "drizzle-orm";
-import { db, servicesTable, servicePriceHistoryTable } from "@workspace/db";
+import { db, servicesTable, servicePriceHistoryTable, appointmentsTable, waitingListTable } from "@workspace/db";
 import {
   CreateServiceBody,
   UpdateServiceParams,
@@ -173,11 +173,28 @@ router.delete("/services/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const service = await db.transaction(async (tx) => {
-    const [deleted] = await tx.delete(servicesTable).where(eq(servicesTable.id, params.data.id)).returning();
-    if (deleted) await tx.delete(servicePriceHistoryTable).where(eq(servicePriceHistoryTable.serviceId, deleted.id));
-    return deleted;
-  });
+  // خدمتی که در نوبت‌ها یا لیست انتظار استفاده شده حذف نمی‌شود (نام/قیمت/سود نوبت‌های گذشته
+  // به آن و به تاریخچهٔ قیمتش وابسته است)؛ به‌جای حذف باید غیرفعال شود.
+  const IN_USE = "IN_USE";
+  let service: Service | undefined;
+  try {
+    service = await db.transaction(async (tx) => {
+      const usedByAppt = await tx.select({ id: appointmentsTable.id }).from(appointmentsTable)
+        .where(eq(appointmentsTable.serviceId, params.data.id)).limit(1);
+      const usedByWaiting = await tx.select({ id: waitingListTable.id }).from(waitingListTable)
+        .where(eq(waitingListTable.serviceId, params.data.id)).limit(1);
+      if (usedByAppt.length > 0 || usedByWaiting.length > 0) throw new Error(IN_USE);
+      const [deleted] = await tx.delete(servicesTable).where(eq(servicesTable.id, params.data.id)).returning();
+      if (deleted) await tx.delete(servicePriceHistoryTable).where(eq(servicePriceHistoryTable.serviceId, deleted.id));
+      return deleted;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === IN_USE) {
+      res.status(400).json({ error: "این خدمت در نوبت‌ها یا لیست انتظار استفاده شده و قابل حذف نیست؛ به‌جای حذف، آن را غیرفعال کنید" });
+      return;
+    }
+    throw err;
+  }
   if (!service) {
     res.status(404).json({ error: "خدمت یافت نشد" });
     return;

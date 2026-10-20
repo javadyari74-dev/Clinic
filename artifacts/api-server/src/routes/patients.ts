@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, or, and, like, desc, count, isNotNull, sql, inArray } from "drizzle-orm";
+import { eq, or, and, ne, desc, count, sql, inArray, type SQL, type AnyColumn } from "drizzle-orm";
 import { db } from "@workspace/db";
 import { patientsTable, appointmentsTable, servicesTable, staffTable, commissionRecipientsTable, patientAccountTransactionsTable, paymentsTable, patientNotesTable, remindersTable, commissionsTable, loyaltyMembersTable, loyaltyTransactionsTable, waitingListTable, surveysTable } from "@workspace/db";
 import {
@@ -22,6 +22,41 @@ import { appointmentWithDetails } from "../lib/appointment-details";
 import { PaymentEffectError, PAYMENT_EFFECT_MESSAGES, hasPaidCommissions, reversePaymentEffects } from "../lib/payment-effects";
 
 const router: IRouter = Router();
+
+const DUPLICATE_FILE_NUMBER_MESSAGE = "این شماره پرونده قبلاً برای مراجع دیگری ثبت شده است";
+
+/** شماره پرونده‌ای که مراجع دیگری (جز excludeId) دارد؟ */
+async function fileNumberTaken(fileNumber: string, excludeId?: number): Promise<boolean> {
+  const cond = excludeId != null
+    ? and(eq(patientsTable.fileNumber, fileNumber), ne(patientsTable.id, excludeId))
+    : eq(patientsTable.fileNumber, fileNumber);
+  const rows = await db.select({ id: patientsTable.id }).from(patientsTable).where(cond).limit(1);
+  return rows.length > 0;
+}
+
+const isUniqueFileNumberError = (err: unknown) =>
+  err instanceof Error &&
+  /UNIQUE constraint failed: patients\.file_number/.test(`${err.message} ${(err as { cause?: Error }).cause?.message ?? ""}`);
+
+/** ارقام فارسی/عربی → لاتین (برای جست‌وجوی تلفن و شماره پرونده) */
+function toLatinDigits(s: string): string {
+  return s
+    .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
+
+/** LIKE «شامل» با گریز % و _ و \ تا متن جست‌وجو الگو تفسیر نشود */
+function containsLike(column: AnyColumn, text: string): SQL {
+  const escaped = text.replace(/[\\%_]/g, (c) => `\\${c}`);
+  return sql`${column} LIKE ${`%${escaped}%`} ESCAPE '\\'`;
+}
+
+/** خانهٔ CSV طبق RFC 4180 (همیشه داخل گیومه) + خنثی‌سازی فرمول اکسل (= + - @ و tab/CR ابتدایی) */
+function csvCell(value: unknown): string {
+  let v = value == null ? "" : String(value);
+  if (/^[=+\-@\t\r]/.test(v)) v = `'${v}`;
+  return `"${v.replace(/"/g, '""')}"`;
+}
 
 type PatientRow = typeof patientsTable.$inferSelect;
 
@@ -77,11 +112,14 @@ router.get("/patients", async (req, res): Promise<void> => {
   let baseQuery = db.select().from(patientsTable);
   let countQuery = db.select({ count: count() }).from(patientsTable);
 
-  if (q) {
+  const term = q?.trim();
+  if (term) {
+    const latin = toLatinDigits(term);
     const where = or(
-      like(patientsTable.name, `%${q}%`),
-      like(patientsTable.phone, `%${q}%`),
-      like(patientsTable.fileNumber, `%${q}%`)
+      containsLike(patientsTable.name, term),
+      containsLike(patientsTable.phone, latin),
+      containsLike(patientsTable.fileNumber, term),
+      ...(latin !== term ? [containsLike(patientsTable.fileNumber, latin)] : []),
     );
     const rows = await baseQuery.where(where).orderBy(desc(patientsTable.createdAt)).limit(limit).offset(offset);
     const [{ count: total }] = await countQuery.where(where);
@@ -102,14 +140,29 @@ router.post("/patients", async (req, res): Promise<void> => {
   }
   // موجودی کیف پول فقط از راه تراکنش‌های حساب تغییر می‌کند (تا با سابقه همخوان بماند)
   const { accountBalance: _ignoredBalance, ...values } = parsed.data;
-  const [patient] = await db.insert(patientsTable).values(values).returning();
+  if (await fileNumberTaken(values.fileNumber)) {
+    res.status(409).json({ error: DUPLICATE_FILE_NUMBER_MESSAGE });
+    return;
+  }
+  let patient: PatientRow;
+  try {
+    [patient] = await db.insert(patientsTable).values(values).returning();
+  } catch (err) {
+    if (isUniqueFileNumberError(err)) {
+      res.status(409).json({ error: DUPLICATE_FILE_NUMBER_MESSAGE });
+      return;
+    }
+    throw err;
+  }
   await logActivity("create", "patient", patient.id, `بیمار جدید "${patient.name}" ثبت شد`);
   res.status(201).json(patient);
 });
 
 // GET /api/patients/upcoming-birthdays?days=10
 router.get("/patients/upcoming-birthdays", async (req, res): Promise<void> => {
-  const daysAhead = Math.min(parseInt((req.query.days as string) || "10", 10) || 10, 90);
+  // days=0 یعنی فقط امروز؛ مقدار نامعتبر/خالی = ۱۰ روز؛ حداکثر ۹۰
+  const raw = parseInt(String(req.query.days ?? ""), 10);
+  const daysAhead = Number.isNaN(raw) ? 10 : Math.min(Math.max(raw, 0), 90);
   const results = await getUpcomingBirthdays(daysAhead);
   res.json(results);
 });
@@ -119,7 +172,7 @@ router.get("/patients/export/excel", async (_req, res): Promise<void> => {
   // Simple CSV export since xlsx is heavy - client can import to Excel
   const headers = ["شناسه", "شماره پرونده", "نام", "موبایل", "ایمیل", "تاریخ تولد", "جنسیت"];
   const rows = patients.map(p => [p.id, p.fileNumber, p.name, p.phone, p.email ?? "", p.birthdate ?? "", p.gender ?? ""]);
-  const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
+  const csv = [headers, ...rows].map(r => r.map(csvCell).join(",")).join("\r\n");
   res.setHeader("Content-Type", "text/csv; charset=utf-8");
   res.setHeader("Content-Disposition", "attachment; filename=patients.csv");
   res.send("\uFEFF" + csv);
@@ -153,9 +206,22 @@ router.put("/patients/:id", async (req, res): Promise<void> => {
   }
   // موجودی کیف پول از ویرایش مراجع تغییر نمی‌کند؛ فقط از راه تراکنش‌های حساب
   const { accountBalance: _ignoredBalance, ...changes } = parsed.data;
-  const [patient] = Object.keys(changes).length > 0
-    ? await db.update(patientsTable).set(changes).where(eq(patientsTable.id, params.data.id)).returning()
-    : await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
+  if (changes.fileNumber !== undefined && await fileNumberTaken(changes.fileNumber, params.data.id)) {
+    res.status(409).json({ error: DUPLICATE_FILE_NUMBER_MESSAGE });
+    return;
+  }
+  let patient: PatientRow | undefined;
+  try {
+    [patient] = Object.keys(changes).length > 0
+      ? await db.update(patientsTable).set(changes).where(eq(patientsTable.id, params.data.id)).returning()
+      : await db.select().from(patientsTable).where(eq(patientsTable.id, params.data.id));
+  } catch (err) {
+    if (isUniqueFileNumberError(err)) {
+      res.status(409).json({ error: DUPLICATE_FILE_NUMBER_MESSAGE });
+      return;
+    }
+    throw err;
+  }
   if (!patient) {
     res.status(404).json({ error: "بیمار یافت نشد" });
     return;

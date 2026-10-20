@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, and, asc, desc, count } from "drizzle-orm";
+import { eq, and, asc, desc, count, like, or } from "drizzle-orm";
 import {
   db,
   laserClientsTable,
@@ -10,6 +10,7 @@ import {
   usersTable,
 } from "@workspace/db";
 import { requireAdmin } from "../lib/auth";
+import { tehranShamsi } from "../lib/tehran-time";
 
 const router = Router();
 
@@ -25,26 +26,6 @@ router.get("/laser/operator", async (_req, res) => {
 });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Convert a Gregorian Date to Jalali {y, m, d} */
-function toJalali(date: Date): { y: number; m: number; d: number } {
-  const gy = date.getFullYear(), gm = date.getMonth() + 1, gd = date.getDate();
-  const g_y = gy - 1600, g_m = gm - 1, g_d = gd - 1;
-  const leap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
-  const gDays = [31, leap(gy) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-  let g_d_no = 365 * g_y + Math.floor((g_y + 3) / 4) - Math.floor((g_y + 99) / 100) + Math.floor((g_y + 399) / 400);
-  for (let i = 0; i < g_m; i++) g_d_no += gDays[i];
-  g_d_no += g_d;
-  let j_d_no = g_d_no - 79;
-  const j_np = Math.floor(j_d_no / 12053); j_d_no %= 12053;
-  let jy = 979 + 33 * j_np + 4 * Math.floor(j_d_no / 1461);
-  j_d_no %= 1461;
-  if (j_d_no >= 366) { jy += Math.floor((j_d_no - 1) / 365); j_d_no = (j_d_no - 1) % 365; }
-  const jm_arr = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29];
-  let jm = 0;
-  for (jm = 0; jm < 11 && j_d_no >= jm_arr[jm]; jm++) j_d_no -= jm_arr[jm];
-  return { y: jy, m: jm + 1, d: j_d_no + 1 };
-}
 
 /** Generate next service code: KH-001 for female, AG-001 for male */
 async function nextServiceCode(gender: string): Promise<string> {
@@ -62,11 +43,33 @@ async function nextServiceCode(gender: string): Promise<string> {
   return `${prefix}-${String(next).padStart(3, "0")}`;
 }
 
-/** Generate appointment code: YYYYMMDD(jalali)-fileNumber-serviceCode */
-function buildAppointmentCode(scheduledAt: Date, fileNumber: string, serviceCode: string): string {
-  const { y, m, d } = toJalali(scheduledAt);
+/** زمان نوبت ورودی (میلی‌ثانیه، رشتهٔ ISO یا Date) → Date معتبر؛ نامعتبر = null */
+function parseScheduledAt(value: unknown): Date | null {
+  if (value == null || value === "" || typeof value === "boolean") return null;
+  const d = value instanceof Date ? value : new Date(value as string | number);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+const INVALID_DATE_MESSAGE = "تاریخ نوبت نامعتبر است";
+
+/**
+ * کد نوبت: YYYYMMDD(شمسی، روز تهران)-شمارهٔ پرونده-کد خدمت؛ اگر همان مراجع همان خدمت را
+ * در همان روز دوباره رزرو کند، پسوند -2، -3، … می‌گیرد تا ستون یکتا خطا ندهد.
+ */
+async function buildAppointmentCode(scheduledAt: Date, fileNumber: string, serviceCode: string): Promise<string> {
+  const [y, m, d] = tehranShamsi(scheduledAt.getTime());
   const dateStr = `${y}${String(m).padStart(2, "0")}${String(d).padStart(2, "0")}`;
-  return `${dateStr}-${fileNumber}-${serviceCode}`;
+  const baseCode = `${dateStr}-${fileNumber}-${serviceCode}`;
+  const taken = new Set(
+    (await db.select({ code: laserAppointmentsTable.appointmentCode }).from(laserAppointmentsTable)
+      .where(or(eq(laserAppointmentsTable.appointmentCode, baseCode), like(laserAppointmentsTable.appointmentCode, `${baseCode}-%`)))
+      .all()).map((r) => r.code),
+  );
+  if (!taken.has(baseCode)) return baseCode;
+  for (let n = 2; ; n++) {
+    const candidate = `${baseCode}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 // ─── Clients ────────────────────────────────────────────────────────────────
@@ -199,19 +202,33 @@ router.post("/laser/appointments", async (req, res) => {
     .from(laserServicesTable).where(eq(laserServicesTable.id, Number(serviceId))).get();
   if (!service) { res.status(404).json({ message: "خدمت یافت نشد" }); return; }
 
-  const scheduledDate = new Date(scheduledAt);
+  const scheduledDate = parseScheduledAt(scheduledAt);
+  if (!scheduledDate) { res.status(400).json({ message: INVALID_DATE_MESSAGE }); return; }
   const svcCode = service.code ?? "SVC";
-  const appointmentCode = buildAppointmentCode(scheduledDate, client.fileNumber, svcCode);
 
-  const [row] = await db.insert(laserAppointmentsTable).values({
-    appointmentCode,
-    clientId: Number(clientId), serviceId: Number(serviceId),
-    operatorName: operatorName || null,
-    scheduledAt: scheduledDate,
-    sessionNumber: sessionNumber ? Number(sessionNumber) : null,
-    price: price ? Number(price) : null,
-    notes: notes || null,
-  }).returning();
+  // اگر درخواست هم‌زمانی همان کد را زودتر گرفت، با کد بعدی دوباره تلاش می‌شود
+  const insertWithCode = async () => {
+    const appointmentCode = await buildAppointmentCode(scheduledDate, client.fileNumber, svcCode);
+    const [inserted] = await db.insert(laserAppointmentsTable).values({
+      appointmentCode,
+      clientId: Number(clientId), serviceId: Number(serviceId),
+      operatorName: operatorName || null,
+      scheduledAt: scheduledDate,
+      sessionNumber: sessionNumber ? Number(sessionNumber) : null,
+      price: price ? Number(price) : null,
+      notes: notes || null,
+    }).returning();
+    return inserted;
+  };
+  let row: Awaited<ReturnType<typeof insertWithCode>> | undefined;
+  for (let attempt = 0; !row; attempt++) {
+    try {
+      row = await insertWithCode();
+    } catch (err) {
+      const dup = err instanceof Error && /UNIQUE constraint failed: laser_appointments\.appointment_code/.test(`${err.message} ${(err as { cause?: Error }).cause?.message ?? ""}`);
+      if (!dup || attempt >= 4) throw err;
+    }
+  }
   const enriched = await db.select().from(laserAppointmentsTable).where(eq(laserAppointmentsTable.id, row.id)).get();
   res.status(201).json(enriched);
 });
@@ -225,7 +242,11 @@ router.put("/laser/appointments/:id", async (req, res) => {
   if (clientId !== undefined) updates.clientId = Number(clientId);
   if (serviceId !== undefined) updates.serviceId = Number(serviceId);
   if (operatorName !== undefined) updates.operatorName = operatorName || null;
-  if (scheduledAt !== undefined) updates.scheduledAt = new Date(scheduledAt);
+  if (scheduledAt !== undefined) {
+    const d = parseScheduledAt(scheduledAt);
+    if (!d) { res.status(400).json({ message: INVALID_DATE_MESSAGE }); return; }
+    updates.scheduledAt = d;
+  }
   if (status !== undefined) updates.status = status;
   if (sessionNumber !== undefined) updates.sessionNumber = sessionNumber ? Number(sessionNumber) : null;
   if (price !== undefined) updates.price = price ? Number(price) : null;

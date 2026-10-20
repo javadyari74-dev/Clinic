@@ -22,6 +22,15 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
 import { PersianDatePicker } from "@/components/persian-date-picker";
 import { useRevenueRange } from "@/hooks/use-accounting";
+import { rangeFromDays } from "@/lib/shamsi-range";
+
+/** «YYYY-MM-DD» میلادی → نیمه‌شب محلی همان روز؛ نامعتبر = null */
+function parseLocalDay(value: string): Date | null {
+  const m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 import { formatCurrency, toPersianDigits } from "@/lib/format";
 
 const formSchema = z.object({
@@ -53,8 +62,15 @@ export default function Staff() {
   const [calcRate, setCalcRate] = useState("");
   const [queryEnabled, setQueryEnabled] = useState(false);
 
-  const fromUnix = useMemo(() => calcFrom ? Math.floor(new Date(calcFrom).getTime() / 1000) : null, [calcFrom]);
-  const toUnix = useMemo(() => calcTo ? Math.floor(new Date(calcTo).getTime() / 1000) + 86399 : null, [calcTo]);
+  // همان بازه‌بندی حسابداری: ابتدای روز محلی و پایان انحصاری (ابتدای روز بعد از «تا»)؛
+  // new Date("YYYY-MM-DD") نیمه‌شب UTC است و ۳:۳۰ ساعت با روز تهران فاصله داشت.
+  const calcRange = useMemo(() => {
+    const from = parseLocalDay(calcFrom);
+    const to = parseLocalDay(calcTo);
+    return from && to ? rangeFromDays(from, to) : null;
+  }, [calcFrom, calcTo]);
+  const fromUnix = calcRange?.from ?? null;
+  const toUnix = calcRange?.to ?? null;
 
   const { data: revenueData, isFetching, refetch: refetchRevenue } = useRevenueRange(
     queryEnabled ? fromUnix : null,

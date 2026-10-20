@@ -103,3 +103,30 @@ export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
 };
 
 export const appointmentStatusLabel = (s: string) => APPOINTMENT_STATUS_LABELS[s] ?? s;
+
+/** وضعیت‌های مجاز نوبت (همان کلیدهای برچسب‌ها) */
+export const isAppointmentStatus = (s: unknown): s is string =>
+  typeof s === "string" && Object.prototype.hasOwnProperty.call(APPOINTMENT_STATUS_LABELS, s);
+
+/** خطای ورودی نوبت/لیست انتظار که باید با ۴۰۰ و همین پیام برگردد */
+export class AppointmentInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AppointmentInputError";
+  }
+}
+
+export const PATIENT_NOT_FOUND_MESSAGE = "مراجع انتخاب‌شده یافت نشد";
+export const SERVICE_NOT_FOUND_MESSAGE = "خدمت انتخاب‌شده یافت نشد";
+
+/** وجود مراجع و خدمت (هر کدام null باشد بررسی نمی‌شود)؛ در غیر این صورت AppointmentInputError */
+export async function assertPatientAndService(executor: Tx, patientId: number | null, serviceId: number | null): Promise<void> {
+  if (patientId != null) {
+    const [p] = await executor.select({ id: patientsTable.id }).from(patientsTable).where(eq(patientsTable.id, patientId));
+    if (!p) throw new AppointmentInputError(PATIENT_NOT_FOUND_MESSAGE);
+  }
+  if (serviceId != null) {
+    const [s] = await executor.select({ id: servicesTable.id }).from(servicesTable).where(eq(servicesTable.id, serviceId));
+    if (!s) throw new AppointmentInputError(SERVICE_NOT_FOUND_MESSAGE);
+  }
+}

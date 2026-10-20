@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   useListReminders, useCreateReminder, useUpdateReminder, useDeleteReminder,
-  getListRemindersQueryKey, useListPatients, customFetch,
+  getListRemindersQueryKey, customFetch,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { ErrorNotice } from "@/components/error-notice";
 import { formatShamsiDate, toPersianDigits, gregorianDateToUnix, unixToGregorianDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { PatientSearchSelect } from "@/components/patient-search-select";
 import { Plus, CheckCircle, Trash2, Bell, Gift, Scissors, LayoutList, Phone } from "lucide-react";
 import { TierBadge } from "@/components/tier-badge";
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
@@ -152,7 +153,6 @@ function EmptyState({ icon: Icon, text }: { icon: React.ElementType; text: strin
 
 export default function Reminders() {
   const { data: reminders, isLoading, isError, refetch } = useListReminders({});
-  const { data: patients } = useListPatients();
   const { data: birthdays = [], isLoading: loadingBirthdays } = useUpcomingBirthdays(30);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -265,14 +265,9 @@ export default function Reminders() {
                 <FormField control={form.control} name="patientId" render={({ field }) => (
                   <FormItem>
                     <FormLabel>مراجع (اختیاری)</FormLabel>
-                    <Select onValueChange={(v) => field.onChange(v ? Number(v) : undefined)}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="انتخاب..." /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        {patients?.data.map(p => (
-                          <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <PatientSearchSelect value={field.value} onChange={(id) => field.onChange(id)} placeholder="انتخاب..." allowClear />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

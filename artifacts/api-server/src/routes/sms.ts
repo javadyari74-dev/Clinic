@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { desc, sql, inArray, eq } from "drizzle-orm";
-import { db, smsLogTable, patientsTable, smsSavedPatternsTable, loyaltyMembersTable } from "@workspace/db";
+import { db, smsLogTable, patientsTable, smsSavedPatternsTable, loyaltyMembersTable, appSettingsTable } from "@workspace/db";
 import { getWalletBalance, isLoyaltyTier, TIER_LABELS } from "../lib/loyalty";
 import {
   UpdateSmsSettingsBody,
@@ -91,33 +91,6 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     return;
   }
   const b = parsed.data;
-  if (b.username !== undefined) await setAppSetting(SMS_SETTING_KEYS.username, b.username.trim());
-  // رمز خالی یعنی «بدون تغییر»
-  if (b.password !== undefined && b.password !== "") await setAppSetting(SMS_SETTING_KEYS.password, b.password);
-  if (b.from !== undefined) await setAppSetting(SMS_SETTING_KEYS.from, b.from.trim());
-  if (b.enabledAppointment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointment, String(b.enabledAppointment));
-  if (b.enabledPayment !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledPayment, String(b.enabledPayment));
-  if (b.enabledCommission !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledCommission, String(b.enabledCommission));
-  if (b.enabledRecipientWelcome !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledRecipientWelcome, String(b.enabledRecipientWelcome));
-  if (b.enabledSurvey !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledSurvey, String(b.enabledSurvey));
-  if (b.enabledAppointmentReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledAppointmentReminder, String(b.enabledAppointmentReminder));
-  if (b.enabledFollowupReminder !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledFollowupReminder, String(b.enabledFollowupReminder));
-  if (b.enabledBirthdayAuto !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledBirthdayAuto, String(b.enabledBirthdayAuto));
-  if (b.enabledLoyaltyWelcome !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyWelcome, String(b.enabledLoyaltyWelcome));
-  if (b.enabledLoyaltyTierUp !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyTierUp, String(b.enabledLoyaltyTierUp));
-  if (b.enabledLoyaltyExpiry !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyExpiry, String(b.enabledLoyaltyExpiry));
-  if (b.enabledLoyaltyReferral !== undefined) await setAppSetting(SMS_SETTING_KEYS.enabledLoyaltyReferral, String(b.enabledLoyaltyReferral));
-  // ساعت ارسال: عدد صحیح ۰ تا ۲۳
-  if (b.appointmentReminderHour !== undefined) {
-    await setAppSetting(SMS_SETTING_KEYS.appointmentReminderHour, String(clampHour(b.appointmentReminderHour, APPOINTMENT_REMINDER_DEFAULT_HOUR)));
-  }
-  if (b.dailyAutoHour !== undefined) {
-    await setAppSetting(SMS_SETTING_KEYS.dailyAutoHour, String(clampHour(b.dailyAutoHour, DAILY_AUTO_DEFAULT_HOUR)));
-  }
-  // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
-  if (b.surveyThrottleDays !== undefined) {
-    await setAppSetting(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
-  }
   // کد پترن باید فقط رقم باشد (یا خالی برای پاک کردن)
   const bodyIdFields = [
     ["bodyIdAppointment", SMS_SETTING_KEYS.bodyIdAppointment],
@@ -136,6 +109,8 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     ["bodyIdLoyaltyNotify", SMS_SETTING_KEYS.bodyIdLoyaltyNotify],
     ["bodyIdLoyaltyBalance", SMS_SETTING_KEYS.bodyIdLoyaltyBalance],
   ] as const;
+  // اول همهٔ ورودی‌ها اعتبارسنجی می‌شود و فقط بعد همه با هم (در یک تراکنش) ذخیره می‌شوند؛
+  // ورودی نامعتبر هیچ فیلدی را نیمه‌کاره ذخیره نمی‌کند.
   for (const [field] of bodyIdFields) {
     const value = b[field];
     if (value !== undefined && value.trim() !== "" && !/^\d+$/.test(value.trim())) {
@@ -144,10 +119,46 @@ router.put("/sms/settings", async (req, res): Promise<void> => {
     }
   }
 
-  if (b.sendMode !== undefined) await setAppSetting(SMS_SETTING_KEYS.sendMode, b.sendMode);
+  const writes: Array<[string, string]> = [];
+  const put = (key: string, value: string) => writes.push([key, value]);
+  if (b.username !== undefined) put(SMS_SETTING_KEYS.username, b.username.trim());
+  // رمز خالی یعنی «بدون تغییر»
+  if (b.password !== undefined && b.password !== "") put(SMS_SETTING_KEYS.password, b.password);
+  if (b.from !== undefined) put(SMS_SETTING_KEYS.from, b.from.trim());
+  const boolFields = [
+    "enabledAppointment", "enabledPayment", "enabledCommission", "enabledRecipientWelcome", "enabledSurvey",
+    "enabledAppointmentReminder", "enabledFollowupReminder", "enabledBirthdayAuto",
+    "enabledLoyaltyWelcome", "enabledLoyaltyTierUp", "enabledLoyaltyExpiry", "enabledLoyaltyReferral",
+  ] as const;
+  for (const field of boolFields) {
+    if (b[field] !== undefined) put(SMS_SETTING_KEYS[field], String(b[field]));
+  }
+  // ساعت ارسال: عدد صحیح ۰ تا ۲۳
+  if (b.appointmentReminderHour !== undefined) {
+    put(SMS_SETTING_KEYS.appointmentReminderHour, String(clampHour(b.appointmentReminderHour, APPOINTMENT_REMINDER_DEFAULT_HOUR)));
+  }
+  if (b.dailyAutoHour !== undefined) {
+    put(SMS_SETTING_KEYS.dailyAutoHour, String(clampHour(b.dailyAutoHour, DAILY_AUTO_DEFAULT_HOUR)));
+  }
+  // حداقل فاصله نظرسنجی: عدد صحیح ۰ تا ۳۶۵ روز
+  if (b.surveyThrottleDays !== undefined) {
+    put(SMS_SETTING_KEYS.surveyThrottleDays, String(clampSurveyThrottleDays(b.surveyThrottleDays)));
+  }
+  if (b.sendMode !== undefined) put(SMS_SETTING_KEYS.sendMode, b.sendMode);
   for (const [field, key] of bodyIdFields) {
     const value = b[field];
-    if (value !== undefined) await setAppSetting(key, value.trim());
+    if (value !== undefined) put(key, value.trim());
+  }
+
+  if (writes.length > 0) {
+    const now = Math.floor(Date.now() / 1000);
+    await db.transaction(async (tx) => {
+      for (const [key, value] of writes) {
+        await tx.insert(appSettingsTable)
+          .values({ key, value, updatedAt: now })
+          .onConflictDoUpdate({ target: appSettingsTable.key, set: { value, updatedAt: now } });
+      }
+    });
   }
 
   await logActivity("update", "settings", 0, "تنظیمات پنل پیامکی به‌روزرسانی شد");

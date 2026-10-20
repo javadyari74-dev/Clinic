@@ -13,8 +13,17 @@ router.get("/activity", async (req, res): Promise<void> => {
     return;
   }
   const { limit = 20 } = query.data;
+  // این فید برای کاربران داشبورد (نه فقط مدیر) است؛ نام کاربری انجام‌دهنده فقط در
+  // «تاریخچهٔ تغییرات» مدیر (/activity/log) نشان داده می‌شود.
   const rows = await db
-    .select()
+    .select({
+      id: activityLogTable.id,
+      action: activityLogTable.action,
+      entityType: activityLogTable.entityType,
+      entityId: activityLogTable.entityId,
+      description: activityLogTable.description,
+      createdAt: activityLogTable.createdAt,
+    })
     .from(activityLogTable)
     .orderBy(desc(activityLogTable.createdAt), desc(activityLogTable.id))
     .limit(Math.min(Math.max(1, limit), 200));
